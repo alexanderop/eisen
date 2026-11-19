@@ -3,6 +3,7 @@ import { platesPerSide, warmupSets } from './plates'
 import {
   applyProgression,
   createWorkout,
+  emptyWeight,
   initialProgress,
   nextReps,
   outcome,
@@ -31,40 +32,40 @@ describe('nextReps', () => {
 
 describe('applyProgression', () => {
   it('adds weight after a fully completed exercise', () => {
-    const workout = workoutWith({ squat: ALL, bench: ALL, row: ALL })
+    const workout = workoutWith({ hackSquat: ALL, bench: ALL, row: ALL })
     const { progress, changes } = applyProgression(initialProgress('kg'), workout, 20)
-    expect(progress.squat).toEqual({ weight: 22.5, fails: 0 })
+    expect(progress.hackSquat).toEqual({ weight: 22.5, fails: 0 })
     expect(progress.row.weight).toBe(32.5)
     expect(changes.map((c) => c.kind)).toEqual(['up', 'up', 'up'])
   })
 
   it('adds 5kg to the deadlift', () => {
-    const workout = workoutWith({ squat: ALL, ohp: ALL, deadlift: [5] }, 'B')
+    const workout = workoutWith({ hackSquat: ALL, ohp: ALL, deadlift: [5] }, 'B')
     const { progress } = applyProgression(initialProgress('kg'), workout, 20)
     expect(progress.deadlift.weight).toBe(45)
   })
 
   it('repeats the weight after missed reps and leaves skipped exercises alone', () => {
-    const workout = workoutWith({ squat: [5, 5, 5, 4, 3] })
+    const workout = workoutWith({ hackSquat: [5, 5, 5, 4, 3] })
     const { progress, changes } = applyProgression(initialProgress('kg'), workout, 20)
     expect(outcome(workout.exercises[0])).toBe('fail')
-    expect(progress.squat).toEqual({ weight: 20, fails: 1 })
+    expect(progress.hackSquat).toEqual({ weight: 20, fails: 1 })
     expect(progress.bench).toEqual({ weight: 20, fails: 0 })
     expect(changes).toHaveLength(1)
   })
 
   it('counts an unfinished exercise as a miss', () => {
-    const workout = workoutWith({ squat: [5, 5, null, null, null] })
+    const workout = workoutWith({ hackSquat: [5, 5, null, null, null] })
     expect(outcome(workout.exercises[0])).toBe('fail')
   })
 
   it('deloads 10% on the third miss in a row', () => {
     const start = initialProgress('kg')
-    start.squat = { weight: 100, fails: 2 }
+    start.hackSquat = { weight: 100, fails: 2 }
     const workout = createWorkout('A', start, 'kg', 0, 'w1')
     workout.exercises[0].sets = [5, 4, 4, 3, 3]
     const { progress, changes } = applyProgression(start, workout, 20)
-    expect(progress.squat).toEqual({ weight: 90, fails: 0 })
+    expect(progress.hackSquat).toEqual({ weight: 90, fails: 0 })
     expect(changes[0].kind).toBe('deload')
   })
 })
@@ -83,6 +84,21 @@ describe('platesPerSide', () => {
 
   it('reports what the plates cannot make up', () => {
     expect(platesPerSide(21, 20, kg)).toEqual({ plates: [], remainder: 0.5 })
+  })
+})
+
+describe('hack squat machine', () => {
+  it('has no bar, so every plate counts toward the weight', () => {
+    expect(emptyWeight('hackSquat', 20)).toBe(0)
+    expect(emptyWeight('bench', 20)).toBe(20)
+    expect(platesPerSide(60, emptyWeight('hackSquat', 20), [25, 20, 15, 10, 5, 2.5, 1.25])).toEqual({
+      plates: [25, 5],
+      remainder: 0,
+    })
+  })
+
+  it('warms up from the empty sled', () => {
+    expect(warmupSets(100, 0, 2.5)[0]).toEqual({ weight: 0, reps: 5, sets: 2 })
   })
 })
 

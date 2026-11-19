@@ -6,7 +6,7 @@ import { convert } from '../domain/units'
 import { fmt } from '../format'
 import { state } from '../store'
 
-const selected = ref<ExerciseId>('squat')
+const selected = ref<ExerciseId>('hackSquat')
 
 /** Weights for the selected exercise, oldest first, in the current unit. */
 const values = computed(() =>

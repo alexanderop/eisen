@@ -29,7 +29,7 @@ export interface Settings {
 }
 
 export interface AppState {
-  version: 1
+  version: 2
   settings: Settings
   progress: Progress
   nextType: WorkoutType
@@ -40,7 +40,7 @@ export interface AppState {
 
 function freshState(unit: Unit = 'kg'): AppState {
   return {
-    version: 1,
+    version: 2,
     settings: { unit, bar: UNIT_DEFAULTS[unit].bar, restDone: 90, restMissed: 300, sound: true },
     progress: initialProgress(unit),
     nextType: 'A',
@@ -49,12 +49,23 @@ function freshState(unit: Unit = 'kg'): AppState {
   }
 }
 
+/** Version 1 had the barbell squat where the hack squat is now. Its logs carry over. */
+function migrate(value: unknown): unknown {
+  const old = value as { version?: number } | null
+  if (typeof old !== 'object' || old === null || old.version !== 1) return value
+  return JSON.parse(
+    JSON.stringify({ ...old, version: 2 })
+      .replaceAll('"id":"squat"', '"id":"hackSquat"')
+      .replaceAll('"squat":{', '"hackSquat":{'),
+  )
+}
+
 function isAppState(value: unknown): value is AppState {
   const candidate = value as Partial<AppState> | null
   return (
     typeof candidate === 'object' &&
     candidate !== null &&
-    candidate.version === 1 &&
+    candidate.version === 2 &&
     Array.isArray(candidate.history) &&
     typeof candidate.settings === 'object' &&
     typeof candidate.progress === 'object'
@@ -65,7 +76,7 @@ function load(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed: unknown = JSON.parse(raw)
+      const parsed = migrate(JSON.parse(raw))
       if (isAppState(parsed)) return parsed
     }
   } catch {
@@ -166,7 +177,7 @@ export function exportData(): string {
 
 export function importData(json: string): boolean {
   try {
-    const parsed: unknown = JSON.parse(json)
+    const parsed = migrate(JSON.parse(json))
     if (!isAppState(parsed)) return false
     Object.assign(state, parsed)
     lastChanges.value = null

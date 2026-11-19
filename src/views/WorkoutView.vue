@@ -5,8 +5,8 @@ import BottomSheet from '../components/BottomSheet.vue'
 import RestTimer from '../components/RestTimer.vue'
 import WeightStepper from '../components/WeightStepper.vue'
 import { warmupSets } from '../domain/plates'
-import { EXERCISE_NAMES, isComplete, outcome, UNIT_DEFAULTS } from '../domain/program'
-import { fmt, loadFor, platesText } from '../format'
+import { EXERCISE_NAMES, isComplete, isMachine, outcome, UNIT_DEFAULTS } from '../domain/program'
+import { emptyWeightFor, fmt, loadFor, platesText } from '../format'
 import { startRest, stopRest } from '../rest'
 import { discardWorkout, finishWorkout, setActiveWeight, state, tapSet } from '../store'
 
@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
             {{ reps ?? log.targetReps }}
           </button>
         </div>
-        <p class="plates">{{ platesText(log.weight) }}</p>
+        <p class="plates">{{ platesText(log.weight, log.id) }}</p>
       </section>
       <p class="hint">Tap a set when you finish it. Tap again for every rep you missed.</p>
     </template>
@@ -128,19 +128,19 @@ onBeforeUnmount(() => {
           <span class="muted">Work set {{ fmt(log.weight) }}</span>
         </div>
         <p
-          v-if="warmupSets(log.weight, state.settings.bar, defaults.step).length === 0"
+          v-if="warmupSets(log.weight, emptyWeightFor(log.id), defaults.step).length === 0"
           class="muted"
         >
           No warmup needed at this weight.
         </p>
         <ol v-else>
           <li
-            v-for="(set, k) in warmupSets(log.weight, state.settings.bar, defaults.step)"
+            v-for="(set, k) in warmupSets(log.weight, emptyWeightFor(log.id), defaults.step)"
             :key="k"
           >
             <span class="reps">{{ set.sets }}×{{ set.reps }}</span>
             <strong>{{ fmt(set.weight) }}</strong>
-            <span class="muted">{{ platesText(set.weight) }}</span>
+            <span class="muted">{{ platesText(set.weight, log.id) }}</span>
           </li>
         </ol>
       </section>
@@ -164,9 +164,11 @@ onBeforeUnmount(() => {
           @update:model-value="setActiveWeight(editing, $event)"
         />
       </div>
-      <BarbellPlates :plates="loadFor(editedLog.weight).plates" :largest="defaults.plates[0]" />
-      <p class="sheet-plates">{{ platesText(editedLog.weight) }}</p>
-      <p class="muted sheet-bar">Bar {{ fmt(state.settings.bar) }}</p>
+      <BarbellPlates :plates="loadFor(editedLog.weight, editedLog.id).plates" :largest="defaults.plates[0]" />
+      <p class="sheet-plates">{{ platesText(editedLog.weight, editedLog.id) }}</p>
+      <p class="muted sheet-bar">
+        {{ isMachine(editedLog.id) ? 'Plates only. The sled is not counted.' : `Bar ${fmt(state.settings.bar)}` }}
+      </p>
       <button class="btn btn-primary" @click="editing = null">Done</button>
     </BottomSheet>
 

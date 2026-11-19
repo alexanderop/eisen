@@ -1,16 +1,28 @@
 import { roundTo, type Unit } from './units'
 
-export type ExerciseId = 'squat' | 'bench' | 'row' | 'ohp' | 'deadlift'
+export type ExerciseId = 'hackSquat' | 'bench' | 'row' | 'ohp' | 'deadlift'
 export type WorkoutType = 'A' | 'B'
 
-export const EXERCISE_IDS: ExerciseId[] = ['squat', 'bench', 'row', 'ohp', 'deadlift']
+export const EXERCISE_IDS: ExerciseId[] = ['hackSquat', 'bench', 'row', 'ohp', 'deadlift']
 
 export const EXERCISE_NAMES: Record<ExerciseId, string> = {
-  squat: 'Squat',
+  hackSquat: 'Hack Squat',
   bench: 'Bench Press',
   row: 'Barbell Row',
   ohp: 'Overhead Press',
   deadlift: 'Deadlift',
+}
+
+/** Machine exercises have no bar: the logged weight is only the plates on the sled. */
+const MACHINE_EXERCISES: ReadonlySet<ExerciseId> = new Set(['hackSquat'])
+
+export function isMachine(id: ExerciseId): boolean {
+  return MACHINE_EXERCISES.has(id)
+}
+
+/** Weight that is on the exercise before any plates are loaded. */
+export function emptyWeight(id: ExerciseId, bar: number): number {
+  return isMachine(id) ? 0 : bar
 }
 
 interface Slot {
@@ -21,12 +33,12 @@ interface Slot {
 
 export const PROGRAM: Record<WorkoutType, Slot[]> = {
   A: [
-    { id: 'squat', sets: 5, reps: 5 },
+    { id: 'hackSquat', sets: 5, reps: 5 },
     { id: 'bench', sets: 5, reps: 5 },
     { id: 'row', sets: 5, reps: 5 },
   ],
   B: [
-    { id: 'squat', sets: 5, reps: 5 },
+    { id: 'hackSquat', sets: 5, reps: 5 },
     { id: 'ohp', sets: 5, reps: 5 },
     { id: 'deadlift', sets: 1, reps: 5 },
   ],
@@ -46,15 +58,15 @@ export const UNIT_DEFAULTS: Record<Unit, UnitDefaults> = {
     bar: 20,
     step: 2.5,
     plates: [25, 20, 15, 10, 5, 2.5, 1.25],
-    start: { squat: 20, bench: 20, row: 30, ohp: 20, deadlift: 40 },
-    increment: { squat: 2.5, bench: 2.5, row: 2.5, ohp: 2.5, deadlift: 5 },
+    start: { hackSquat: 20, bench: 20, row: 30, ohp: 20, deadlift: 40 },
+    increment: { hackSquat: 2.5, bench: 2.5, row: 2.5, ohp: 2.5, deadlift: 5 },
   },
   lb: {
     bar: 45,
     step: 5,
     plates: [45, 35, 25, 10, 5, 2.5],
-    start: { squat: 45, bench: 45, row: 65, ohp: 45, deadlift: 95 },
-    increment: { squat: 5, bench: 5, row: 5, ohp: 5, deadlift: 10 },
+    start: { hackSquat: 50, bench: 45, row: 65, ohp: 45, deadlift: 95 },
+    increment: { hackSquat: 5, bench: 5, row: 5, ohp: 5, deadlift: 10 },
   },
 }
 
@@ -170,7 +182,8 @@ export function applyProgression(
 
     const fails = progress[log.id].fails + 1
     if (fails >= DELOAD_AFTER_FAILS) {
-      const to = Math.max(bar, roundTo(log.weight * DELOAD_FACTOR, defaults.step))
+      const floor = Math.max(defaults.step, emptyWeight(log.id, bar))
+      const to = Math.max(floor, roundTo(log.weight * DELOAD_FACTOR, defaults.step))
       next[log.id] = { weight: to, fails: 0 }
       changes.push({ id: log.id, kind: 'deload', from: log.weight, to })
     } else {
