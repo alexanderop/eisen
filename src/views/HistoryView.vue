@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { EXERCISE_NAMES, type Workout } from '../domain/program'
+import { EXERCISE_NAMES, isBodyweight, type Workout } from '../domain/program'
 import { fmt, formatDate } from '../format'
 import { deleteWorkout, state } from '../store'
 
@@ -41,12 +41,12 @@ function onDelete(id: string) {
     <ul>
       <li v-for="log in workout.exercises" :key="log.id">
         <span class="name">{{ EXERCISE_NAMES[log.id] }}</span>
-        <strong>{{ fmt(log.weight, workout.unit) }}</strong>
+        <strong>{{ isBodyweight(log.id) ? 'BW' : fmt(log.weight, workout.unit) }}</strong>
         <span class="reps">
           <span
             v-for="(reps, index) in log.sets"
             :key="index"
-            :class="{ missed: reps !== log.targetReps }"
+            :class="{ missed: reps === null || (log.targetReps !== null && reps !== log.targetReps) }"
             >{{ reps ?? '–' }}</span
           >
         </span>

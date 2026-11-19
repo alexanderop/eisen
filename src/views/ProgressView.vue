@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import LineChart from '../components/LineChart.vue'
-import { EXERCISE_IDS, EXERCISE_NAMES, type ExerciseId } from '../domain/program'
+import {
+  EXERCISE_IDS,
+  EXERCISE_NAMES,
+  isBodyweight,
+  totalReps,
+  type ExerciseId,
+} from '../domain/program'
 import { convert } from '../domain/units'
 import { fmt } from '../format'
 import { state } from '../store'
 
 const selected = ref<ExerciseId>('hackSquat')
 
-/** Weights for the selected exercise, oldest first, in the current unit. */
+/**
+ * One value per workout for the selected exercise, oldest first.
+ * Weighted exercises chart the weight in the current unit, bodyweight ones the total reps.
+ */
 const values = computed(() =>
   state.history
     .slice()
@@ -16,9 +25,22 @@ const values = computed(() =>
     .flatMap((workout) =>
       workout.exercises
         .filter((log) => log.id === selected.value && log.sets.some((reps) => reps !== null))
-        .map((log) => convert(log.weight, workout.unit, state.settings.unit)),
+        .map((log) =>
+          isBodyweight(log.id)
+            ? totalReps(log)
+            : convert(log.weight, workout.unit, state.settings.unit),
+        ),
     ),
 )
+
+const current = computed(() => {
+  const id = selected.value
+  return isBodyweight(id) ? 'Total reps per workout' : `Now ${fmt(state.progress[id].weight)}`
+})
+
+function format(value: number): string {
+  return isBodyweight(selected.value) ? `${value} reps` : fmt(value)
+}
 
 const best = computed(() => Math.max(...values.value))
 const gained = computed(() => values.value[values.value.length - 1] - values.value[0])
@@ -41,13 +63,13 @@ const gained = computed(() => values.value[values.value.length - 1] - values.val
   <section class="card">
     <div class="row head">
       <h2>{{ EXERCISE_NAMES[selected] }}</h2>
-      <span class="muted">Now {{ fmt(state.progress[selected].weight) }}</span>
+      <span class="muted">{{ current }}</span>
     </div>
     <p v-if="values.length === 0" class="muted empty">
       No logged sets for this exercise yet.
     </p>
     <template v-else>
-      <LineChart :values="values" :format="(value: number) => fmt(value)" />
+      <LineChart :values="values" :format="format" />
       <dl>
         <div>
           <dt>Workouts</dt>
@@ -55,11 +77,11 @@ const gained = computed(() => values.value[values.value.length - 1] - values.val
         </div>
         <div>
           <dt>Best</dt>
-          <dd>{{ fmt(best) }}</dd>
+          <dd>{{ format(best) }}</dd>
         </div>
         <div>
           <dt>Gained</dt>
-          <dd>{{ gained >= 0 ? '+' : '' }}{{ fmt(gained) }}</dd>
+          <dd>{{ gained >= 0 ? '+' : '' }}{{ format(gained) }}</dd>
         </div>
       </dl>
     </template>

@@ -4,7 +4,7 @@ An offline 5×5 barbell workout tracker that installs as a PWA.
 
 **Live:** https://alexanderop.github.io/eisen/
 
-- Workout A and B alternate: Hack Squat, Bench Press, Barbell Row / Hack Squat, Overhead Press, Deadlift
+- Workout A and B alternate: Hack Squat, Bench Press, Barbell Row, Dips / Hack Squat, Overhead Press, Deadlift, Pull-ups
 - Tap a set to log it, tap again for every missed rep
 - Rest timer after each set
 - Weight goes up after a completed exercise and drops 10% after three misses in a row

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import WeightStepper from '../components/WeightStepper.vue'
-import { EXERCISE_IDS, EXERCISE_NAMES, UNIT_DEFAULTS } from '../domain/program'
+import { EXERCISE_NAMES, UNIT_DEFAULTS, WEIGHTED_IDS } from '../domain/program'
 import { fmt } from '../format'
 import { formatClock } from '../rest'
 import { exportData, importData, resetAll, setProgressWeight, setUnit, state } from '../store'
@@ -68,7 +68,7 @@ function onReset() {
 
   <section class="card group">
     <h2>Working weights</h2>
-    <div v-for="id in EXERCISE_IDS" :key="id" class="row">
+    <div v-for="id in WEIGHTED_IDS" :key="id" class="row">
       <span>{{ EXERCISE_NAMES[id] }}</span>
       <WeightStepper
         :model-value="state.progress[id].weight"

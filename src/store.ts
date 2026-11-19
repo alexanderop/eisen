@@ -2,14 +2,16 @@ import { reactive, ref, watch } from 'vue'
 import {
   applyProgression,
   createWorkout,
-  EXERCISE_IDS,
+  isBodyweight,
   initialProgress,
   nextReps,
   otherType,
   outcome,
   UNIT_DEFAULTS,
+  WEIGHTED_IDS,
   type Change,
   type ExerciseId,
+  type WeightedId,
   type Progress,
   type Workout,
   type WorkoutType,
@@ -116,7 +118,7 @@ export function startWorkout(): void {
 
 export function tapSet(exerciseIndex: number, setIndex: number): number | null {
   const log = state.active?.exercises[exerciseIndex]
-  if (!log) return null
+  if (!log || log.targetReps === null) return null
   const reps = nextReps(log.sets[setIndex], log.targetReps)
   log.sets[setIndex] = reps
   return reps
@@ -124,12 +126,27 @@ export function tapSet(exerciseIndex: number, setIndex: number): number | null {
 
 export function setActiveWeight(exerciseIndex: number, weight: number): void {
   const log = state.active?.exercises[exerciseIndex]
-  if (!log) return
+  if (!log || isBodyweight(log.id)) return
   log.weight = weight
   state.progress[log.id].weight = weight
 }
 
-export function setProgressWeight(id: ExerciseId, weight: number): void {
+/** Logs a max-reps set, where the lifter enters the count instead of tapping it down. */
+export function logReps(exerciseIndex: number, setIndex: number, reps: number | null): void {
+  const log = state.active?.exercises[exerciseIndex]
+  if (log) log.sets[setIndex] = reps
+}
+
+/** Starting point for a max-reps entry: what this set got last time. */
+export function suggestedReps(id: ExerciseId, setIndex: number): number {
+  for (const workout of state.history) {
+    const reps = workout.exercises.find((log) => log.id === id)?.sets[setIndex]
+    if (reps !== null && reps !== undefined) return reps
+  }
+  return 8
+}
+
+export function setProgressWeight(id: WeightedId, weight: number): void {
   state.progress[id] = { weight, fails: 0 }
   const log = state.active?.exercises.find((entry) => entry.id === id)
   if (log) log.weight = weight
@@ -163,7 +180,7 @@ export function setUnit(unit: Unit): void {
   if (state.active || unit === state.settings.unit) return
   const from = state.settings.unit
   const defaults = UNIT_DEFAULTS[unit]
-  for (const id of EXERCISE_IDS) {
+  for (const id of WEIGHTED_IDS) {
     const converted = roundTo(convert(state.progress[id].weight, from, unit), defaults.step)
     state.progress[id].weight = Math.max(defaults.step, converted)
   }

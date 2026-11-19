@@ -87,6 +87,23 @@ describe('platesPerSide', () => {
   })
 })
 
+describe('bodyweight exercises', () => {
+  it('adds 3 max-reps sets of dips to A and pull-ups to B', () => {
+    const a = createWorkout('A', initialProgress('kg'), 'kg', 0, 'a').exercises.at(-1)
+    const b = createWorkout('B', initialProgress('kg'), 'kg', 0, 'b').exercises.at(-1)
+    expect(a).toEqual({ id: 'dips', weight: 0, targetReps: null, sets: [null, null, null] })
+    expect(b?.id).toBe('pullups')
+  })
+
+  it('counts any logged reps as done and never changes a weight', () => {
+    const workout = workoutWith({ dips: [12, 9, 7] })
+    expect(outcome(workout.exercises[3])).toBe('success')
+    const { progress, changes } = applyProgression(initialProgress('kg'), workout, 20)
+    expect(progress).toEqual(initialProgress('kg'))
+    expect(changes).toEqual([])
+  })
+})
+
 describe('hack squat machine', () => {
   it('has no bar, so every plate counts toward the weight', () => {
     expect(emptyWeight('hackSquat', 20)).toBe(0)

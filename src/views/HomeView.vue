@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { EXERCISE_NAMES, PROGRAM } from '../domain/program'
+import { EXERCISE_NAMES, isBodyweight, PROGRAM } from '../domain/program'
 import { fmt, formatDate, formatShortDate } from '../format'
 import { discardWorkout, lastChanges, startWorkout, state } from '../store'
 
@@ -49,8 +49,8 @@ function start() {
     <ul>
       <li v-for="slot in slots" :key="slot.id">
         <span>{{ EXERCISE_NAMES[slot.id] }}</span>
-        <span class="muted">{{ slot.sets }}×{{ slot.reps }}</span>
-        <strong>{{ fmt(state.progress[slot.id].weight) }}</strong>
+        <span class="muted">{{ slot.sets }}×{{ slot.reps ?? 'max' }}</span>
+        <strong>{{ isBodyweight(slot.id) ? 'BW' : fmt(state.progress[slot.id].weight) }}</strong>
       </li>
     </ul>
     <button v-if="state.active" class="btn btn-primary" @click="emit('open')">Resume workout</button>

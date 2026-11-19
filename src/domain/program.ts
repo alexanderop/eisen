@@ -1,9 +1,13 @@
 import { roundTo, type Unit } from './units'
 
-export type ExerciseId = 'hackSquat' | 'bench' | 'row' | 'ohp' | 'deadlift'
+export type WeightedId = 'hackSquat' | 'bench' | 'row' | 'ohp' | 'deadlift'
+export type BodyweightId = 'dips' | 'pullups'
+export type ExerciseId = WeightedId | BodyweightId
 export type WorkoutType = 'A' | 'B'
 
-export const EXERCISE_IDS: ExerciseId[] = ['hackSquat', 'bench', 'row', 'ohp', 'deadlift']
+export const WEIGHTED_IDS: WeightedId[] = ['hackSquat', 'bench', 'row', 'ohp', 'deadlift']
+const BODYWEIGHT_IDS: BodyweightId[] = ['dips', 'pullups']
+export const EXERCISE_IDS: ExerciseId[] = [...WEIGHTED_IDS, ...BODYWEIGHT_IDS]
 
 export const EXERCISE_NAMES: Record<ExerciseId, string> = {
   hackSquat: 'Hack Squat',
@@ -11,6 +15,13 @@ export const EXERCISE_NAMES: Record<ExerciseId, string> = {
   row: 'Barbell Row',
   ohp: 'Overhead Press',
   deadlift: 'Deadlift',
+  dips: 'Dips',
+  pullups: 'Pull-ups',
+}
+
+/** Bodyweight exercises carry no load: only the reps are logged. */
+export function isBodyweight(id: ExerciseId): id is BodyweightId {
+  return (BODYWEIGHT_IDS as ExerciseId[]).includes(id)
 }
 
 /** Machine exercises have no bar: the logged weight is only the plates on the sled. */
@@ -28,7 +39,8 @@ export function emptyWeight(id: ExerciseId, bar: number): number {
 interface Slot {
   id: ExerciseId
   sets: number
-  reps: number
+  /** null = as many reps as possible. */
+  reps: number | null
 }
 
 export const PROGRAM: Record<WorkoutType, Slot[]> = {
@@ -36,11 +48,13 @@ export const PROGRAM: Record<WorkoutType, Slot[]> = {
     { id: 'hackSquat', sets: 5, reps: 5 },
     { id: 'bench', sets: 5, reps: 5 },
     { id: 'row', sets: 5, reps: 5 },
+    { id: 'dips', sets: 3, reps: null },
   ],
   B: [
     { id: 'hackSquat', sets: 5, reps: 5 },
     { id: 'ohp', sets: 5, reps: 5 },
     { id: 'deadlift', sets: 1, reps: 5 },
+    { id: 'pullups', sets: 3, reps: null },
   ],
 }
 
@@ -49,8 +63,8 @@ interface UnitDefaults {
   /** Smallest jump the bar can make: two of the smallest plates. */
   step: number
   plates: number[]
-  start: Record<ExerciseId, number>
-  increment: Record<ExerciseId, number>
+  start: Record<WeightedId, number>
+  increment: Record<WeightedId, number>
 }
 
 export const UNIT_DEFAULTS: Record<Unit, UnitDefaults> = {
@@ -79,12 +93,14 @@ export interface ExerciseProgress {
   fails: number
 }
 
-export type Progress = Record<ExerciseId, ExerciseProgress>
+export type Progress = Record<WeightedId, ExerciseProgress>
 
 export interface ExerciseLog {
   id: ExerciseId
+  /** 0 for bodyweight exercises. */
   weight: number
-  targetReps: number
+  /** null = as many reps as possible. */
+  targetReps: number | null
   /** null = set not logged yet. */
   sets: (number | null)[]
 }
@@ -101,7 +117,7 @@ export interface Workout {
 export type Outcome = 'success' | 'fail' | 'skipped'
 
 export interface Change {
-  id: ExerciseId
+  id: WeightedId
   kind: 'up' | 'repeat' | 'deload'
   from: number
   to: number
@@ -110,7 +126,7 @@ export interface Change {
 export function initialProgress(unit: Unit): Progress {
   const start = UNIT_DEFAULTS[unit].start
   return Object.fromEntries(
-    EXERCISE_IDS.map((id) => [id, { weight: start[id], fails: 0 }]),
+    WEIGHTED_IDS.map((id) => [id, { weight: start[id], fails: 0 }]),
   ) as Progress
 }
 
@@ -129,7 +145,7 @@ export function createWorkout(
     finishedAt: null,
     exercises: PROGRAM[type].map((slot) => ({
       id: slot.id,
-      weight: progress[slot.id].weight,
+      weight: isBodyweight(slot.id) ? 0 : progress[slot.id].weight,
       targetReps: slot.reps,
       sets: Array.from({ length: slot.sets }, () => null),
     })),
@@ -143,8 +159,10 @@ export function nextReps(current: number | null, target: number): number | null 
   return current - 1
 }
 
+/** A max-reps exercise succeeds as soon as any set is logged: it has no target to miss. */
 export function outcome(log: ExerciseLog): Outcome {
   if (log.sets.every((reps) => reps === null)) return 'skipped'
+  if (log.targetReps === null) return 'success'
   return log.sets.every((reps) => reps === log.targetReps) ? 'success' : 'fail'
 }
 
@@ -156,9 +174,14 @@ export function otherType(type: WorkoutType): WorkoutType {
   return type === 'A' ? 'B' : 'A'
 }
 
+export function totalReps(log: ExerciseLog): number {
+  return log.sets.reduce<number>((sum, reps) => sum + (reps ?? 0), 0)
+}
+
 /**
  * Progressive overload: all reps done -> add weight next time.
  * Missed reps -> repeat the weight. Three misses in a row -> drop 10%.
+ * Bodyweight exercises have no weight to progress.
  */
 export function applyProgression(
   progress: Progress,
@@ -170,25 +193,27 @@ export function applyProgression(
   const changes: Change[] = []
 
   for (const log of workout.exercises) {
+    const id = log.id
+    if (isBodyweight(id)) continue
     const result = outcome(log)
     if (result === 'skipped') continue
 
     if (result === 'success') {
-      const to = log.weight + defaults.increment[log.id]
-      next[log.id] = { weight: to, fails: 0 }
-      changes.push({ id: log.id, kind: 'up', from: log.weight, to })
+      const to = log.weight + defaults.increment[id]
+      next[id] = { weight: to, fails: 0 }
+      changes.push({ id, kind: 'up', from: log.weight, to })
       continue
     }
 
-    const fails = progress[log.id].fails + 1
+    const fails = progress[id].fails + 1
     if (fails >= DELOAD_AFTER_FAILS) {
-      const floor = Math.max(defaults.step, emptyWeight(log.id, bar))
+      const floor = Math.max(defaults.step, emptyWeight(id, bar))
       const to = Math.max(floor, roundTo(log.weight * DELOAD_FACTOR, defaults.step))
-      next[log.id] = { weight: to, fails: 0 }
-      changes.push({ id: log.id, kind: 'deload', from: log.weight, to })
+      next[id] = { weight: to, fails: 0 }
+      changes.push({ id, kind: 'deload', from: log.weight, to })
     } else {
-      next[log.id] = { weight: log.weight, fails }
-      changes.push({ id: log.id, kind: 'repeat', from: log.weight, to: log.weight })
+      next[id] = { weight: log.weight, fails }
+      changes.push({ id, kind: 'repeat', from: log.weight, to: log.weight })
     }
   }
 
