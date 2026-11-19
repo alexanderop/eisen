@@ -31,7 +31,7 @@ export interface Settings {
 }
 
 export interface AppState {
-  version: 2
+  version: 3
   settings: Settings
   progress: Progress
   nextType: WorkoutType
@@ -42,7 +42,7 @@ export interface AppState {
 
 function freshState(unit: Unit = 'kg'): AppState {
   return {
-    version: 2,
+    version: 3,
     settings: { unit, bar: UNIT_DEFAULTS[unit].bar, restDone: 90, restMissed: 300, sound: true },
     progress: initialProgress(unit),
     nextType: 'A',
@@ -51,15 +51,34 @@ function freshState(unit: Unit = 'kg'): AppState {
   }
 }
 
-/** Version 1 had the barbell squat where the hack squat is now. Its logs carry over. */
+interface StoredState {
+  version?: number
+  settings?: { unit?: Unit }
+  history?: unknown[]
+  active?: unknown
+}
+
 function migrate(value: unknown): unknown {
-  const old = value as { version?: number } | null
-  if (typeof old !== 'object' || old === null || old.version !== 1) return value
-  return JSON.parse(
-    JSON.stringify({ ...old, version: 2 })
-      .replaceAll('"id":"squat"', '"id":"hackSquat"')
-      .replaceAll('"squat":{', '"hackSquat":{'),
-  )
+  let data = value as StoredState | null
+  if (typeof data !== 'object' || data === null) return value
+
+  // Version 1 had the barbell squat where the hack squat is now. Its logs carry over.
+  if (data.version === 1) {
+    data = JSON.parse(
+      JSON.stringify({ ...data, version: 2 })
+        .replaceAll('"id":"squat"', '"id":"hackSquat"')
+        .replaceAll('"squat":{', '"hackSquat":{'),
+    ) as StoredState
+  }
+
+  // Version 3 changed the starting weights. An install that never trained gets the new ones.
+  if (data.version === 2) {
+    const untouched = data.history?.length === 0 && data.active === null
+    const unit = data.settings?.unit === 'lb' ? 'lb' : 'kg'
+    data = { ...data, version: 3, ...(untouched ? { progress: initialProgress(unit) } : {}) }
+  }
+
+  return data
 }
 
 function isAppState(value: unknown): value is AppState {
@@ -67,7 +86,7 @@ function isAppState(value: unknown): value is AppState {
   return (
     typeof candidate === 'object' &&
     candidate !== null &&
-    candidate.version === 2 &&
+    candidate.version === 3 &&
     Array.isArray(candidate.history) &&
     typeof candidate.settings === 'object' &&
     typeof candidate.progress === 'object'

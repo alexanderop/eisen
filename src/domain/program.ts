@@ -72,15 +72,15 @@ export const UNIT_DEFAULTS: Record<Unit, UnitDefaults> = {
     bar: 20,
     step: 2.5,
     plates: [25, 20, 15, 10, 5, 2.5, 1.25],
-    start: { hackSquat: 20, bench: 20, row: 30, ohp: 20, deadlift: 40 },
-    increment: { hackSquat: 2.5, bench: 2.5, row: 2.5, ohp: 2.5, deadlift: 5 },
+    start: { hackSquat: 80, bench: 80, row: 60, ohp: 40, deadlift: 100 },
+    increment: { hackSquat: 5, bench: 2.5, row: 2.5, ohp: 2.5, deadlift: 5 },
   },
   lb: {
     bar: 45,
     step: 5,
     plates: [45, 35, 25, 10, 5, 2.5],
-    start: { hackSquat: 50, bench: 45, row: 65, ohp: 45, deadlift: 95 },
-    increment: { hackSquat: 5, bench: 5, row: 5, ohp: 5, deadlift: 10 },
+    start: { hackSquat: 180, bench: 175, row: 135, ohp: 90, deadlift: 220 },
+    increment: { hackSquat: 10, bench: 5, row: 5, ohp: 5, deadlift: 10 },
   },
 }
 

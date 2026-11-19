@@ -34,23 +34,24 @@ describe('applyProgression', () => {
   it('adds weight after a fully completed exercise', () => {
     const workout = workoutWith({ hackSquat: ALL, bench: ALL, row: ALL })
     const { progress, changes } = applyProgression(initialProgress('kg'), workout, 20)
-    expect(progress.hackSquat).toEqual({ weight: 22.5, fails: 0 })
-    expect(progress.row.weight).toBe(32.5)
+    expect(progress.hackSquat).toEqual({ weight: 85, fails: 0 })
+    expect(progress.bench.weight).toBe(82.5)
+    expect(progress.row.weight).toBe(62.5)
     expect(changes.map((c) => c.kind)).toEqual(['up', 'up', 'up'])
   })
 
   it('adds 5kg to the deadlift', () => {
     const workout = workoutWith({ hackSquat: ALL, ohp: ALL, deadlift: [5] }, 'B')
     const { progress } = applyProgression(initialProgress('kg'), workout, 20)
-    expect(progress.deadlift.weight).toBe(45)
+    expect(progress.deadlift.weight).toBe(105)
   })
 
   it('repeats the weight after missed reps and leaves skipped exercises alone', () => {
     const workout = workoutWith({ hackSquat: [5, 5, 5, 4, 3] })
     const { progress, changes } = applyProgression(initialProgress('kg'), workout, 20)
     expect(outcome(workout.exercises[0])).toBe('fail')
-    expect(progress.hackSquat).toEqual({ weight: 20, fails: 1 })
-    expect(progress.bench).toEqual({ weight: 20, fails: 0 })
+    expect(progress.hackSquat).toEqual({ weight: 80, fails: 1 })
+    expect(progress.bench).toEqual({ weight: 80, fails: 0 })
     expect(changes).toHaveLength(1)
   })
 
