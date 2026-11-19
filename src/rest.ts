@@ -11,6 +11,21 @@ export const rest = reactive({
   signalled: false,
 })
 
+const REST_KEY = 'eisen:rest'
+
+function persist(): void {
+  try {
+    if (rest.active) {
+      const { startedAt, endsAt, note } = rest
+      localStorage.setItem(REST_KEY, JSON.stringify({ startedAt, endsAt, note }))
+    } else {
+      localStorage.removeItem(REST_KEY)
+    }
+  } catch {
+    // Storage blocked: the timer still runs, it just does not survive a reload.
+  }
+}
+
 const now = ref(Date.now())
 let interval: ReturnType<typeof setInterval> | undefined
 let audio: AudioContext | undefined
@@ -66,6 +81,7 @@ export function startRest(seconds: number, note: string): void {
   rest.note = note
   rest.signalled = false
   interval ??= setInterval(tick, 250)
+  persist()
 }
 
 export function extendRest(seconds: number): void {
@@ -73,13 +89,43 @@ export function extendRest(seconds: number): void {
   rest.endsAt = Math.max(rest.endsAt, Date.now()) + seconds * 1000
   rest.signalled = false
   tick()
+  persist()
 }
 
 export function stopRest(): void {
   rest.active = false
   clearInterval(interval)
   interval = undefined
+  persist()
 }
+
+/** Picks the timer up again after a reload or after the phone closed the app mid-workout. */
+function restore(): void {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(REST_KEY) ?? 'null')
+    const data = saved as { startedAt?: unknown; endsAt?: unknown; note?: unknown } | null
+    if (
+      !state.active ||
+      typeof data?.startedAt !== 'number' ||
+      typeof data.endsAt !== 'number' ||
+      typeof data.note !== 'string'
+    ) {
+      localStorage.removeItem(REST_KEY)
+      return
+    }
+    rest.active = true
+    rest.startedAt = data.startedAt
+    rest.endsAt = data.endsAt
+    rest.note = data.note
+    // A rest that ended while the app was closed must not beep on reopen.
+    rest.signalled = Date.now() >= data.endsAt
+    interval ??= setInterval(tick, 250)
+  } catch {
+    // Unreadable timer data: start without a timer.
+  }
+}
+
+restore()
 
 export function formatClock(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60)

@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import WeightStepper from '../components/WeightStepper.vue'
 import { EXERCISE_NAMES, UNIT_DEFAULTS, WEIGHTED_IDS } from '../domain/program'
 import { fmt } from '../format'
-import { formatClock } from '../rest'
+import { formatClock, stopRest } from '../rest'
 import { exportData, importData, resetAll, setProgressWeight, setUnit, state } from '../store'
 
 const defaults = computed(() => UNIT_DEFAULTS[state.settings.unit])
@@ -24,7 +24,9 @@ async function onImport(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  message.value = importData(await file.text())
+  const restored = importData(await file.text())
+  if (restored) stopRest()
+  message.value = restored
     ? 'Backup restored.'
     : 'That file is not an Eisen backup. Nothing was changed.'
   input.value = ''
@@ -35,6 +37,7 @@ function onReset() {
     confirmReset.value = true
     return
   }
+  stopRest()
   resetAll()
   confirmReset.value = false
   message.value = 'All data erased.'

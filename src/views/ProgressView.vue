@@ -6,9 +6,10 @@ import {
   EXERCISE_NAMES,
   isBodyweight,
   totalReps,
+  UNIT_DEFAULTS,
   type ExerciseId,
 } from '../domain/program'
-import { convert } from '../domain/units'
+import { convert, roundTo, type Unit } from '../domain/units'
 import { fmt } from '../format'
 import { state } from '../store'
 
@@ -26,12 +27,17 @@ const values = computed(() =>
       workout.exercises
         .filter((log) => log.id === selected.value && log.sets.some((reps) => reps !== null))
         .map((log) =>
-          isBodyweight(log.id)
-            ? totalReps(log)
-            : convert(log.weight, workout.unit, state.settings.unit),
+          isBodyweight(log.id) ? totalReps(log) : inCurrentUnit(log.weight, workout.unit),
         ),
     ),
 )
+
+/** Weights logged in the other unit are rounded to what the plates can load, not 176.37lb. */
+function inCurrentUnit(weight: number, unit: Unit): number {
+  const current = state.settings.unit
+  if (unit === current) return weight
+  return roundTo(convert(weight, unit, current), UNIT_DEFAULTS[current].step)
+}
 
 const current = computed(() => {
   const id = selected.value

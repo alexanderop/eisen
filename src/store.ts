@@ -54,8 +54,15 @@ function freshState(unit: Unit = 'kg'): AppState {
 interface StoredState {
   version?: number
   settings?: { unit?: Unit }
+  progress?: Partial<Record<WeightedId, { weight?: number }>>
   history?: unknown[]
   active?: unknown
+}
+
+/** Starting weights that version 2 shipped with, to tell an untouched install from an edited one. */
+const V2_START: Record<Unit, Record<WeightedId, number>> = {
+  kg: { hackSquat: 20, bench: 20, row: 30, ohp: 20, deadlift: 40 },
+  lb: { hackSquat: 50, bench: 45, row: 65, ohp: 45, deadlift: 95 },
 }
 
 function migrate(value: unknown): unknown {
@@ -71,10 +78,14 @@ function migrate(value: unknown): unknown {
     ) as StoredState
   }
 
-  // Version 3 changed the starting weights. An install that never trained gets the new ones.
+  // Version 3 changed the starting weights. An install still on the old ones gets the new ones.
   if (data.version === 2) {
-    const untouched = data.history?.length === 0 && data.active === null
     const unit = data.settings?.unit === 'lb' ? 'lb' : 'kg'
+    const progress = data.progress
+    const untouched =
+      data.history?.length === 0 &&
+      data.active === null &&
+      WEIGHTED_IDS.every((id) => progress?.[id]?.weight === V2_START[unit][id])
     data = { ...data, version: 3, ...(untouched ? { progress: initialProgress(unit) } : {}) }
   }
 
@@ -131,7 +142,7 @@ export function startWorkout(): void {
     state.progress,
     state.settings.unit,
     Date.now(),
-    crypto.randomUUID(),
+    crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   )
 }
 

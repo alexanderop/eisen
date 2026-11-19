@@ -48,7 +48,6 @@ import {
 .fill {
   height: 100%;
   background: var(--accent);
-  transition: width 0.25s linear;
 }
 
 .body {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { EXERCISE_NAMES, isBodyweight, PROGRAM } from '../domain/program'
 import { fmt, formatDate, formatShortDate } from '../format'
+import { stopRest } from '../rest'
 import { discardWorkout, lastChanges, startWorkout, state } from '../store'
 
 const emit = defineEmits<{ open: [] }>()
@@ -16,6 +17,18 @@ const thisWeek = computed(
 const lastWorkout = computed(() => state.history[0] ?? null)
 
 const CHANGE_TEXT = { up: 'Up', repeat: 'Repeat', deload: 'Deload' } as const
+
+const confirmDiscard = ref(false)
+
+function onDiscard() {
+  if (!confirmDiscard.value) {
+    confirmDiscard.value = true
+    return
+  }
+  stopRest()
+  discardWorkout()
+  confirmDiscard.value = false
+}
 
 function start() {
   startWorkout()
@@ -34,7 +47,8 @@ function start() {
       <h2>Workout saved</h2>
       <button class="link" @click="lastChanges = null">Dismiss</button>
     </div>
-    <ul>
+    <p v-if="lastChanges.length === 0" class="muted">No weight changes this time.</p>
+    <ul v-else>
       <li v-for="change in lastChanges" :key="change.id" :class="change.kind">
         <span>{{ EXERCISE_NAMES[change.id] }}</span>
         <span class="muted">{{ CHANGE_TEXT[change.kind] }}</span>
@@ -55,8 +69,8 @@ function start() {
     </ul>
     <button v-if="state.active" class="btn btn-primary" @click="emit('open')">Resume workout</button>
     <button v-else class="btn btn-primary" @click="start">Start workout</button>
-    <button v-if="state.active" class="link link-danger" @click="discardWorkout()">
-      Discard workout
+    <button v-if="state.active" class="link link-danger" @click="onDiscard">
+      {{ confirmDiscard ? 'Tap again to discard' : 'Discard workout' }}
     </button>
   </section>
 

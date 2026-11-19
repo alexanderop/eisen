@@ -1,11 +1,31 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, useTemplateRef } from 'vue'
+
 defineProps<{ title: string }>()
 const emit = defineEmits<{ close: [] }>()
+
+const sheet = useTemplateRef<HTMLElement>('sheet')
+let opener: Element | null = null
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') emit('close')
+}
+
+onMounted(() => {
+  opener = document.activeElement
+  sheet.value?.focus()
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (opener instanceof HTMLElement) opener.focus()
+})
 </script>
 
 <template>
-  <div class="backdrop" @click.self="emit('close')" @keydown.esc="emit('close')">
-    <section class="sheet" role="dialog" aria-modal="true" :aria-label="title">
+  <div class="backdrop" @click.self="emit('close')">
+    <section ref="sheet" class="sheet" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1">
       <header class="row">
         <h2>{{ title }}</h2>
         <button class="close" aria-label="Close" @click="emit('close')">✕</button>
@@ -24,11 +44,15 @@ const emit = defineEmits<{ close: [] }>()
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  overscroll-behavior: contain;
 }
 
 .sheet {
   width: 100%;
   max-width: 480px;
+  max-height: 92dvh;
+  overflow-y: auto;
+  outline: none;
   background: var(--surface);
   border: 1px solid var(--line);
   border-bottom: 0;

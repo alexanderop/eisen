@@ -65,7 +65,7 @@ function onTap(exerciseIndex: number, setIndex: number) {
   const done = reps === log.targetReps
   startRest(
     done ? state.settings.restDone : state.settings.restMissed,
-    done ? 'All reps. Rest longer if that set was hard.' : 'Missed reps. Take a long rest.',
+    done ? 'All reps done.' : 'Missed reps. Rest longer.',
   )
 }
 
@@ -81,7 +81,7 @@ function saveEntry(reps: number | null) {
   logReps(entry.value.exerciseIndex, entry.value.setIndex, reps)
   entry.value = null
   if (reps === null || isComplete(active)) stopRest()
-  else startRest(state.settings.restDone, 'Max set logged. Rest before the next one.')
+  else startRest(state.settings.restDone, 'Max set logged.')
 }
 
 function onFinish() {
@@ -255,7 +255,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .workout {
-  padding: calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 120px);
+  padding: calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 132px);
   display: flex;
   flex-direction: column;
   gap: 16px;

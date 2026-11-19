@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { state } from './store'
 import HistoryView from './views/HistoryView.vue'
 import HomeView from './views/HomeView.vue'
@@ -21,8 +21,33 @@ const TABS = [
 type Tab = (typeof TABS)[number]['id']
 
 const tab = ref<Tab>('home')
-const workoutOpen = ref(false)
+/** Reopen an unfinished workout after a reload or after the phone closed the app. */
+const workoutOpen = ref(state.active !== null)
 const showWorkout = computed(() => workoutOpen.value && state.active !== null)
+
+function isWorkoutEntry(): boolean {
+  return (history.state as { workout?: boolean } | null)?.workout === true
+}
+
+/** The workout gets its own history entry so the phone's back button closes it, not the app. */
+watch(
+  showWorkout,
+  (open) => {
+    if (open && !isWorkoutEntry()) history.pushState({ workout: true }, '')
+    else if (!open && isWorkoutEntry()) history.back()
+  },
+  { immediate: true },
+)
+
+function onPopState() {
+  workoutOpen.value = false
+}
+
+onMounted(() => window.addEventListener('popstate', onPopState))
+onBeforeUnmount(() => window.removeEventListener('popstate', onPopState))
+
+/** Every screen starts at the top instead of inheriting the last screen's scroll position. */
+watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
 </script>
 
 <template>
