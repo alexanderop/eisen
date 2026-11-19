@@ -99,6 +99,10 @@ const gained = computed(() => values.value[values.value.length - 1] - values.val
     <p v-if="values.length === 0" class="muted empty">
       No logged sets for this exercise yet.
     </p>
+    <p v-else-if="values.length === 1" class="muted empty">
+      <strong class="first">{{ format(values[0]) }}</strong>
+      Logged once. The chart starts with your second workout.
+    </p>
     <template v-else>
       <LineChart :values="values" :format="format" />
       <dl>
@@ -131,6 +135,13 @@ h2 {
 .empty {
   padding: 32px 0;
   text-align: center;
+}
+
+.first {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 30px;
 }
 
 dl {

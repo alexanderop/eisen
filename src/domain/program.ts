@@ -74,6 +74,12 @@ export function stepFor(equipment: Equipment, unit: Unit): number {
   return equipment === 'weight' ? FINE_STEP[unit] : UNIT_DEFAULTS[unit].step
 }
 
+/** Warmup weights on a machine use whole plates: nobody loads 1.25s onto a sled to warm up. */
+export function warmupStep(equipment: Equipment, unit: Unit): number {
+  const step = UNIT_DEFAULTS[unit].step
+  return equipment === 'machine' ? step * 2 : step
+}
+
 export function incrementStep(unit: Unit): number {
   return INCREMENT_STEP[unit]
 }

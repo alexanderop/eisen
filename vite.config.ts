@@ -8,7 +8,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       // The exercise images are precached too, so they show in a gym without reception.
-      workbox: { globPatterns: ['**/*.{js,css,html,webp}'] },
+      workbox: { globPatterns: ['**/*.{js,css,html,webp,mp3}'] },
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'Eisen 5×5',

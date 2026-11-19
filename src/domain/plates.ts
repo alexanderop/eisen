@@ -33,10 +33,13 @@ const RAMP: [fraction: number, reps: number][] = [
   [0.8, 2],
 ]
 
-/** Two sets with the empty bar, then lighter sets that ramp up to the work weight. */
+/**
+ * Two sets with the empty bar, then lighter sets that ramp up to the work weight.
+ * A machine has no bar, so it starts with the first ramp set.
+ */
 export function warmupSets(work: number, bar: number, step: number): WarmupSet[] {
   if (work <= bar) return []
-  const result: WarmupSet[] = [{ weight: bar, reps: 5, sets: 2 }]
+  const result: WarmupSet[] = bar > 0 ? [{ weight: bar, reps: 5, sets: 2 }] : []
   let last = bar
   for (const [fraction, reps] of RAMP) {
     const weight = roundTo(work * fraction, step)

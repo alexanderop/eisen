@@ -13,6 +13,7 @@ import {
   nextRoutineId,
   outcome,
   startProgress,
+  warmupStep,
   type Progress,
   type Routine,
   type Workout,
@@ -144,8 +145,12 @@ describe('hack squat machine', () => {
     })
   })
 
-  it('warms up from the empty sled', () => {
-    expect(warmupSets(100, 0, 2.5)[0]).toEqual({ weight: 0, reps: 5, sets: 2 })
+  it('warms up a machine without an empty set and in whole plates', () => {
+    expect(warmupSets(80, 0, warmupStep('machine', 'kg'))).toEqual([
+      { weight: 30, reps: 5, sets: 1 },
+      { weight: 50, reps: 3, sets: 1 },
+      { weight: 65, reps: 2, sets: 1 },
+    ])
   })
 })
 

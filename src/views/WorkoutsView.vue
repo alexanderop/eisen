@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Badge, Button, Card, ConfirmButton, Field, IconButton, Input, Stepper } from '../components/ui'
+import { Badge, Button, Card, ConfirmButton, Field, Input, Stepper } from '../components/ui'
 import { computed, ref, watch } from 'vue'
 import ExercisePicker from '../components/ExercisePicker.vue'
-import { EQUIPMENT_LABELS } from '../domain/exercises'
+import ExerciseImage from '../components/ExerciseImage.vue'
+import { kindLabel } from '../domain/exercises'
 import { MAX_REPS, MAX_SETS, type Routine, type Slot } from '../domain/program'
 import { fmt } from '../format'
 import {
@@ -22,8 +23,13 @@ const editing = computed(
   () => state.routines.find((routine) => routine.id === editingId.value) ?? null,
 )
 const picking = ref(false)
+/** The exercise whose sets, reps and order are being changed. One at a time keeps the list short. */
+const openSlot = ref<string | null>(null)
 
-watch(editingId, () => window.scrollTo(0, 0))
+watch(editingId, () => {
+  openSlot.value = null
+  window.scrollTo(0, 0)
+})
 
 function summary(routine: Routine): string {
   const names = routine.slots.flatMap((slot) => findExercise(slot.exerciseId)?.name ?? [])
@@ -33,10 +39,19 @@ function summary(routine: Routine): string {
 function detail(slot: Slot): string {
   const exercise = findExercise(slot.exerciseId)
   if (!exercise) return ''
-  const label = EQUIPMENT_LABELS[exercise.equipment]
+  const scheme = `${slot.sets} × ${slot.reps ?? 'max'}`
   return exercise.equipment === 'bodyweight'
-    ? label
-    : `${label} · ${fmt(progressOf(exercise.id).weight)}`
+    ? `${scheme} · ${kindLabel(exercise)}`
+    : `${scheme} · ${fmt(progressOf(exercise.id).weight)} · ${kindLabel(exercise)}`
+}
+
+function toggleMax(slot: Slot) {
+  slot.reps = slot.reps === null ? 5 : null
+}
+
+function onRemove(routine: Routine, index: number) {
+  removeSlot(routine, index)
+  openSlot.value = null
 }
 
 function onName(routine: Routine) {
@@ -45,6 +60,7 @@ function onName(routine: Routine) {
 
 function onPick(routine: Routine, id: string) {
   addSlot(routine, id)
+  openSlot.value = id
   picking.value = false
 }
 
@@ -67,40 +83,55 @@ function onDelete(routine: Routine) {
     </Card>
 
     <Card v-for="(slot, index) in editing.slots" as="section" class="slot" :key="slot.exerciseId">
-      <div class="row">
-        <div>
-          <h2>{{ findExercise(slot.exerciseId)?.name ?? 'Deleted exercise' }}</h2>
-          <p class="muted small">{{ detail(slot) }}</p>
+      <button
+        class="slot-head"
+        :aria-expanded="openSlot === slot.exerciseId"
+        @click="openSlot = openSlot === slot.exerciseId ? null : slot.exerciseId"
+      >
+        <ExerciseImage
+          :image="findExercise(slot.exerciseId)?.image"
+          :name="findExercise(slot.exerciseId)?.name ?? '?'"
+        />
+        <span class="slot-text">
+          <strong>{{ findExercise(slot.exerciseId)?.name ?? 'Deleted exercise' }}</strong>
+          <span class="muted small">{{ detail(slot) }}</span>
+        </span>
+        <span class="chevron" aria-hidden="true">{{ openSlot === slot.exerciseId ? '⌃' : '⌄' }}</span>
+      </button>
+      <div v-if="openSlot === slot.exerciseId" class="slot-body">
+        <div class="row">
+          <span class="muted">Sets</span>
+          <Stepper v-model="slot.sets" :step="1" :min="1" :max="MAX_SETS" label="sets" />
         </div>
-        <div class="tools">
-          <IconButton label="Move up" :disabled="index === 0" @click="moveSlot(editing, index, -1)">
-            ↑
-          </IconButton>
-          <IconButton
-            label="Move down"
-            :disabled="index === editing.slots.length - 1"
-            @click="moveSlot(editing, index, 1)"
-          >
-            ↓
-          </IconButton>
-          <IconButton label="Remove exercise" tone="danger" @click="removeSlot(editing, index)">
-            ✕
-          </IconButton>
+        <div class="row">
+          <span class="muted">Reps</span>
+          <Stepper
+            v-if="slot.reps !== null"
+            v-model="slot.reps"
+            :step="1"
+            :min="1"
+            :max="MAX_REPS"
+            label="reps"
+          />
+          <span v-else class="max-note">As many as possible</span>
         </div>
-      </div>
-      <div class="row">
-        <span class="muted">Sets</span>
-        <Stepper v-model="slot.sets" :step="1" :min="1" :max="MAX_SETS" label="sets" />
-      </div>
-      <div class="row">
-        <span class="muted">Reps</span>
-        <Stepper
-          :model-value="slot.reps ?? 0"
-          :step="1"
-          :max="MAX_REPS"
-          label="reps"
-          :format="(value: number) => (value === 0 ? 'max' : String(value))"
-          @update:model-value="slot.reps = $event === 0 ? null : $event"
+        <button class="max" :aria-pressed="slot.reps === null" @click="toggleMax(slot)">
+          <span class="box" aria-hidden="true">✓</span>
+          Max reps instead of a fixed number
+        </button>
+        <div class="row tools">
+          <Button :disabled="index === 0" @click="moveSlot(editing, index, -1)">↑ Move up</Button>
+          <Button :disabled="index === editing.slots.length - 1" @click="moveSlot(editing, index, 1)">
+            ↓ Move down
+          </Button>
+        </div>
+        <ConfirmButton
+          :key="slot.exerciseId"
+          block
+          variant="ghost"
+          label="Remove from workout"
+          confirm-label="Tap again to remove"
+          @confirm="onRemove(editing, index)"
         />
       </div>
     </Card>
@@ -157,20 +188,81 @@ function onDelete(routine: Routine) {
 }
 
 .slot {
+  padding: 0;
+}
+
+.slot-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px 10px 10px;
+  text-align: left;
+}
+
+.slot-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.slot-text strong {
+  font-size: 16px;
+}
+
+.slot-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 4px 16px 12px;
 }
 
-h2 {
-  font-size: 17px;
+.max-note {
   font-weight: 700;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+}
+
+.max {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  text-align: left;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.box {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: transparent;
+}
+
+.max[aria-pressed='true'] {
+  color: var(--text);
+}
+
+.max[aria-pressed='true'] .box {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .tools {
-  display: flex;
-  gap: 4px;
-  flex: none;
+  gap: 8px;
+}
+
+.tools > * {
+  flex: 1;
 }
 
 .routine {

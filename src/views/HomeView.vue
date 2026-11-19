@@ -3,6 +3,8 @@ import { Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
 import { computed } from 'vue'
 import CopyMarkdown from '../components/CopyMarkdown.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
+import { outcome } from '../domain/program'
+import { durationMinutes } from '../domain/share'
 import { fmt, formatDate, formatShortDate } from '../format'
 import { stopRest } from '../rest'
 import {
@@ -52,6 +54,19 @@ const thisWeek = computed(
 )
 const lastWorkout = computed(() => state.history[0] ?? null)
 
+/** The workout that was just saved, in numbers. */
+const saved = computed(() => {
+  const workout = lastWorkout.value
+  if (!workout) return null
+  const sets = workout.exercises.flatMap((log) => log.sets)
+  return {
+    minutes: durationMinutes(workout),
+    logged: sets.filter((reps) => reps !== null).length,
+    total: sets.length,
+    skipped: workout.exercises.filter((log) => outcome(log) === 'skipped').map((log) => log.name),
+  }
+})
+
 const CHANGE_TEXT = { up: 'Up', repeat: 'Repeat', deload: 'Deload' } as const
 
 function onDiscard() {
@@ -79,6 +94,11 @@ function start() {
       <h2>Workout saved</h2>
       <Button variant="ghost" size="md" @click="lastChanges = null">Dismiss</Button>
     </div>
+    <p v-if="saved" class="saved-line">
+      <strong>{{ saved.minutes }} min</strong>
+      <span class="muted">·</span>
+      <strong>{{ saved.logged }} of {{ saved.total }} sets</strong>
+    </p>
     <p v-if="lastChanges.length === 0" class="muted">No weight changes this time.</p>
     <ul v-else>
       <li v-for="change in lastChanges" :key="change.id" :class="change.kind">
@@ -87,6 +107,9 @@ function start() {
         <strong>{{ fmt(change.to) }}</strong>
       </li>
     </ul>
+    <p v-if="saved && saved.skipped.length > 0" class="muted skipped">
+      Skipped: {{ saved.skipped.join(', ') }}
+    </p>
     <CopyMarkdown v-if="lastWorkout" block :workout="lastWorkout" label="Copy as Markdown" />
   </Card>
 
@@ -127,7 +150,7 @@ function start() {
     />
   </Card>
 
-  <section class="stats">
+  <section v-if="lastWorkout" class="stats">
     <Card>
       <strong>{{ state.history.length }}</strong>
       <span class="muted">workouts</span>
@@ -137,7 +160,7 @@ function start() {
       <span class="muted">last 7 days</span>
     </Card>
     <Card>
-      <strong>{{ lastWorkout ? formatShortDate(lastWorkout.startedAt) : '—' }}</strong>
+      <strong>{{ formatShortDate(lastWorkout.startedAt) }}</strong>
       <span class="muted">last workout</span>
     </Card>
   </section>
@@ -157,6 +180,16 @@ h2 {
 
 .summary h2 {
   font-size: 17px;
+}
+
+.saved-line {
+  display: flex;
+  gap: 8px;
+  font-size: 20px;
+}
+
+.skipped {
+  font-size: 13px;
 }
 
 ul {

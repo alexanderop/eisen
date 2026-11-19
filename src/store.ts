@@ -53,6 +53,9 @@ watch(
   { deep: true },
 )
 
+/** Warmup sets ticked off in the running workout, as `exerciseId:setIndex`. Not saved. */
+export const warmupDone = ref(new Set<string>())
+
 /** What the last finished workout changed. Shown once on the home screen. */
 export const lastChanges = ref<Change[] | null>(null)
 
@@ -107,6 +110,7 @@ export function startWorkout(): boolean {
   )
   if (workout.exercises.length === 0) return false
   lastChanges.value = null
+  warmupDone.value = new Set()
   state.active = workout
   return true
 }
@@ -120,6 +124,12 @@ export function addActiveExercise(id: string): void {
   workout.exercises.push(
     createLog(exercise, defaultSlot(exercise), state.progress, state.settings.unit),
   )
+}
+
+/** The last exercise stays: a workout without exercises has nothing to finish. */
+export function removeActiveExercise(exerciseIndex: number): void {
+  const workout = state.active
+  if (workout && workout.exercises.length > 1) workout.exercises.splice(exerciseIndex, 1)
 }
 
 export function tapSet(exerciseIndex: number, setIndex: number): number | null {

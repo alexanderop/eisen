@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import ExerciseImage from './ExerciseImage.vue'
-import { Button, ConfirmButton, Field, Input, Sheet } from './ui'
+import { Button, ChipGroup, ConfirmButton, Field, Input, Sheet } from './ui'
 import { computed, ref } from 'vue'
 import {
   EQUIPMENT,
   EQUIPMENT_LABELS,
   GROUPS,
+  kindLabel,
   type Equipment,
   type Group,
 } from '../domain/exercises'
@@ -22,12 +23,21 @@ const equipment = ref<Equipment>('barbell')
 const ORDER: Group[] = ['Custom', ...GROUPS]
 const GROUP_TITLES: Partial<Record<Group, string>> = { Custom: 'Your exercises' }
 
+type Filter = Group | 'All'
+const filter = ref<Filter>('All')
+const filters = computed(() =>
+  (['All', ...ORDER] as Filter[])
+    .filter((group) => group !== 'Custom' || exercises.value.some((e) => e.group === 'Custom'))
+    .map((group) => ({ value: group, label: group === 'Custom' ? 'Yours' : group })),
+)
+
 const sections = computed(() => {
   const needle = query.value.trim().toLowerCase()
   // The lifter's own exercises stay listed even when already added, so they can be deleted here.
   const available = exercises.value.filter(
     (exercise) =>
       (exercise.group === 'Custom' || !props.exclude.includes(exercise.id)) &&
+      (filter.value === 'All' || exercise.group === filter.value) &&
       exercise.name.toLowerCase().includes(needle),
   )
   return ORDER.map((group) => ({
@@ -74,6 +84,7 @@ function create() {
 
     <template v-else>
       <Input v-model="query" type="search" placeholder="Search exercises" aria-label="Search exercises" />
+      <ChipGroup v-model="filter" class="filters" :options="filters" label="Muscle group" bleed />
       <Button class="create" block @click="startCreating">
         {{
           query.trim() && sections.length === 0
@@ -93,7 +104,7 @@ function create() {
               <ExerciseImage :image="exercise.image" :name="exercise.name" />
               <span class="pick-name">{{ exercise.name }}</span>
               <span class="muted kind">
-                {{ exclude.includes(exercise.id) ? 'Added' : EQUIPMENT_LABELS[exercise.equipment] }}
+                {{ exclude.includes(exercise.id) ? 'Added' : kindLabel(exercise) }}
               </span>
             </button>
             <ConfirmButton
@@ -148,7 +159,8 @@ function create() {
   flex: none;
 }
 
-.create {
+.create,
+.filters {
   flex: none;
 }
 

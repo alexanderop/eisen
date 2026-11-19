@@ -10,11 +10,21 @@ import {
   stopRest,
 } from '../rest'
 import { IconButton } from './ui'
+import { computed } from 'vue'
+
+/** The last seconds of a rest change colour, so a glance from the bar is enough. */
+const SOON_SECONDS = 10
+const stage = computed(() => {
+  if (restOver.value) return 'over'
+  return restRemaining.value <= SOON_SECONDS ? 'soon' : 'calm'
+})
+/** The bar drains: what is left of it is what is left of the rest. */
+const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 100))
 </script>
 
 <template>
-  <aside v-if="rest.active" class="timer" :class="{ over: restOver }" role="timer" aria-live="off">
-    <div class="track"><div class="fill" :style="{ width: `${restFraction * 100}%` }" /></div>
+  <aside v-if="rest.active" class="timer" :class="stage" role="timer" aria-live="off">
+    <div class="wash" :style="{ width: `${left}%` }" />
     <div class="body">
       <div class="clock">
         {{ restOver ? `+${formatClock(restOvertime)}` : formatClock(restRemaining) }}
@@ -23,45 +33,39 @@ import { IconButton } from './ui'
       <button v-if="!restOver" class="extend" @click="extendRest(30)">+30s</button>
       <IconButton label="Dismiss timer" variant="sunken" tone="muted" @click="stopRest()">✕</IconButton>
     </div>
+    <div class="track"><div class="fill" :style="{ width: `${left}%` }" /></div>
   </aside>
 </template>
 
 <style scoped>
+/*
+ * Hangs below the sticky workout header and floats over the page,
+ * so starting a rest never moves the set buttons.
+ */
 .timer {
-  position: fixed;
-  left: 50%;
-  bottom: calc(env(safe-area-inset-bottom) + 12px);
-  transform: translateX(-50%);
-  width: min(448px, calc(100% - 24px));
-  z-index: 20;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
   background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
-}
-
-.track {
-  height: 4px;
-  background: var(--line);
-}
-
-.fill {
-  height: 100%;
-  background: var(--accent);
+  border-block: 1px solid var(--line);
+  box-shadow: 0 12px 24px rgb(0 0 0 / 0.5);
 }
 
 .body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 10px 10px 16px;
+  padding: 8px 12px 8px 16px;
 }
 
 .clock {
-  font-size: 26px;
+  min-width: 124px;
+  font-size: 48px;
+  line-height: 1;
   font-weight: 800;
-  min-width: 68px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .note {
@@ -80,11 +84,74 @@ import { IconButton } from './ui'
   font-size: 13px;
 }
 
-.over {
-  border-color: var(--accent);
+.timer {
+  --stage: var(--accent);
+  overflow: hidden;
 }
 
+.soon {
+  --stage: var(--warn);
+}
+
+.over {
+  --stage: var(--danger);
+  animation: shake 1.6s infinite;
+}
+
+/* Tints the band itself, so the remaining time reads from across the room. */
+.wash {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--stage);
+  opacity: 0.16;
+  transition: width 250ms linear;
+}
+
+.body {
+  position: relative;
+}
+
+.track {
+  position: relative;
+  height: 10px;
+  background: var(--line);
+}
+
+.fill {
+  height: 100%;
+  background: var(--stage);
+  transition: width 250ms linear;
+}
+
+.soon .clock,
 .over .clock {
-  color: var(--accent);
+  color: var(--stage);
+}
+
+.over .wash {
+  opacity: 0.28;
+}
+
+@keyframes shake {
+  0%,
+  30%,
+  100% {
+    transform: translateX(0);
+  }
+  5%,
+  15%,
+  25% {
+    transform: translateX(-5px);
+  }
+  10%,
+  20% {
+    transform: translateX(5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .over {
+    animation: none;
+  }
 }
 </style>

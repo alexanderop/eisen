@@ -13,6 +13,11 @@ export const EQUIPMENT_LABELS: Record<Equipment, string> = {
   bodyweight: 'Bodyweight',
 }
 
+/** What the lists show next to an exercise. eGym machines are named, not filed under dumbbells. */
+export function kindLabel(exercise: Pick<Exercise, 'id' | 'equipment'>): string {
+  return exercise.id.startsWith('egym') ? 'eGym' : EQUIPMENT_LABELS[exercise.equipment]
+}
+
 export const EQUIPMENT: Equipment[] = ['barbell', 'machine', 'weight', 'bodyweight']
 
 export const GROUPS = ['Legs', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core'] as const

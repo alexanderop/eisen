@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Button, Card, Segmented, SetButton, Sheet, Stepper } from '../components/ui'
+import { Button, Card, ConfirmButton, Segmented, SetButton, Sheet, Stepper } from '../components/ui'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import BarbellPlates from '../components/BarbellPlates.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
@@ -13,6 +13,7 @@ import {
   outcome,
   stepFor,
   UNIT_DEFAULTS,
+  warmupStep,
   type ExerciseLog,
 } from '../domain/program'
 import { emptyWeightFor, fmt, loadFor, platesText } from '../format'
@@ -24,11 +25,13 @@ import {
   finishWorkout,
   logReps,
   progressOf,
+  removeActiveExercise,
   setActiveWeight,
   setIncrement,
   state,
   suggestedReps,
   tapSet,
+  warmupDone,
 } from '../store'
 
 const emit = defineEmits<{ close: [] }>()
@@ -58,6 +61,23 @@ const editedLog = computed(() =>
 const warmupLogs = computed(
   () => workout.value?.exercises.filter((log) => isPlateLoaded(log.equipment)) ?? [],
 )
+
+function warmups(log: ExerciseLog) {
+  return warmupSets(
+    log.weight,
+    emptyWeightFor(log.equipment),
+    warmupStep(log.equipment, state.settings.unit),
+  )
+}
+
+function toggleWarmup(key: string) {
+  if (!warmupDone.value.delete(key)) warmupDone.value.add(key)
+}
+
+function onRemove(index: number) {
+  removeActiveExercise(index)
+  editing.value = null
+}
 /**
  * Finished exercises sink to the bottom and fold up, so the top of the screen is what is left to do.
  * The exercise tapped last stays where it is for a moment: the tap after a full set is
@@ -180,6 +200,7 @@ onBeforeUnmount(() => {
       <Button variant="ghost" size="md" @click="emit('close')">‹ Back</Button>
       <h1>{{ workout.name }}</h1>
       <Button variant="ghost" size="md" @click="onFinish">Finish</Button>
+      <RestTimer />
     </header>
 
     <Segmented v-model="mode" :options="MODES" />
@@ -202,23 +223,23 @@ onBeforeUnmount(() => {
             <span class="chevron" aria-hidden="true">{{ expanded.has(log.id) ? '⌃' : '⌄' }}</span>
           </button>
           <ExerciseImage
-            v-else
+            v-else-if="position === 0"
             :image="findExercise(log.id)?.image"
             :name="log.name"
             variant="banner"
           />
           <div v-if="!done || expanded.has(log.id)" class="exercise-body">
-            <div v-if="log.equipment === 'bodyweight'" class="exercise-head">
-              <span class="name">{{ done ? 'Sets' : log.name }}</span>
-              <span class="target">
-                {{ log.sets.length }}×{{ log.targetReps ?? 'max' }} <strong>Bodyweight</strong>
-              </span>
-            </div>
-            <button v-else class="exercise-head" @click="editing = i">
+            <button class="exercise-head" @click="editing = i">
+              <ExerciseImage
+                v-if="!done && position > 0"
+                :image="findExercise(log.id)?.image"
+                :name="log.name"
+                :size="40"
+              />
               <span class="name">{{ done ? 'Sets' : log.name }}</span>
               <span class="target">
                 {{ log.sets.length }}×{{ log.targetReps ?? 'max' }}
-                <strong>{{ fmt(log.weight) }}</strong>
+                <strong>{{ log.equipment === 'bodyweight' ? 'BW' : fmt(log.weight) }}</strong>
                 <span class="chevron" aria-hidden="true">›</span>
               </span>
             </button>
@@ -258,26 +279,22 @@ onBeforeUnmount(() => {
           <h2>{{ log.name }}</h2>
           <span class="muted">Work set {{ fmt(log.weight) }}</span>
         </div>
-        <p
-          v-if="warmupSets(log.weight, emptyWeightFor(log.equipment), defaults.step).length === 0"
-          class="muted"
-        >
-          No warmup needed at this weight.
-        </p>
+        <p v-if="warmups(log).length === 0" class="muted">No warmup needed at this weight.</p>
         <ol v-else>
-          <li
-            v-for="(set, k) in warmupSets(log.weight, emptyWeightFor(log.equipment), defaults.step)"
-            :key="k"
-          >
-            <span class="reps">{{ set.sets }}×{{ set.reps }}</span>
-            <strong>{{ fmt(set.weight) }}</strong>
-            <span class="muted">{{ platesText(set.weight, log.equipment) }}</span>
+          <li v-for="(set, k) in warmups(log)" :key="k">
+            <button
+              :aria-pressed="warmupDone.has(`${log.id}:${k}`)"
+              @click="toggleWarmup(`${log.id}:${k}`)"
+            >
+              <span class="check" aria-hidden="true">✓</span>
+              <span class="reps">{{ set.sets }}×{{ set.reps }}</span>
+              <strong>{{ fmt(set.weight) }}</strong>
+              <span class="muted">{{ platesText(set.weight, log.equipment) }}</span>
+            </button>
           </li>
         </ol>
       </Card>
     </template>
-
-    <RestTimer />
 
     <ExercisePicker
       v-if="picking"
@@ -291,7 +308,7 @@ onBeforeUnmount(() => {
       :title="editedLog.name"
       @close="editing = null"
     >
-      <div class="row">
+      <div v-if="editedLog.equipment !== 'bodyweight'" class="row">
         <span class="muted">Weight</span>
         <Stepper
           :model-value="editedLog.weight"
@@ -316,7 +333,7 @@ onBeforeUnmount(() => {
           }}
         </p>
       </template>
-      <div v-if="editedLog.targetReps !== null" class="row">
+      <div v-if="editedLog.targetReps !== null && editedLog.equipment !== 'bodyweight'" class="row">
         <span class="muted">Add after all reps</span>
         <Stepper
           :model-value="progressOf(editedLog.id).increment"
@@ -328,6 +345,14 @@ onBeforeUnmount(() => {
         />
       </div>
       <Button variant="primary" block @click="editing = null">Done</Button>
+      <ConfirmButton
+        v-if="workout.exercises.length > 1"
+        :key="editedLog.id"
+        block
+        label="Remove from this workout"
+        confirm-label="Tap again to remove"
+        @confirm="onRemove(editing)"
+      />
     </Sheet>
 
     <Sheet
@@ -352,7 +377,7 @@ onBeforeUnmount(() => {
         {{
           nothingLogged
             ? 'This workout has no sets. It will not be saved.'
-            : 'Some sets are not logged. Unfinished exercises count as missed, so their weight stays the same next time.'
+            : 'Some sets are not logged. Exercises you started keep their weight next time. Exercises you did not start are skipped.'
         }}
       </p>
       <Button v-if="nothingLogged" tone="danger" block @click="discard">Discard workout</Button>
@@ -364,13 +389,21 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .workout {
-  padding: calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 132px);
+  padding: 0 16px calc(env(safe-area-inset-bottom) + 32px);
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
+/* Stays in view. The rest timer hangs below it, at the top of the screen and away from the thumb. */
 .bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 -16px;
+  padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
+  min-height: 60px;
+  background: var(--bg);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -385,7 +418,7 @@ onBeforeUnmount(() => {
   justify-self: start;
 }
 
-.bar > :last-child {
+.bar > :nth-child(3) {
   justify-self: end;
 }
 
@@ -434,12 +467,13 @@ onBeforeUnmount(() => {
 .exercise-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   min-height: 44px;
   text-align: left;
 }
 
 .name {
+  flex: 1;
   font-size: 19px;
   font-weight: 700;
 }
@@ -493,18 +527,43 @@ onBeforeUnmount(() => {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
-.warmup li {
+.warmup li button {
   display: grid;
-  grid-template-columns: 44px 72px 1fr;
-  align-items: baseline;
+  grid-template-columns: 32px 44px 72px 1fr;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
   font-size: 15px;
 }
 
 .warmup li .muted {
   font-size: 13px;
+}
+
+.check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: transparent;
+}
+
+.warmup [aria-pressed='true'] .check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.warmup [aria-pressed='true'] :is(strong, .reps) {
+  color: var(--muted);
+  text-decoration: line-through;
 }
 
 .reps {
