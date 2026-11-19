@@ -6,9 +6,15 @@ import HomeView from './views/HomeView.vue'
 import ProgressView from './views/ProgressView.vue'
 import SettingsView from './views/SettingsView.vue'
 import WorkoutView from './views/WorkoutView.vue'
+import WorkoutsView from './views/WorkoutsView.vue'
 
 const TABS = [
   { id: 'home', label: 'Home', icon: 'M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z' },
+  {
+    id: 'workouts',
+    label: 'Workouts',
+    icon: 'M2 10h2v4H2zM5 7h3v10H5zM9 11h6v2H9zM16 7h3v10h-3zM20 10h2v4h-2z',
+  },
   { id: 'history', label: 'History', icon: 'M5 4h14v3H5zM5 10.5h14v3H5zM5 17h14v3H5z' },
   { id: 'progress', label: 'Progress', icon: 'M4 20V10h3.5v10zM10.25 20V4h3.5v16zM16.5 20v-7H20v7z' },
   {
@@ -55,6 +61,7 @@ watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
   <template v-else>
     <main class="page">
       <HomeView v-if="tab === 'home'" @open="workoutOpen = true" />
+      <WorkoutsView v-else-if="tab === 'workouts'" />
       <HistoryView v-else-if="tab === 'history'" />
       <ProgressView v-else-if="tab === 'progress'" />
       <SettingsView v-else />
@@ -86,7 +93,7 @@ watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
   height: calc(var(--tabs-height) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: rgb(11 12 14 / 0.92);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--line);

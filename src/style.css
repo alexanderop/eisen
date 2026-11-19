@@ -9,7 +9,39 @@
   --accent-ink: #11140a;
   --warn: #ffb020;
   --danger: #ff6464;
-  --radius: 18px;
+  /* Pale ground for the exercise images, which are dark on transparent. */
+  --tile: #eceef1;
+
+  /* Space: a 4px grid. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Radius: controls, buttons, cards, pills. */
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 999px;
+
+  /* Type scale. */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-sm-plus: 14px;
+  --text-base: 15px;
+  --text-base-plus: 16px;
+  --text-md: 17px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+
+  /* Heights of tappable controls. Nothing a thumb must hit is smaller than 36px. */
+  --control-sm: 36px;
+  --control-md: 44px;
+  --control-lg: 52px;
+
   --tabs-height: 64px;
   color-scheme: dark;
   font-family:
@@ -100,78 +132,8 @@ button:disabled {
   color: var(--muted);
 }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px;
-}
-
 .muted {
   color: var(--muted);
-}
-
-.btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 52px;
-  padding: 0 18px;
-  border-radius: 14px;
-  font-weight: 700;
-  font-size: 16px;
-  background: var(--surface-2);
-  transition: transform 0.08s ease;
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
-.btn-danger {
-  color: var(--danger);
-}
-
-.link {
-  color: var(--accent);
-  font-weight: 600;
-  min-height: 44px;
-  padding: 0 4px;
-}
-
-.link-danger {
-  color: var(--danger);
-}
-
-.segmented {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 4px;
-  padding: 4px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-
-.segmented button {
-  min-height: 36px;
-  border-radius: 9px;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.segmented button[aria-pressed='true'] {
-  background: var(--surface-2);
-  color: var(--text);
 }
 
 .row {

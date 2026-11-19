@@ -9,6 +9,7 @@ import {
   restRemaining,
   stopRest,
 } from '../rest'
+import { IconButton } from './ui'
 </script>
 
 <template>
@@ -20,7 +21,7 @@ import {
       </div>
       <p class="note">{{ restOver ? 'Rest is over. Start your next set.' : rest.note }}</p>
       <button v-if="!restOver" class="extend" @click="extendRest(30)">+30s</button>
-      <button class="dismiss" aria-label="Dismiss timer" @click="stopRest()">✕</button>
+      <IconButton label="Dismiss timer" variant="sunken" tone="muted" @click="stopRest()">✕</IconButton>
     </div>
   </aside>
 </template>
@@ -69,23 +70,14 @@ import {
   color: var(--muted);
 }
 
-.extend,
-.dismiss {
+.extend {
   flex: none;
+  padding: 0 12px;
   height: 40px;
   border-radius: 12px;
   background: var(--surface);
   font-weight: 700;
   font-size: 13px;
-}
-
-.extend {
-  padding: 0 12px;
-}
-
-.dismiss {
-  width: 40px;
-  color: var(--muted);
 }
 
 .over {

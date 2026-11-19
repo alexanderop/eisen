@@ -1,14 +1,50 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { EXERCISE_NAMES, isBodyweight, PROGRAM } from '../domain/program'
+import { Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
+import { computed } from 'vue'
+import CopyMarkdown from '../components/CopyMarkdown.vue'
+import ExerciseImage from '../components/ExerciseImage.vue'
 import { fmt, formatDate, formatShortDate } from '../format'
 import { stopRest } from '../rest'
-import { discardWorkout, lastChanges, startWorkout, state } from '../store'
+import {
+  discardWorkout,
+  findExercise,
+  lastChanges,
+  nextRoutine,
+  progressOf,
+  selectRoutine,
+  startWorkout,
+  state,
+} from '../store'
 
 const emit = defineEmits<{ open: [] }>()
 
-const type = computed(() => state.active?.type ?? state.nextType)
-const slots = computed(() => PROGRAM[type.value])
+const title = computed(() => state.active?.name ?? nextRoutine.value.name)
+
+/** The running workout as it was started, or the next one as it is set up right now. */
+const rows = computed(() => {
+  if (state.active) {
+    return state.active.exercises.map((log) => ({
+      id: log.id,
+      name: log.name,
+      sets: log.sets.length,
+      reps: log.targetReps,
+      weight: log.equipment === 'bodyweight' ? null : log.weight,
+    }))
+  }
+  return nextRoutine.value.slots.flatMap((slot) => {
+    const exercise = findExercise(slot.exerciseId)
+    if (!exercise) return []
+    return [
+      {
+        id: exercise.id,
+        name: exercise.name,
+        sets: slot.sets,
+        reps: slot.reps,
+        weight: exercise.equipment === 'bodyweight' ? null : progressOf(exercise.id).weight,
+      },
+    ]
+  })
+})
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 const thisWeek = computed(
@@ -18,21 +54,17 @@ const lastWorkout = computed(() => state.history[0] ?? null)
 
 const CHANGE_TEXT = { up: 'Up', repeat: 'Repeat', deload: 'Deload' } as const
 
-const confirmDiscard = ref(false)
-
 function onDiscard() {
-  if (!confirmDiscard.value) {
-    confirmDiscard.value = true
-    return
-  }
   stopRest()
   discardWorkout()
-  confirmDiscard.value = false
 }
 
+const routineOptions = computed(() =>
+  state.routines.map((routine) => ({ value: routine.id, label: routine.name })),
+)
+
 function start() {
-  startWorkout()
-  emit('open')
+  if (startWorkout()) emit('open')
 }
 </script>
 
@@ -42,51 +74,72 @@ function start() {
     <h1 class="page-title">Eisen 5×5</h1>
   </header>
 
-  <section v-if="lastChanges" class="card summary">
+  <Card v-if="lastChanges" as="section" class="summary">
     <div class="row">
       <h2>Workout saved</h2>
-      <button class="link" @click="lastChanges = null">Dismiss</button>
+      <Button variant="ghost" size="md" @click="lastChanges = null">Dismiss</Button>
     </div>
     <p v-if="lastChanges.length === 0" class="muted">No weight changes this time.</p>
     <ul v-else>
       <li v-for="change in lastChanges" :key="change.id" :class="change.kind">
-        <span>{{ EXERCISE_NAMES[change.id] }}</span>
+        <span>{{ change.name }}</span>
         <span class="muted">{{ CHANGE_TEXT[change.kind] }}</span>
         <strong>{{ fmt(change.to) }}</strong>
       </li>
     </ul>
-  </section>
+    <CopyMarkdown v-if="lastWorkout" block :workout="lastWorkout" label="Copy as Markdown" />
+  </Card>
 
-  <section class="card next">
+  <Card as="section" class="next">
     <p class="eyebrow">{{ state.active ? 'In progress' : 'Next up' }}</p>
-    <h2>Workout {{ type }}</h2>
-    <ul>
-      <li v-for="slot in slots" :key="slot.id">
-        <span>{{ EXERCISE_NAMES[slot.id] }}</span>
-        <span class="muted">{{ slot.sets }}×{{ slot.reps ?? 'max' }}</span>
-        <strong>{{ isBodyweight(slot.id) ? 'BW' : fmt(state.progress[slot.id].weight) }}</strong>
+    <ChipGroup
+      v-if="!state.active && state.routines.length > 1"
+      :model-value="nextRoutine.id"
+      :options="routineOptions"
+      label="Next workout"
+      bleed
+      @update:model-value="selectRoutine"
+    />
+    <h2>{{ title }}</h2>
+    <p v-if="rows.length === 0" class="muted empty">
+      This workout has no exercises yet. Add some in the Workouts tab.
+    </p>
+    <ul v-else>
+      <li v-for="row in rows" :key="row.id" class="exercise">
+        <ExerciseImage :image="findExercise(row.id)?.image" :name="row.name" :size="40" />
+        <span>{{ row.name }}</span>
+        <span class="muted">{{ row.sets }}×{{ row.reps ?? 'max' }}</span>
+        <strong>{{ row.weight === null ? 'BW' : fmt(row.weight) }}</strong>
       </li>
     </ul>
-    <button v-if="state.active" class="btn btn-primary" @click="emit('open')">Resume workout</button>
-    <button v-else class="btn btn-primary" @click="start">Start workout</button>
-    <button v-if="state.active" class="link link-danger" @click="onDiscard">
-      {{ confirmDiscard ? 'Tap again to discard' : 'Discard workout' }}
-    </button>
-  </section>
+    <Button v-if="state.active" variant="primary" block @click="emit('open')">Resume workout</Button>
+    <Button v-else variant="primary" block :disabled="rows.length === 0" @click="start">
+      Start workout
+    </Button>
+    <ConfirmButton
+      v-if="state.active"
+      class="discard"
+      variant="ghost"
+      size="md"
+      label="Discard workout"
+      confirm-label="Tap again to discard"
+      @confirm="onDiscard"
+    />
+  </Card>
 
   <section class="stats">
-    <div class="card">
+    <Card>
       <strong>{{ state.history.length }}</strong>
       <span class="muted">workouts</span>
-    </div>
-    <div class="card">
+    </Card>
+    <Card>
       <strong>{{ thisWeek }}</strong>
       <span class="muted">last 7 days</span>
-    </div>
-    <div class="card">
+    </Card>
+    <Card>
       <strong>{{ lastWorkout ? formatShortDate(lastWorkout.startedAt) : '—' }}</strong>
       <span class="muted">last workout</span>
-    </div>
+    </Card>
   </section>
 </template>
 
@@ -94,6 +147,12 @@ function start() {
 h2 {
   font-size: 24px;
   font-weight: 800;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .summary h2 {
@@ -115,6 +174,12 @@ li {
   border-bottom: 1px solid var(--line);
 }
 
+li.exercise {
+  grid-template-columns: 40px 1fr auto 76px;
+  align-items: center;
+  padding: 8px 0;
+}
+
 li:last-child {
   border-bottom: 0;
 }
@@ -129,7 +194,11 @@ li strong {
   gap: 8px;
 }
 
-.next .link {
+.empty {
+  padding: 12px 0;
+}
+
+.next .discard {
   align-self: center;
 }
 

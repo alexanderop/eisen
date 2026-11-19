@@ -1,25 +1,31 @@
 <script setup lang="ts">
+import { Button, Card, Segmented, SetButton, Sheet, Stepper } from '../components/ui'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import BarbellPlates from '../components/BarbellPlates.vue'
-import BottomSheet from '../components/BottomSheet.vue'
+import ExerciseImage from '../components/ExerciseImage.vue'
+import ExercisePicker from '../components/ExercisePicker.vue'
 import RestTimer from '../components/RestTimer.vue'
-import WeightStepper from '../components/WeightStepper.vue'
 import { warmupSets } from '../domain/plates'
 import {
-  EXERCISE_NAMES,
+  incrementStep,
   isComplete,
-  isMachine,
+  isPlateLoaded,
   outcome,
+  stepFor,
   UNIT_DEFAULTS,
   type ExerciseLog,
 } from '../domain/program'
 import { emptyWeightFor, fmt, loadFor, platesText } from '../format'
 import { startRest, stopRest } from '../rest'
 import {
+  addActiveExercise,
   discardWorkout,
+  findExercise,
   finishWorkout,
   logReps,
+  progressOf,
   setActiveWeight,
+  setIncrement,
   state,
   suggestedReps,
   tapSet,
@@ -28,9 +34,20 @@ import {
 const emit = defineEmits<{ close: [] }>()
 
 const workout = computed(() => state.active)
-const mode = ref<'workout' | 'warmup'>('workout')
+type Mode = 'workout' | 'warmup'
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'workout', label: 'Workout' },
+  { value: 'warmup', label: 'Warmup' },
+]
+const mode = ref<Mode>('workout')
 const editing = ref<number | null>(null)
 const confirming = ref(false)
+const picking = ref(false)
+
+function onPick(id: string) {
+  addActiveExercise(id)
+  picking.value = false
+}
 /** The max-reps set being entered. */
 const entry = ref<{ exerciseIndex: number; setIndex: number; reps: number } | null>(null)
 
@@ -38,9 +55,39 @@ const defaults = computed(() => UNIT_DEFAULTS[state.settings.unit])
 const editedLog = computed(() =>
   editing.value === null ? null : (workout.value?.exercises[editing.value] ?? null),
 )
-const weightedLogs = computed(
-  () => workout.value?.exercises.filter((log) => log.targetReps !== null) ?? [],
+const warmupLogs = computed(
+  () => workout.value?.exercises.filter((log) => isPlateLoaded(log.equipment)) ?? [],
 )
+/**
+ * Finished exercises sink to the bottom and fold up, so the top of the screen is what is left to do.
+ * The exercise tapped last stays where it is for a moment: the tap after a full set is
+ * how missed reps are entered, and the card must not jump away under the thumb.
+ */
+const SETTLE_MS = 2500
+const settling = ref<string | null>(null)
+const expanded = ref(new Set<string>())
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+
+function touch(id: string) {
+  settling.value = id
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(() => (settling.value = null), SETTLE_MS)
+}
+
+const ordered = computed(() => {
+  const items = (workout.value?.exercises ?? []).map((log, index) => ({
+    log,
+    index,
+    done: log.id !== settling.value && log.sets.every((reps) => reps !== null),
+  }))
+  return [...items.filter((item) => !item.done), ...items.filter((item) => item.done)]
+})
+const doneCount = computed(() => ordered.value.filter((item) => item.done).length)
+
+function toggle(id: string) {
+  if (!expanded.value.delete(id)) expanded.value.add(id)
+}
+
 const nothingLogged = computed(
   () => workout.value?.exercises.every((log) => outcome(log) === 'skipped') ?? true,
 )
@@ -58,6 +105,7 @@ function onTap(exerciseIndex: number, setIndex: number) {
     return
   }
   const reps = tapSet(exerciseIndex, setIndex)
+  touch(log.id)
   if (reps === null || isComplete(active)) {
     stopRest()
     return
@@ -69,16 +117,16 @@ function onTap(exerciseIndex: number, setIndex: number) {
   )
 }
 
-function setClass(log: ExerciseLog, reps: number | null) {
-  if (reps === null) return {}
-  const missed = log.targetReps !== null && reps < log.targetReps
-  return { done: !missed, missed }
+function setState(log: ExerciseLog, reps: number | null) {
+  if (reps === null) return 'empty'
+  return log.targetReps !== null && reps < log.targetReps ? 'missed' : 'done'
 }
 
 function saveEntry(reps: number | null) {
   const active = workout.value
   if (!active || !entry.value) return
   logReps(entry.value.exerciseIndex, entry.value.setIndex, reps)
+  touch(active.exercises[entry.value.exerciseIndex].id)
   entry.value = null
   if (reps === null || isComplete(active)) stopRest()
   else startRest(state.settings.restDone, 'Max set logged.')
@@ -120,6 +168,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(settleTimer)
   document.removeEventListener('visibilitychange', keepScreenOn)
   void wakeLock?.release()
 })
@@ -128,113 +177,173 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="workout" class="workout">
     <header class="bar">
-      <button class="link" @click="emit('close')">‹ Back</button>
-      <h1>Workout {{ workout.type }}</h1>
-      <button class="link" @click="onFinish">Finish</button>
+      <Button variant="ghost" size="md" @click="emit('close')">‹ Back</Button>
+      <h1>{{ workout.name }}</h1>
+      <Button variant="ghost" size="md" @click="onFinish">Finish</Button>
     </header>
 
-    <div class="segmented">
-      <button :aria-pressed="mode === 'workout'" @click="mode = 'workout'">Workout</button>
-      <button :aria-pressed="mode === 'warmup'" @click="mode = 'warmup'">Warmup</button>
-    </div>
+    <Segmented v-model="mode" :options="MODES" />
 
     <template v-if="mode === 'workout'">
-      <section v-for="(log, i) in workout.exercises" :key="log.id" class="exercise">
-        <div v-if="log.targetReps === null" class="exercise-head">
-          <span class="name">{{ EXERCISE_NAMES[log.id] }}</span>
-          <span class="target">{{ log.sets.length }}×max <strong>Bodyweight</strong></span>
-        </div>
-        <button v-else class="exercise-head" @click="editing = i">
-          <span class="name">{{ EXERCISE_NAMES[log.id] }}</span>
-          <span class="target">
-            {{ log.sets.length }}×{{ log.targetReps }}
-            <strong>{{ fmt(log.weight) }}</strong>
-            <span class="chevron" aria-hidden="true">›</span>
-          </span>
-        </button>
-        <div class="sets">
+      <template v-for="({ log, index: i, done }, position) in ordered" :key="log.id">
+        <p v-if="done && position === ordered.length - doneCount" class="eyebrow done-title">
+          Done · {{ doneCount }} of {{ ordered.length }}
+        </p>
+        <Card as="section" class="exercise" :class="{ done }">
           <button
-            v-for="(reps, j) in log.sets"
-            :key="j"
-            class="set"
-            :class="setClass(log, reps)"
-            :aria-label="`${EXERCISE_NAMES[log.id]} set ${j + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
-            @click="onTap(i, j)"
+            v-if="done"
+            class="done-head"
+            :aria-expanded="expanded.has(log.id)"
+            @click="toggle(log.id)"
           >
-            {{ reps ?? log.targetReps ?? '+' }}
+            <ExerciseImage :image="findExercise(log.id)?.image" :name="log.name" :size="40" />
+            <span class="done-name">{{ log.name }}</span>
+            <span class="done-reps">{{ log.sets.join(' · ') }}</span>
+            <span class="chevron" aria-hidden="true">{{ expanded.has(log.id) ? '⌃' : '⌄' }}</span>
           </button>
-        </div>
-        <p v-if="log.targetReps !== null" class="plates">{{ platesText(log.weight, log.id) }}</p>
-        <p v-else class="plates">As many reps as you can. Tap a set to enter them.</p>
-      </section>
+          <ExerciseImage
+            v-else
+            :image="findExercise(log.id)?.image"
+            :name="log.name"
+            variant="banner"
+          />
+          <div v-if="!done || expanded.has(log.id)" class="exercise-body">
+            <div v-if="log.equipment === 'bodyweight'" class="exercise-head">
+              <span class="name">{{ done ? 'Sets' : log.name }}</span>
+              <span class="target">
+                {{ log.sets.length }}×{{ log.targetReps ?? 'max' }} <strong>Bodyweight</strong>
+              </span>
+            </div>
+            <button v-else class="exercise-head" @click="editing = i">
+              <span class="name">{{ done ? 'Sets' : log.name }}</span>
+              <span class="target">
+                {{ log.sets.length }}×{{ log.targetReps ?? 'max' }}
+                <strong>{{ fmt(log.weight) }}</strong>
+                <span class="chevron" aria-hidden="true">›</span>
+              </span>
+            </button>
+            <div class="sets">
+              <SetButton
+                v-for="(reps, j) in log.sets"
+                :key="j"
+                :state="setState(log, reps)"
+                :aria-label="`${log.name} set ${j + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
+                @click="onTap(i, j)"
+              >
+                {{ reps ?? log.targetReps ?? '+' }}
+              </SetButton>
+            </div>
+            <p v-if="log.targetReps === null" class="plates">
+              As many reps as you can. Tap a set to enter them.
+            </p>
+            <p v-else-if="isPlateLoaded(log.equipment)" class="plates">
+              {{ platesText(log.weight, log.equipment) }}
+            </p>
+          </div>
+        </Card>
+      </template>
+      <Button block @click="picking = true">Add exercise</Button>
+      <Button v-if="doneCount === ordered.length" variant="primary" block @click="onFinish">
+        Finish workout
+      </Button>
       <p class="hint">Tap a set when you finish it. Tap again for every rep you missed.</p>
     </template>
 
     <template v-else>
-      <section v-for="log in weightedLogs" :key="log.id" class="card warmup">
+      <p v-if="warmupLogs.length === 0" class="hint">
+        Warmup sets are worked out for barbell and plate machine exercises.
+      </p>
+      <Card v-for="log in warmupLogs" as="section" class="warmup" :key="log.id">
         <div class="row">
-          <h2>{{ EXERCISE_NAMES[log.id] }}</h2>
+          <h2>{{ log.name }}</h2>
           <span class="muted">Work set {{ fmt(log.weight) }}</span>
         </div>
         <p
-          v-if="warmupSets(log.weight, emptyWeightFor(log.id), defaults.step).length === 0"
+          v-if="warmupSets(log.weight, emptyWeightFor(log.equipment), defaults.step).length === 0"
           class="muted"
         >
           No warmup needed at this weight.
         </p>
         <ol v-else>
           <li
-            v-for="(set, k) in warmupSets(log.weight, emptyWeightFor(log.id), defaults.step)"
+            v-for="(set, k) in warmupSets(log.weight, emptyWeightFor(log.equipment), defaults.step)"
             :key="k"
           >
             <span class="reps">{{ set.sets }}×{{ set.reps }}</span>
             <strong>{{ fmt(set.weight) }}</strong>
-            <span class="muted">{{ platesText(set.weight, log.id) }}</span>
+            <span class="muted">{{ platesText(set.weight, log.equipment) }}</span>
           </li>
         </ol>
-      </section>
+      </Card>
     </template>
 
     <RestTimer />
 
-    <BottomSheet
+    <ExercisePicker
+      v-if="picking"
+      :exclude="workout.exercises.map((log) => log.id)"
+      @pick="onPick"
+      @close="picking = false"
+    />
+
+    <Sheet
       v-if="editedLog && editing !== null"
-      :title="EXERCISE_NAMES[editedLog.id]"
+      :title="editedLog.name"
       @close="editing = null"
     >
       <div class="row">
         <span class="muted">Weight</span>
-        <WeightStepper
+        <Stepper
           :model-value="editedLog.weight"
-          :step="defaults.step"
-          :min="defaults.step"
+          :step="stepFor(editedLog.equipment, state.settings.unit)"
+          :min="stepFor(editedLog.equipment, state.settings.unit)"
           label="weight"
           :format="(value: number) => fmt(value)"
           @update:model-value="setActiveWeight(editing, $event)"
         />
       </div>
-      <BarbellPlates :plates="loadFor(editedLog.weight, editedLog.id).plates" :largest="defaults.plates[0]" />
-      <p class="sheet-plates">{{ platesText(editedLog.weight, editedLog.id) }}</p>
-      <p class="muted sheet-bar">
-        {{ isMachine(editedLog.id) ? 'Plates only. The sled is not counted.' : `Bar ${fmt(state.settings.bar)}` }}
-      </p>
-      <button class="btn btn-primary" @click="editing = null">Done</button>
-    </BottomSheet>
+      <template v-if="isPlateLoaded(editedLog.equipment)">
+        <BarbellPlates
+          :plates="loadFor(editedLog.weight, editedLog.equipment).plates"
+          :largest="defaults.plates[0]"
+        />
+        <p class="sheet-plates">{{ platesText(editedLog.weight, editedLog.equipment) }}</p>
+        <p class="muted sheet-bar">
+          {{
+            editedLog.equipment === 'machine'
+              ? 'Plates only. The sled is not counted.'
+              : `Bar ${fmt(state.settings.bar)}`
+          }}
+        </p>
+      </template>
+      <div v-if="editedLog.targetReps !== null" class="row">
+        <span class="muted">Add after all reps</span>
+        <Stepper
+          :model-value="progressOf(editedLog.id).increment"
+          :step="incrementStep(state.settings.unit)"
+          :min="incrementStep(state.settings.unit)"
+          label="weight added after a full workout"
+          :format="(value: number) => `+${fmt(value)}`"
+          @update:model-value="setIncrement(editedLog.id, $event)"
+        />
+      </div>
+      <Button variant="primary" block @click="editing = null">Done</Button>
+    </Sheet>
 
-    <BottomSheet
+    <Sheet
       v-if="entry"
-      :title="`${EXERCISE_NAMES[workout.exercises[entry.exerciseIndex].id]} · Set ${entry.setIndex + 1}`"
+      :title="`${workout.exercises[entry.exerciseIndex].name} · Set ${entry.setIndex + 1}`"
       @close="entry = null"
     >
       <div class="row">
         <span class="muted">Reps</span>
-        <WeightStepper v-model="entry.reps" :step="1" label="reps" />
+        <Stepper v-model="entry.reps" :step="1" label="reps" />
       </div>
-      <button class="btn btn-primary" @click="saveEntry(entry.reps)">Save set</button>
-      <button class="btn" @click="saveEntry(null)">Clear set</button>
-    </BottomSheet>
+      <Button variant="primary" block @click="saveEntry(entry.reps)">Save set</Button>
+      <Button block @click="saveEntry(null)">Clear set</Button>
+    </Sheet>
 
-    <BottomSheet
+    <Sheet
       v-if="confirming"
       :title="nothingLogged ? 'Nothing logged' : 'Finish early?'"
       @close="confirming = false"
@@ -246,10 +355,10 @@ onBeforeUnmount(() => {
             : 'Some sets are not logged. Unfinished exercises count as missed, so their weight stays the same next time.'
         }}
       </p>
-      <button v-if="nothingLogged" class="btn btn-danger" @click="discard">Discard workout</button>
-      <button v-else class="btn btn-primary" @click="finish">Finish workout</button>
-      <button class="btn" @click="confirming = false">Keep going</button>
-    </BottomSheet>
+      <Button v-if="nothingLogged" tone="danger" block @click="discard">Discard workout</Button>
+      <Button v-else variant="primary" block @click="finish">Finish workout</Button>
+      <Button block @click="confirming = false">Keep going</Button>
+    </Sheet>
   </div>
 </template>
 
@@ -272,20 +381,54 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.bar .link:first-child {
+.bar > :first-child {
   justify-self: start;
 }
 
-.bar .link:last-child {
+.bar > :last-child {
   justify-self: end;
 }
 
 .exercise {
   display: flex;
   flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.done-title {
+  margin-top: 8px;
+}
+
+.done-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 16px 10px 10px;
+  text-align: left;
+}
+
+.done-name {
+  flex: 1;
+  font-weight: 700;
+}
+
+.done-reps {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.done .exercise-body {
+  padding-top: 0;
+}
+
+.exercise-body {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 12px 16px 16px;
 }
 
 .exercise-head {
@@ -321,35 +464,6 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 10px;
-}
-
-.set {
-  aspect-ratio: 1;
-  max-width: 68px;
-  width: 100%;
-  border-radius: 50%;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 20px;
-  font-weight: 700;
-  transition:
-    background-color 0.12s ease,
-    transform 0.08s ease;
-}
-
-.set:active {
-  transform: scale(0.94);
-}
-
-.set.done {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
-.set.missed {
-  background: transparent;
-  color: var(--warn);
-  box-shadow: inset 0 0 0 2px var(--warn);
 }
 
 .plates {

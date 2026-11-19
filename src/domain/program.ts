@@ -1,61 +1,53 @@
-import { roundTo, type Unit } from './units'
+import type { Equipment, Exercise } from './exercises'
+import { convert, roundTo, type Unit } from './units'
 
-export type WeightedId = 'hackSquat' | 'bench' | 'row' | 'ohp' | 'deadlift'
-export type BodyweightId = 'dips' | 'pullups'
-export type ExerciseId = WeightedId | BodyweightId
-export type WorkoutType = 'A' | 'B'
-
-export const WEIGHTED_IDS: WeightedId[] = ['hackSquat', 'bench', 'row', 'ohp', 'deadlift']
-const BODYWEIGHT_IDS: BodyweightId[] = ['dips', 'pullups']
-export const EXERCISE_IDS: ExerciseId[] = [...WEIGHTED_IDS, ...BODYWEIGHT_IDS]
-
-export const EXERCISE_NAMES: Record<ExerciseId, string> = {
-  hackSquat: 'Hack Squat',
-  bench: 'Bench Press',
-  row: 'Barbell Row',
-  ohp: 'Overhead Press',
-  deadlift: 'Deadlift',
-  dips: 'Dips',
-  pullups: 'Pull-ups',
-}
-
-/** Bodyweight exercises carry no load: only the reps are logged. */
-export function isBodyweight(id: ExerciseId): id is BodyweightId {
-  return (BODYWEIGHT_IDS as ExerciseId[]).includes(id)
-}
-
-/** Machine exercises have no bar: the logged weight is only the plates on the sled. */
-const MACHINE_EXERCISES: ReadonlySet<ExerciseId> = new Set(['hackSquat'])
-
-export function isMachine(id: ExerciseId): boolean {
-  return MACHINE_EXERCISES.has(id)
-}
-
-/** Weight that is on the exercise before any plates are loaded. */
-export function emptyWeight(id: ExerciseId, bar: number): number {
-  return isMachine(id) ? 0 : bar
-}
-
-interface Slot {
-  id: ExerciseId
+export interface Slot {
+  exerciseId: string
   sets: number
   /** null = as many reps as possible. */
   reps: number | null
 }
 
-export const PROGRAM: Record<WorkoutType, Slot[]> = {
-  A: [
-    { id: 'hackSquat', sets: 5, reps: 5 },
-    { id: 'bench', sets: 5, reps: 5 },
-    { id: 'row', sets: 5, reps: 5 },
-    { id: 'dips', sets: 3, reps: null },
-  ],
-  B: [
-    { id: 'hackSquat', sets: 5, reps: 5 },
-    { id: 'ohp', sets: 5, reps: 5 },
-    { id: 'deadlift', sets: 1, reps: 5 },
-    { id: 'pullups', sets: 3, reps: null },
-  ],
+/** A workout the lifter has set up: a name and the exercises to do. */
+export interface Routine {
+  id: string
+  name: string
+  slots: Slot[]
+}
+
+export const MAX_SETS = 10
+export const MAX_REPS = 30
+
+export function defaultRoutines(): Routine[] {
+  return [
+    {
+      id: 'A',
+      name: 'Workout A',
+      slots: [
+        { exerciseId: 'hackSquat', sets: 5, reps: 5 },
+        { exerciseId: 'bench', sets: 5, reps: 5 },
+        { exerciseId: 'row', sets: 5, reps: 5 },
+        { exerciseId: 'dips', sets: 3, reps: null },
+      ],
+    },
+    {
+      id: 'B',
+      name: 'Workout B',
+      slots: [
+        { exerciseId: 'hackSquat', sets: 5, reps: 5 },
+        { exerciseId: 'ohp', sets: 5, reps: 5 },
+        { exerciseId: 'deadlift', sets: 1, reps: 5 },
+        { exerciseId: 'pullups', sets: 3, reps: null },
+      ],
+    },
+  ]
+}
+
+/** Sets and reps a newly added exercise starts with. */
+export function defaultSlot(exercise: Exercise): Slot {
+  if (exercise.equipment === 'bodyweight') return { exerciseId: exercise.id, sets: 3, reps: null }
+  if (exercise.equipment === 'weight') return { exerciseId: exercise.id, sets: 3, reps: 10 }
+  return { exerciseId: exercise.id, sets: 5, reps: 5 }
 }
 
 interface UnitDefaults {
@@ -63,25 +55,36 @@ interface UnitDefaults {
   /** Smallest jump the bar can make: two of the smallest plates. */
   step: number
   plates: number[]
-  start: Record<WeightedId, number>
-  increment: Record<WeightedId, number>
 }
 
 export const UNIT_DEFAULTS: Record<Unit, UnitDefaults> = {
-  kg: {
-    bar: 20,
-    step: 2.5,
-    plates: [25, 20, 15, 10, 5, 2.5, 1.25],
-    start: { hackSquat: 80, bench: 80, row: 60, ohp: 40, deadlift: 100 },
-    increment: { hackSquat: 5, bench: 2.5, row: 2.5, ohp: 2.5, deadlift: 5 },
-  },
-  lb: {
-    bar: 45,
-    step: 5,
-    plates: [45, 35, 25, 10, 5, 2.5],
-    start: { hackSquat: 180, bench: 175, row: 135, ohp: 90, deadlift: 220 },
-    increment: { hackSquat: 10, bench: 5, row: 5, ohp: 5, deadlift: 10 },
-  },
+  kg: { bar: 20, step: 2.5, plates: [25, 20, 15, 10, 5, 2.5, 1.25] },
+  lb: { bar: 45, step: 5, plates: [45, 35, 25, 10, 5, 2.5] },
+}
+
+const FINE_STEP: Record<Unit, number> = { kg: 1, lb: 2.5 }
+const INCREMENT_STEP: Record<Unit, number> = { kg: 0.5, lb: 2.5 }
+const INCREMENTS: Record<Unit, number[]> = {
+  kg: [0.5, 1, 1.25, 2, 2.5, 5, 7.5, 10],
+  lb: [2.5, 5, 10, 15, 20],
+}
+
+/** Smallest weight change: plate pairs on a bar, finer for dumbbells and weight stacks. */
+export function stepFor(equipment: Equipment, unit: Unit): number {
+  return equipment === 'weight' ? FINE_STEP[unit] : UNIT_DEFAULTS[unit].step
+}
+
+export function incrementStep(unit: Unit): number {
+  return INCREMENT_STEP[unit]
+}
+
+export function isPlateLoaded(equipment: Equipment): boolean {
+  return equipment === 'barbell' || equipment === 'machine'
+}
+
+/** Weight that is on the exercise before any plates are loaded. */
+export function emptyWeight(equipment: Equipment, bar: number): number {
+  return equipment === 'barbell' ? bar : 0
 }
 
 export const DELOAD_AFTER_FAILS = 3
@@ -91,12 +94,49 @@ export interface ExerciseProgress {
   weight: number
   /** Workouts in a row where this weight was not completed. */
   fails: number
+  /** Weight a fully completed workout adds. */
+  increment: number
 }
 
-export type Progress = Record<WeightedId, ExerciseProgress>
+export type Progress = Record<string, ExerciseProgress>
+
+function nearest(value: number, options: number[]): number {
+  return options.reduce((best, option) =>
+    Math.abs(option - value) < Math.abs(best - value) ? option : best,
+  )
+}
+
+function convertWeight(weight: number, equipment: Equipment, from: Unit, to: Unit): number {
+  const step = stepFor(equipment, to)
+  return Math.max(step, roundTo(convert(weight, from, to), step))
+}
+
+export function startProgress(exercise: Exercise, unit: Unit): ExerciseProgress {
+  return {
+    weight: convertWeight(exercise.start, exercise.equipment, 'kg', unit),
+    fails: 0,
+    increment: nearest(convert(exercise.increment, 'kg', unit), INCREMENTS[unit]),
+  }
+}
+
+export function convertProgress(
+  entry: ExerciseProgress,
+  equipment: Equipment,
+  from: Unit,
+  to: Unit,
+): ExerciseProgress {
+  return {
+    weight: convertWeight(entry.weight, equipment, from, to),
+    fails: entry.fails,
+    increment: nearest(convert(entry.increment, from, to), INCREMENTS[to]),
+  }
+}
 
 export interface ExerciseLog {
-  id: ExerciseId
+  id: string
+  /** Name and equipment are copied in, so the log still reads right after the exercise is deleted. */
+  name: string
+  equipment: Equipment
   /** 0 for bodyweight exercises. */
   weight: number
   /** null = as many reps as possible. */
@@ -107,7 +147,8 @@ export interface ExerciseLog {
 
 export interface Workout {
   id: string
-  type: WorkoutType
+  routineId: string
+  name: string
   unit: Unit
   startedAt: number
   finishedAt: number | null
@@ -117,21 +158,36 @@ export interface Workout {
 export type Outcome = 'success' | 'fail' | 'skipped'
 
 export interface Change {
-  id: WeightedId
+  id: string
+  name: string
   kind: 'up' | 'repeat' | 'deload'
   from: number
   to: number
 }
 
-export function initialProgress(unit: Unit): Progress {
-  const start = UNIT_DEFAULTS[unit].start
-  return Object.fromEntries(
-    WEIGHTED_IDS.map((id) => [id, { weight: start[id], fails: 0 }]),
-  ) as Progress
+export function createLog(
+  exercise: Exercise,
+  slot: Slot,
+  progress: Progress,
+  unit: Unit,
+): ExerciseLog {
+  return {
+    id: exercise.id,
+    name: exercise.name,
+    equipment: exercise.equipment,
+    weight:
+      exercise.equipment === 'bodyweight'
+        ? 0
+        : (progress[exercise.id] ?? startProgress(exercise, unit)).weight,
+    targetReps: slot.reps,
+    sets: Array.from({ length: slot.sets }, () => null),
+  }
 }
 
+/** Slots whose exercise no longer exists are left out. */
 export function createWorkout(
-  type: WorkoutType,
+  routine: Routine,
+  find: (id: string) => Exercise | undefined,
   progress: Progress,
   unit: Unit,
   now: number,
@@ -139,16 +195,15 @@ export function createWorkout(
 ): Workout {
   return {
     id,
-    type,
+    routineId: routine.id,
+    name: routine.name,
     unit,
     startedAt: now,
     finishedAt: null,
-    exercises: PROGRAM[type].map((slot) => ({
-      id: slot.id,
-      weight: isBodyweight(slot.id) ? 0 : progress[slot.id].weight,
-      targetReps: slot.reps,
-      sets: Array.from({ length: slot.sets }, () => null),
-    })),
+    exercises: routine.slots.flatMap((slot) => {
+      const exercise = find(slot.exerciseId)
+      return exercise ? [createLog(exercise, slot, progress, unit)] : []
+    }),
   }
 }
 
@@ -170,8 +225,11 @@ export function isComplete(workout: Workout): boolean {
   return workout.exercises.every((log) => log.sets.every((reps) => reps !== null))
 }
 
-export function otherType(type: WorkoutType): WorkoutType {
-  return type === 'A' ? 'B' : 'A'
+/** Workouts rotate in list order. A workout that was deleted meanwhile leaves the choice alone. */
+export function nextRoutineId(routines: Routine[], finishedId: string, current: string): string {
+  const index = routines.findIndex((routine) => routine.id === finishedId)
+  if (index === -1) return current
+  return routines[(index + 1) % routines.length].id
 }
 
 export function totalReps(log: ExerciseLog): number {
@@ -181,39 +239,40 @@ export function totalReps(log: ExerciseLog): number {
 /**
  * Progressive overload: all reps done -> add weight next time.
  * Missed reps -> repeat the weight. Three misses in a row -> drop 10%.
- * Bodyweight exercises have no weight to progress.
+ * Bodyweight and max-reps exercises have no target weight to progress.
  */
 export function applyProgression(
   progress: Progress,
   workout: Workout,
   bar: number,
 ): { progress: Progress; changes: Change[] } {
-  const defaults = UNIT_DEFAULTS[workout.unit]
   const next: Progress = { ...progress }
   const changes: Change[] = []
 
   for (const log of workout.exercises) {
-    const id = log.id
-    if (isBodyweight(id)) continue
+    const { id, name } = log
+    const entry = progress[id]
+    if (!entry || log.equipment === 'bodyweight' || log.targetReps === null) continue
     const result = outcome(log)
     if (result === 'skipped') continue
 
     if (result === 'success') {
-      const to = log.weight + defaults.increment[id]
-      next[id] = { weight: to, fails: 0 }
-      changes.push({ id, kind: 'up', from: log.weight, to })
+      const to = log.weight + entry.increment
+      next[id] = { ...entry, weight: to, fails: 0 }
+      changes.push({ id, name, kind: 'up', from: log.weight, to })
       continue
     }
 
-    const fails = progress[id].fails + 1
+    const fails = entry.fails + 1
     if (fails >= DELOAD_AFTER_FAILS) {
-      const floor = Math.max(defaults.step, emptyWeight(id, bar))
-      const to = Math.max(floor, roundTo(log.weight * DELOAD_FACTOR, defaults.step))
-      next[id] = { weight: to, fails: 0 }
-      changes.push({ id, kind: 'deload', from: log.weight, to })
+      const step = stepFor(log.equipment, workout.unit)
+      const floor = Math.max(step, emptyWeight(log.equipment, bar))
+      const to = Math.max(floor, roundTo(log.weight * DELOAD_FACTOR, step))
+      next[id] = { ...entry, weight: to, fails: 0 }
+      changes.push({ id, name, kind: 'deload', from: log.weight, to })
     } else {
-      next[id] = { weight: log.weight, fails }
-      changes.push({ id, kind: 'repeat', from: log.weight, to: log.weight })
+      next[id] = { ...entry, weight: log.weight, fails }
+      changes.push({ id, name, kind: 'repeat', from: log.weight, to: log.weight })
     }
   }
 

@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, useTemplateRef } from 'vue'
+import IconButton from './IconButton.vue'
+
+/**
+ * A dialog that rises from the bottom edge, in reach of the thumb.
+ * Closes on the backdrop, the close button and Escape, and hands focus back to what opened it.
+ */
 
 defineProps<{ title: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -28,7 +34,7 @@ onBeforeUnmount(() => {
     <section ref="sheet" class="sheet" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1">
       <header class="row">
         <h2>{{ title }}</h2>
-        <button class="close" aria-label="Close" @click="emit('close')">✕</button>
+        <IconButton label="Close" tone="muted" round @click="emit('close')">✕</IconButton>
       </header>
       <slot />
     </section>
@@ -67,14 +73,6 @@ onBeforeUnmount(() => {
 h2 {
   font-size: 20px;
   font-weight: 800;
-}
-
-.close {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--surface-2);
-  color: var(--muted);
 }
 
 @keyframes rise {

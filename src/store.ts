@@ -1,108 +1,30 @@
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import {
+  CATALOG,
+  catalogExercise,
+  customExercise,
+  type Equipment,
+  type Exercise,
+} from './domain/exercises'
 import {
   applyProgression,
+  convertProgress,
+  createLog,
   createWorkout,
-  isBodyweight,
-  initialProgress,
+  defaultSlot,
   nextReps,
-  otherType,
+  nextRoutineId,
   outcome,
+  startProgress,
   UNIT_DEFAULTS,
-  WEIGHTED_IDS,
   type Change,
-  type ExerciseId,
-  type WeightedId,
-  type Progress,
-  type Workout,
-  type WorkoutType,
+  type ExerciseProgress,
+  type Routine,
 } from './domain/program'
-import { convert, roundTo, type Unit } from './domain/units'
+import { freshState, isAppState, migrate, type AppState } from './domain/state'
+import type { Unit } from './domain/units'
 
 const STORAGE_KEY = 'eisen:v1'
-
-export interface Settings {
-  unit: Unit
-  bar: number
-  /** Rest in seconds after a set with all reps. */
-  restDone: number
-  /** Rest in seconds after a set with missed reps. */
-  restMissed: number
-  sound: boolean
-}
-
-export interface AppState {
-  version: 3
-  settings: Settings
-  progress: Progress
-  nextType: WorkoutType
-  active: Workout | null
-  /** Finished workouts, newest first. */
-  history: Workout[]
-}
-
-function freshState(unit: Unit = 'kg'): AppState {
-  return {
-    version: 3,
-    settings: { unit, bar: UNIT_DEFAULTS[unit].bar, restDone: 90, restMissed: 300, sound: true },
-    progress: initialProgress(unit),
-    nextType: 'A',
-    active: null,
-    history: [],
-  }
-}
-
-interface StoredState {
-  version?: number
-  settings?: { unit?: Unit }
-  progress?: Partial<Record<WeightedId, { weight?: number }>>
-  history?: unknown[]
-  active?: unknown
-}
-
-/** Starting weights that version 2 shipped with, to tell an untouched install from an edited one. */
-const V2_START: Record<Unit, Record<WeightedId, number>> = {
-  kg: { hackSquat: 20, bench: 20, row: 30, ohp: 20, deadlift: 40 },
-  lb: { hackSquat: 50, bench: 45, row: 65, ohp: 45, deadlift: 95 },
-}
-
-function migrate(value: unknown): unknown {
-  let data = value as StoredState | null
-  if (typeof data !== 'object' || data === null) return value
-
-  // Version 1 had the barbell squat where the hack squat is now. Its logs carry over.
-  if (data.version === 1) {
-    data = JSON.parse(
-      JSON.stringify({ ...data, version: 2 })
-        .replaceAll('"id":"squat"', '"id":"hackSquat"')
-        .replaceAll('"squat":{', '"hackSquat":{'),
-    ) as StoredState
-  }
-
-  // Version 3 changed the starting weights. An install still on the old ones gets the new ones.
-  if (data.version === 2) {
-    const unit = data.settings?.unit === 'lb' ? 'lb' : 'kg'
-    const progress = data.progress
-    const untouched =
-      data.history?.length === 0 &&
-      data.active === null &&
-      WEIGHTED_IDS.every((id) => progress?.[id]?.weight === V2_START[unit][id])
-    data = { ...data, version: 3, ...(untouched ? { progress: initialProgress(unit) } : {}) }
-  }
-
-  return data
-}
-
-function isAppState(value: unknown): value is AppState {
-  const candidate = value as Partial<AppState> | null
-  return (
-    typeof candidate === 'object' &&
-    candidate !== null &&
-    candidate.version === 3 &&
-    Array.isArray(candidate.history) &&
-    typeof candidate.settings === 'object' &&
-    typeof candidate.progress === 'object'
-  )
-}
 
 function load(): AppState {
   try {
@@ -134,15 +56,69 @@ watch(
 /** What the last finished workout changed. Shown once on the home screen. */
 export const lastChanges = ref<Change[] | null>(null)
 
-export function startWorkout(): void {
-  if (state.active) return
-  lastChanges.value = null
-  state.active = createWorkout(
-    state.nextType,
+function newId(): string {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** The built-in exercises followed by the lifter's own. */
+export const exercises = computed<Exercise[]>(() => [...CATALOG, ...state.customExercises])
+
+export function findExercise(id: string): Exercise | undefined {
+  return catalogExercise(id) ?? state.customExercises.find((exercise) => exercise.id === id)
+}
+
+const NO_PROGRESS: ExerciseProgress = { weight: 0, fails: 0, increment: 0 }
+
+/** The working weight of an exercise, or its starting weight when it was never used. */
+export function progressOf(id: string): ExerciseProgress {
+  const stored = state.progress[id]
+  if (stored) return stored
+  const exercise = findExercise(id)
+  if (!exercise || exercise.equipment === 'bodyweight') return NO_PROGRESS
+  return startProgress(exercise, state.settings.unit)
+}
+
+function ensureProgress(id: string): ExerciseProgress | null {
+  const exercise = findExercise(id)
+  if (!exercise || exercise.equipment === 'bodyweight') return null
+  state.progress[id] ??= startProgress(exercise, state.settings.unit)
+  return state.progress[id]
+}
+
+export const nextRoutine = computed<Routine>(
+  () => state.routines.find((routine) => routine.id === state.nextRoutineId) ?? state.routines[0],
+)
+
+export function selectRoutine(id: string): void {
+  if (!state.active) state.nextRoutineId = id
+}
+
+export function startWorkout(): boolean {
+  if (state.active) return true
+  const routine = nextRoutine.value
+  for (const slot of routine.slots) ensureProgress(slot.exerciseId)
+  const workout = createWorkout(
+    routine,
+    findExercise,
     state.progress,
     state.settings.unit,
     Date.now(),
-    crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    newId(),
+  )
+  if (workout.exercises.length === 0) return false
+  lastChanges.value = null
+  state.active = workout
+  return true
+}
+
+/** Adds an exercise to the running workout only. The workout it was started from stays as it is. */
+export function addActiveExercise(id: string): void {
+  const workout = state.active
+  const exercise = findExercise(id)
+  if (!workout || !exercise || workout.exercises.some((log) => log.id === id)) return
+  ensureProgress(id)
+  workout.exercises.push(
+    createLog(exercise, defaultSlot(exercise), state.progress, state.settings.unit),
   )
 }
 
@@ -156,9 +132,10 @@ export function tapSet(exerciseIndex: number, setIndex: number): number | null {
 
 export function setActiveWeight(exerciseIndex: number, weight: number): void {
   const log = state.active?.exercises[exerciseIndex]
-  if (!log || isBodyweight(log.id)) return
+  const entry = log && ensureProgress(log.id)
+  if (!log || !entry) return
   log.weight = weight
-  state.progress[log.id].weight = weight
+  entry.weight = weight
 }
 
 /** Logs a max-reps set, where the lifter enters the count instead of tapping it down. */
@@ -168,7 +145,7 @@ export function logReps(exerciseIndex: number, setIndex: number, reps: number | 
 }
 
 /** Starting point for a max-reps entry: what this set got last time. */
-export function suggestedReps(id: ExerciseId, setIndex: number): number {
+export function suggestedReps(id: string, setIndex: number): number {
   for (const workout of state.history) {
     const reps = workout.exercises.find((log) => log.id === id)?.sets[setIndex]
     if (reps !== null && reps !== undefined) return reps
@@ -176,10 +153,19 @@ export function suggestedReps(id: ExerciseId, setIndex: number): number {
   return 8
 }
 
-export function setProgressWeight(id: WeightedId, weight: number): void {
-  state.progress[id] = { weight, fails: 0 }
-  const log = state.active?.exercises.find((entry) => entry.id === id)
-  if (log) log.weight = weight
+export function setProgressWeight(id: string, weight: number): void {
+  const entry = ensureProgress(id)
+  if (!entry) return
+  entry.weight = weight
+  entry.fails = 0
+  for (const log of state.active?.exercises ?? []) {
+    if (log.id === id) log.weight = weight
+  }
+}
+
+export function setIncrement(id: string, increment: number): void {
+  const entry = ensureProgress(id)
+  if (entry) entry.increment = increment
 }
 
 export function discardWorkout(): void {
@@ -196,7 +182,7 @@ export function finishWorkout(): void {
   const result = applyProgression(state.progress, workout, state.settings.bar)
   state.progress = result.progress
   state.history.unshift({ ...workout, finishedAt: Date.now() })
-  state.nextType = otherType(workout.type)
+  state.nextRoutineId = nextRoutineId(state.routines, workout.routineId, nextRoutine.value.id)
   state.active = null
   lastChanges.value = result.changes
 }
@@ -205,17 +191,69 @@ export function deleteWorkout(id: string): void {
   state.history = state.history.filter((workout) => workout.id !== id)
 }
 
+export function addRoutine(): Routine {
+  const taken = new Set(state.routines.map((routine) => routine.name))
+  let number = state.routines.length + 1
+  while (taken.has(`Workout ${number}`)) number++
+  state.routines.push({ id: newId(), name: `Workout ${number}`, slots: [] })
+  return state.routines[state.routines.length - 1]
+}
+
+/** The last workout stays: the home screen always needs one to offer. */
+export function removeRoutine(id: string): void {
+  if (state.routines.length <= 1) return
+  state.routines = state.routines.filter((routine) => routine.id !== id)
+  if (state.nextRoutineId === id) state.nextRoutineId = state.routines[0].id
+}
+
+export function addSlot(routine: Routine, exerciseId: string): void {
+  const exercise = findExercise(exerciseId)
+  if (!exercise || routine.slots.some((slot) => slot.exerciseId === exerciseId)) return
+  ensureProgress(exerciseId)
+  routine.slots.push(defaultSlot(exercise))
+}
+
+export function moveSlot(routine: Routine, index: number, direction: 1 | -1): void {
+  const target = index + direction
+  if (target < 0 || target >= routine.slots.length) return
+  const [slot] = routine.slots.splice(index, 1)
+  routine.slots.splice(target, 0, slot)
+}
+
+export function removeSlot(routine: Routine, index: number): void {
+  routine.slots.splice(index, 1)
+}
+
+export function addCustomExercise(name: string, equipment: Equipment): Exercise | null {
+  const trimmed = name.trim().slice(0, 40)
+  if (!trimmed) return null
+  const lower = trimmed.toLowerCase()
+  const existing = exercises.value.find((exercise) => exercise.name.toLowerCase() === lower)
+  if (existing) return existing
+  const exercise = customExercise(`custom-${newId()}`, trimmed, equipment)
+  state.customExercises.push(exercise)
+  return exercise
+}
+
+/** Removes the exercise from every workout. Finished workouts keep their logs of it. */
+export function deleteCustomExercise(id: string): void {
+  state.customExercises = state.customExercises.filter((exercise) => exercise.id !== id)
+  for (const routine of state.routines) {
+    routine.slots = routine.slots.filter((slot) => slot.exerciseId !== id)
+  }
+  delete state.progress[id]
+}
+
 /** Converts the working weights. Blocked during a workout so its log stays in one unit. */
 export function setUnit(unit: Unit): void {
   if (state.active || unit === state.settings.unit) return
   const from = state.settings.unit
-  const defaults = UNIT_DEFAULTS[unit]
-  for (const id of WEIGHTED_IDS) {
-    const converted = roundTo(convert(state.progress[id].weight, from, unit), defaults.step)
-    state.progress[id].weight = Math.max(defaults.step, converted)
+  for (const [id, entry] of Object.entries(state.progress)) {
+    const equipment = findExercise(id)?.equipment ?? 'barbell'
+    state.progress[id] = convertProgress(entry, equipment, from, unit)
   }
   state.settings.unit = unit
-  state.settings.bar = defaults.bar
+  state.settings.bar = UNIT_DEFAULTS[unit].bar
 }
 
 export function exportData(): string {

@@ -1,47 +1,46 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { EXERCISE_NAMES, isBodyweight, type Workout } from '../domain/program'
+import { Card, ConfirmButton } from '../components/ui'
+import CopyMarkdown from '../components/CopyMarkdown.vue'
+import type { Workout } from '../domain/program'
+import { durationMinutes } from '../domain/share'
 import { fmt, formatDate } from '../format'
 import { deleteWorkout, state } from '../store'
 
-const pendingDelete = ref<string | null>(null)
-
 function duration(workout: Workout): string {
-  if (workout.finishedAt === null) return ''
-  return `${Math.max(1, Math.round((workout.finishedAt - workout.startedAt) / 60000))} min`
+  const minutes = durationMinutes(workout)
+  return minutes === null ? '' : `${minutes} min`
 }
 
-function onDelete(id: string) {
-  if (pendingDelete.value !== id) {
-    pendingDelete.value = id
-    return
-  }
-  deleteWorkout(id)
-  pendingDelete.value = null
-}
 </script>
 
 <template>
   <h1 class="page-title">History</h1>
 
-  <p v-if="state.history.length === 0" class="card muted">
+  <Card v-if="state.history.length === 0" as="p" class="muted">
     No workouts yet. Finish your first one and it shows up here.
-  </p>
+  </Card>
 
-  <article v-for="workout in state.history" :key="workout.id" class="card">
+  <Card v-for="workout in state.history" as="article" :key="workout.id">
     <header class="row">
       <div>
-        <h2>Workout {{ workout.type }}</h2>
+        <h2>{{ workout.name }}</h2>
         <p class="muted meta">{{ formatDate(workout.startedAt) }} · {{ duration(workout) }}</p>
       </div>
-      <button class="link link-danger" @click="onDelete(workout.id)">
-        {{ pendingDelete === workout.id ? 'Tap to confirm' : 'Delete' }}
-      </button>
+      <div class="actions">
+        <CopyMarkdown variant="ghost" size="md" :workout="workout" />
+        <ConfirmButton
+          variant="ghost"
+          size="md"
+          label="Delete"
+          confirm-label="Confirm"
+          @confirm="deleteWorkout(workout.id)"
+        />
+      </div>
     </header>
     <ul>
       <li v-for="log in workout.exercises" :key="log.id">
-        <span class="name">{{ EXERCISE_NAMES[log.id] }}</span>
-        <strong>{{ isBodyweight(log.id) ? 'BW' : fmt(log.weight, workout.unit) }}</strong>
+        <span class="name">{{ log.name }}</span>
+        <strong>{{ log.equipment === 'bodyweight' ? 'BW' : fmt(log.weight, workout.unit) }}</strong>
         <span class="reps">
           <span
             v-for="(reps, index) in log.sets"
@@ -52,13 +51,19 @@ function onDelete(id: string) {
         </span>
       </li>
     </ul>
-  </article>
+  </Card>
 </template>
 
 <style scoped>
 h2 {
   font-size: 18px;
   font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
 }
 
 .meta {
@@ -73,7 +78,7 @@ ul {
 
 li {
   display: grid;
-  grid-template-columns: 1fr 64px 92px;
+  grid-template-columns: 1fr 64px minmax(92px, auto);
   gap: 8px;
   align-items: baseline;
   padding: 8px 0;

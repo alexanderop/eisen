@@ -1,19 +1,41 @@
 <script setup lang="ts">
+import { Card, ChipGroup } from '../components/ui'
 import { computed, ref } from 'vue'
 import LineChart from '../components/LineChart.vue'
-import {
-  EXERCISE_IDS,
-  EXERCISE_NAMES,
-  isBodyweight,
-  totalReps,
-  UNIT_DEFAULTS,
-  type ExerciseId,
-} from '../domain/program'
+import type { Equipment } from '../domain/exercises'
+import { stepFor, totalReps } from '../domain/program'
 import { convert, roundTo, type Unit } from '../domain/units'
 import { fmt } from '../format'
-import { state } from '../store'
+import { findExercise, progressOf, state } from '../store'
 
-const selected = ref<ExerciseId>('hackSquat')
+interface Option {
+  id: string
+  name: string
+  equipment: Equipment
+}
+
+/** Exercises in the current workouts first, then ones that only exist in the history. */
+const options = computed(() => {
+  const found = new Map<string, Option>()
+  for (const routine of state.routines) {
+    for (const slot of routine.slots) {
+      const exercise = findExercise(slot.exerciseId)
+      if (exercise) found.set(exercise.id, exercise)
+    }
+  }
+  for (const workout of state.history) {
+    for (const log of workout.exercises) {
+      if (!found.has(log.id)) found.set(log.id, findExercise(log.id) ?? log)
+    }
+  }
+  return [...found.values()]
+})
+
+const picked = ref<string | null>(null)
+const selected = computed<Option | null>(
+  () => options.value.find((option) => option.id === picked.value) ?? options.value[0] ?? null,
+)
+const bodyweight = computed(() => selected.value?.equipment === 'bodyweight')
 
 /**
  * One value per workout for the selected exercise, oldest first.
@@ -25,27 +47,31 @@ const values = computed(() =>
     .reverse()
     .flatMap((workout) =>
       workout.exercises
-        .filter((log) => log.id === selected.value && log.sets.some((reps) => reps !== null))
+        .filter((log) => log.id === selected.value?.id && log.sets.some((reps) => reps !== null))
         .map((log) =>
-          isBodyweight(log.id) ? totalReps(log) : inCurrentUnit(log.weight, workout.unit),
+          log.equipment === 'bodyweight'
+            ? totalReps(log)
+            : inCurrentUnit(log.weight, workout.unit, log.equipment),
         ),
     ),
 )
 
 /** Weights logged in the other unit are rounded to what the plates can load, not 176.37lb. */
-function inCurrentUnit(weight: number, unit: Unit): number {
+function inCurrentUnit(weight: number, unit: Unit, equipment: Equipment): number {
   const current = state.settings.unit
   if (unit === current) return weight
-  return roundTo(convert(weight, unit, current), UNIT_DEFAULTS[current].step)
+  return roundTo(convert(weight, unit, current), stepFor(equipment, current))
 }
 
 const current = computed(() => {
-  const id = selected.value
-  return isBodyweight(id) ? 'Total reps per workout' : `Now ${fmt(state.progress[id].weight)}`
+  if (!selected.value) return ''
+  return bodyweight.value
+    ? 'Total reps per workout'
+    : `Now ${fmt(progressOf(selected.value.id).weight)}`
 })
 
 function format(value: number): string {
-  return isBodyweight(selected.value) ? `${value} reps` : fmt(value)
+  return bodyweight.value ? `${value} reps` : fmt(value)
 }
 
 const best = computed(() => Math.max(...values.value))
@@ -55,20 +81,19 @@ const gained = computed(() => values.value[values.value.length - 1] - values.val
 <template>
   <h1 class="page-title">Progress</h1>
 
-  <div class="chips">
-    <button
-      v-for="id in EXERCISE_IDS"
-      :key="id"
-      :aria-pressed="selected === id"
-      @click="selected = id"
-    >
-      {{ EXERCISE_NAMES[id] }}
-    </button>
-  </div>
+  <ChipGroup
+    v-if="selected"
+    :model-value="selected.id"
+    :options="options.map((option) => ({ value: option.id, label: option.name }))"
+    label="Exercise"
+    bleed
+    @update:model-value="picked = $event"
+  />
 
-  <section class="card">
+  <Card v-if="!selected" as="p" class="muted">Add exercises to a workout to track them here.</Card>
+  <Card v-else as="section">
     <div class="row head">
-      <h2>{{ EXERCISE_NAMES[selected] }}</h2>
+      <h2>{{ selected.name }}</h2>
       <span class="muted">{{ current }}</span>
     </div>
     <p v-if="values.length === 0" class="muted empty">
@@ -91,37 +116,10 @@ const gained = computed(() => values.value[values.value.length - 1] - values.val
         </div>
       </dl>
     </template>
-  </section>
+  </Card>
 </template>
 
 <style scoped>
-.chips {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  margin: 0 -16px;
-  padding: 0 16px 4px;
-  scrollbar-width: none;
-}
-
-.chips button {
-  flex: none;
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 20px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.chips button[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-
 .head {
   margin-bottom: 12px;
 }
