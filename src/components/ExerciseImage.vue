@@ -67,8 +67,8 @@ const src = computed(() =>
 }
 
 .empty {
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--secondary);
+  color: var(--muted-foreground);
   font-weight: 700;
 }
 

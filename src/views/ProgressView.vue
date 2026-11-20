@@ -140,7 +140,7 @@ h2 {
 .first {
   display: block;
   margin-bottom: 8px;
-  color: var(--text);
+  color: var(--foreground);
   font-size: 30px;
 }
 
@@ -150,12 +150,12 @@ dl {
   gap: 8px;
   margin: 16px 0 0;
   padding-top: 12px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
 }
 
 dt {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 dd {

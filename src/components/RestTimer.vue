@@ -9,7 +9,7 @@ import {
   restRemaining,
   stopRest,
 } from '../rest'
-import { IconButton } from './ui'
+import { Button } from './ui'
 import { computed } from 'vue'
 
 /** The last seconds of a rest change colour, so a glance from the bar is enough. */
@@ -31,7 +31,9 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
       </div>
       <p class="note">{{ restOver ? 'Rest is over. Start your next set.' : rest.note }}</p>
       <button v-if="!restOver" class="extend" @click="extendRest(30)">+30s</button>
-      <IconButton label="Dismiss timer" variant="sunken" tone="muted" @click="stopRest()">✕</IconButton>
+      <Button size="icon" variant="secondary" class="bg-card text-muted-foreground" aria-label="Dismiss timer" @click="stopRest()">
+        ✕
+      </Button>
     </div>
     <div class="track"><div class="fill" :style="{ width: `${left}%` }" /></div>
   </aside>
@@ -47,8 +49,8 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
   top: 100%;
   left: 0;
   right: 0;
-  background: var(--surface-2);
-  border-block: 1px solid var(--line);
+  background: var(--secondary);
+  border-block: 1px solid var(--border);
   box-shadow: 0 12px 24px rgb(0 0 0 / 0.5);
 }
 
@@ -71,7 +73,7 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
 .note {
   flex: 1;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .extend {
@@ -79,13 +81,13 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
   padding: 0 12px;
   height: 40px;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--card);
   font-weight: 700;
   font-size: 13px;
 }
 
 .timer {
-  --stage: var(--accent);
+  --stage: var(--primary);
   overflow: hidden;
 }
 
@@ -94,7 +96,7 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
 }
 
 .over {
-  --stage: var(--danger);
+  --stage: var(--destructive);
   animation: shake 1.6s infinite;
 }
 
@@ -114,7 +116,7 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
 .track {
   position: relative;
   height: 10px;
-  background: var(--line);
+  background: var(--border);
 }
 
 .fill {

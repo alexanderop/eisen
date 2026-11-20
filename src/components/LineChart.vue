@@ -33,15 +33,15 @@ const geometry = computed(() => {
     <svg :viewBox="`0 0 ${WIDTH} ${HEIGHT}`" role="img" aria-label="Weight per workout">
       <defs>
         <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="var(--accent)" stop-opacity="0.28" />
-          <stop offset="1" stop-color="var(--accent)" stop-opacity="0" />
+          <stop offset="0" stop-color="var(--primary)" stop-opacity="0.28" />
+          <stop offset="1" stop-color="var(--primary)" stop-opacity="0" />
         </linearGradient>
       </defs>
       <polygon :points="geometry.area" fill="url(#chart-fill)" />
       <polyline
         :points="geometry.line"
         fill="none"
-        stroke="var(--accent)"
+        stroke="var(--primary)"
         stroke-width="2.5"
         stroke-linejoin="round"
         stroke-linecap="round"
@@ -52,7 +52,7 @@ const geometry = computed(() => {
         :cx="point.x"
         :cy="point.y"
         :r="index === geometry.points.length - 1 ? 5 : 2.5"
-        fill="var(--accent)"
+        fill="var(--primary)"
       />
     </svg>
   </figure>
@@ -71,7 +71,7 @@ const geometry = computed(() => {
   justify-content: space-between;
   padding: 6px 0;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-align: right;
 }
 

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { ref } from 'vue'
 import Field from './Field.vue'
-import Input from './Input.vue'
+import { Input } from './input'
 
 const meta: Meta<typeof Input> = { title: 'UI/Input', component: Input }
 

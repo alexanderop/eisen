@@ -1,19 +1,19 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
-import Badge from './Badge.vue'
+import { Badge } from './badge'
 
-const meta = {
+const meta: Meta<typeof Badge> = {
   title: 'UI/Badge',
   component: Badge,
-  args: { variant: 'accent' },
+  args: { variant: 'default' },
   render: (args) => ({
     components: { Badge },
     setup: () => ({ args }),
     template: '<Badge v-bind="args">Next</Badge>',
   }),
-} satisfies Meta<typeof Badge>
+}
 
 export default meta
-type Story = StoryObj<typeof meta>
+type Story = StoryObj
 
-export const Accent: Story = {}
-export const Neutral: Story = { args: { variant: 'neutral' } }
+export const Default: Story = {}
+export const Secondary: Story = { args: { variant: 'secondary' } }

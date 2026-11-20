@@ -1,10 +1,14 @@
+import { fileURLToPath } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   plugins: [
     vue(),
+    tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
       // The exercise images are precached too, so they show in a gym without reception.

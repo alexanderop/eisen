@@ -197,9 +197,9 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="workout" class="workout">
     <header class="bar">
-      <Button variant="ghost" size="md" @click="emit('close')">‹ Back</Button>
+      <Button class="px-1" variant="ghost" size="md" @click="emit('close')">‹ Back</Button>
       <h1>{{ workout.name }}</h1>
-      <Button variant="ghost" size="md" @click="onFinish">Finish</Button>
+      <Button class="px-1" variant="ghost" size="md" @click="onFinish">Finish</Button>
       <RestTimer />
     </header>
 
@@ -263,8 +263,8 @@ onBeforeUnmount(() => {
           </div>
         </Card>
       </template>
-      <Button block @click="picking = true">Add exercise</Button>
-      <Button v-if="doneCount === ordered.length" variant="primary" block @click="onFinish">
+      <Button variant="secondary" class="w-full" @click="picking = true">Add exercise</Button>
+      <Button class="w-full" v-if="doneCount === ordered.length" @click="onFinish">
         Finish workout
       </Button>
       <p class="hint">Tap a set when you finish it. Tap again for every rep you missed.</p>
@@ -344,7 +344,7 @@ onBeforeUnmount(() => {
           @update:model-value="setIncrement(editedLog.id, $event)"
         />
       </div>
-      <Button variant="primary" block @click="editing = null">Done</Button>
+      <Button class="w-full" @click="editing = null">Done</Button>
       <ConfirmButton
         v-if="workout.exercises.length > 1"
         :key="editedLog.id"
@@ -364,8 +364,8 @@ onBeforeUnmount(() => {
         <span class="muted">Reps</span>
         <Stepper v-model="entry.reps" :step="1" label="reps" />
       </div>
-      <Button variant="primary" block @click="saveEntry(entry.reps)">Save set</Button>
-      <Button block @click="saveEntry(null)">Clear set</Button>
+      <Button class="w-full" @click="saveEntry(entry.reps)">Save set</Button>
+      <Button variant="secondary" class="w-full" @click="saveEntry(null)">Clear set</Button>
     </Sheet>
 
     <Sheet
@@ -380,9 +380,9 @@ onBeforeUnmount(() => {
             : 'Some sets are not logged. Exercises you started keep their weight next time. Exercises you did not start are skipped.'
         }}
       </p>
-      <Button v-if="nothingLogged" tone="danger" block @click="discard">Discard workout</Button>
-      <Button v-else variant="primary" block @click="finish">Finish workout</Button>
-      <Button block @click="confirming = false">Keep going</Button>
+      <Button variant="destructive" class="w-full" v-if="nothingLogged" @click="discard">Discard workout</Button>
+      <Button class="w-full" v-else @click="finish">Finish workout</Button>
+      <Button variant="secondary" class="w-full" @click="confirming = false">Keep going</Button>
     </Sheet>
   </div>
 </template>
@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
   margin: 0 -16px;
   padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
   min-height: 60px;
-  background: var(--bg);
+  background: var(--background);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -448,7 +448,7 @@ onBeforeUnmount(() => {
 }
 
 .done-reps {
-  color: var(--accent);
+  color: var(--primary);
   font-weight: 600;
   font-size: 14px;
 }
@@ -479,17 +479,17 @@ onBeforeUnmount(() => {
 }
 
 .target {
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 15px;
 }
 
 .target strong {
-  color: var(--text);
+  color: var(--foreground);
   margin-left: 4px;
 }
 
 .chevron {
-  color: var(--accent);
+  color: var(--primary);
   font-size: 20px;
   margin-left: 4px;
 }
@@ -502,12 +502,12 @@ onBeforeUnmount(() => {
 
 .plates {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .hint {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-align: center;
 }
 
@@ -547,7 +547,7 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid var(--line);
+  border: 2px solid var(--border);
   display: grid;
   place-items: center;
   font-size: 13px;
@@ -556,18 +556,18 @@ onBeforeUnmount(() => {
 }
 
 .warmup [aria-pressed='true'] .check {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .warmup [aria-pressed='true'] :is(strong, .reps) {
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-decoration: line-through;
 }
 
 .reps {
-  color: var(--accent);
+  color: var(--primary);
   font-weight: 700;
 }
 

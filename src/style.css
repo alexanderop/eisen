@@ -1,14 +1,43 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap');
+/*
+ ---break---
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn-vue/tailwind.css";
+/*
+ ---break---
+ */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Colours follow the shadcn names, so its components and ours share one palette.
+ * The app is dark only: these are the only values.
+ */
 :root {
-  --bg: #0b0c0e;
-  --surface: #15171b;
-  --surface-2: #1f2228;
-  --line: #2b2f37;
-  --text: #f4f5f7;
-  --muted: #8d939f;
-  --accent: #c8f031;
-  --accent-ink: #11140a;
+  --background: #0b0c0e;
+  --foreground: #f4f5f7;
+  --card: #15171b;
+  --card-foreground: #f4f5f7;
+  --popover: #15171b;
+  --popover-foreground: #f4f5f7;
+  /* Lime: the one loud colour. */
+  --primary: #c8f031;
+  --primary-foreground: #11140a;
+  --secondary: #1f2228;
+  --secondary-foreground: #f4f5f7;
+  --muted: #1f2228;
+  --muted-foreground: #8d939f;
+  --accent: #1f2228;
+  --accent-foreground: #f4f5f7;
+  --destructive: #ff6464;
+  --border: #2b2f37;
+  --input: #2b2f37;
+  --ring: #c8f031;
+  --radius: 14px;
+
   --warn: #ffb020;
-  --danger: #ff6464;
   /* Pale ground for the exercise images, which are dark on transparent. */
   --tile: #eceef1;
 
@@ -21,21 +50,21 @@
   --space-6: 24px;
 
   /* Radius: controls, buttons, cards, pills. */
-  --radius-md: 12px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
-  --radius-full: 999px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --r-full: 999px;
 
   /* Type scale. */
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-sm-plus: 14px;
-  --text-base: 15px;
-  --text-base-plus: 16px;
-  --text-md: 17px;
-  --text-lg: 20px;
-  --text-xl: 24px;
-  --text-2xl: 30px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-sm-plus: 14px;
+  --fs-base: 15px;
+  --fs-base-plus: 16px;
+  --fs-md: 17px;
+  --fs-lg: 20px;
+  --fs-xl: 24px;
+  --fs-2xl: 30px;
 
   /* Heights of tappable controls. Nothing a thumb must hit is smaller than 36px. */
   --control-sm: 36px;
@@ -54,60 +83,96 @@
   -webkit-text-size-adjust: 100%;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+@theme inline {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warn: var(--warn);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.7);
+  --font-heading: var(--font-sans);
 }
 
-html,
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  overscroll-behavior-y: none;
-}
+/* In the base layer, so a utility class on a component always wins over the reset. */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
 
-body {
-  min-height: 100dvh;
-  line-height: 1.4;
-}
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
 
-#app {
-  max-width: 480px;
-  min-height: 100dvh;
-  margin: 0 auto;
-  position: relative;
-}
+  html,
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    overscroll-behavior-y: none;
+  }
 
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
+  body {
+    min-height: 100dvh;
+    line-height: 1.4;
+  }
 
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-}
+  #app {
+    max-width: 480px;
+    min-height: 100dvh;
+    margin: 0 auto;
+    position: relative;
+  }
 
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
 
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
 }
 
 .page {
@@ -129,11 +194,11 @@ button:disabled {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .row {
@@ -141,4 +206,15 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+/*
+ ---break---
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }

@@ -10,16 +10,16 @@ export default meta
 type Story = StoryObj
 
 const COLORS = [
-  ['--bg', 'Page background'],
-  ['--surface', 'Cards, sheets, inputs'],
-  ['--surface-2', 'Controls on a surface'],
-  ['--line', 'Borders and dividers'],
-  ['--text', 'Main text'],
-  ['--muted', 'Secondary text'],
-  ['--accent', 'The main action, success, selection'],
-  ['--accent-ink', 'Text on accent'],
+  ['--background', 'Page background'],
+  ['--card', 'Cards, sheets, inputs'],
+  ['--secondary', 'Controls on a surface'],
+  ['--border', 'Borders and dividers'],
+  ['--foreground', 'Main text'],
+  ['--muted-foreground', 'Secondary text'],
+  ['--primary', 'The main action, success, selection'],
+  ['--primary-foreground', 'Text on accent'],
   ['--warn', 'Missed reps, deload'],
-  ['--danger', 'Destructive actions'],
+  ['--destructive', 'Destructive actions'],
 ]
 
 export const Colors: Story = {
@@ -28,7 +28,7 @@ export const Colors: Story = {
     template: `
       <div style="display: grid; gap: 10px">
         <div v-for="[token, use] in COLORS" :key="token" style="display: flex; gap: 12px; align-items: center">
-          <div :style="{ background: 'var(' + token + ')', width: '52px', height: '52px', flex: 'none', borderRadius: 'var(--radius-md)', border: '1px solid var(--line)' }" />
+          <div :style="{ background: 'var(' + token + ')', width: '52px', height: '52px', flex: 'none', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }" />
           <div><strong>{{ token }}</strong><p class="muted" style="font-size: 13px">{{ use }}</p></div>
         </div>
       </div>`,
@@ -45,10 +45,10 @@ export const Typography: Story = {
         <h1 class="page-title">Page title</h1>
         <p class="eyebrow">Eyebrow label</p>
         <p class="muted">Muted supporting text</p>
-        <hr style="width: 100%; border: 0; border-top: 1px solid var(--line)" />
+        <hr style="width: 100%; border: 0; border-top: 1px solid var(--border)" />
         <div v-for="size in TYPE" :key="size" style="display: flex; gap: 12px; align-items: baseline">
-          <span class="muted" style="width: 132px; font-size: 13px; flex: none">--text-{{ size }}</span>
-          <span :style="{ fontSize: 'var(--text-' + size + ')', fontWeight: 700 }">82.5kg</span>
+          <span class="muted" style="width: 132px; font-size: 13px; flex: none">--fs-{{ size }}</span>
+          <span :style="{ fontSize: 'var(--fs-' + size + ')', fontWeight: 700 }">82.5kg</span>
         </div>
       </div>`,
   }),
@@ -60,17 +60,17 @@ export const SpacingAndRadius: Story = {
       <div style="display: grid; gap: 10px">
         <div v-for="n in 6" :key="n" style="display: flex; gap: 12px; align-items: center">
           <span class="muted" style="width: 88px; font-size: 13px">--space-{{ n }}</span>
-          <div :style="{ width: 'var(--space-' + n + ')', height: '16px', background: 'var(--accent)' }" />
+          <div :style="{ width: 'var(--space-' + n + ')', height: '16px', background: 'var(--primary)' }" />
         </div>
         <div style="display: flex; gap: 12px; margin-top: 16px">
           <div v-for="size in ['md', 'lg', 'xl', 'full']" :key="size" style="text-align: center">
-            <div :style="{ width: '64px', height: '64px', background: 'var(--surface-2)', borderRadius: 'var(--radius-' + size + ')' }" />
+            <div :style="{ width: '64px', height: '64px', background: 'var(--secondary)', borderRadius: 'var(--r-' + size + ')' }" />
             <span class="muted" style="font-size: 12px">{{ size }}</span>
           </div>
         </div>
         <div style="display: flex; gap: 12px; align-items: end; margin-top: 16px">
           <div v-for="size in ['sm', 'md', 'lg']" :key="size" style="text-align: center">
-            <div :style="{ width: '64px', height: 'var(--control-' + size + ')', background: 'var(--surface-2)', borderRadius: 'var(--radius-md)' }" />
+            <div :style="{ width: '64px', height: 'var(--control-' + size + ')', background: 'var(--secondary)', borderRadius: 'var(--r-md)' }" />
             <span class="muted" style="font-size: 12px">control-{{ size }}</span>
           </div>
         </div>

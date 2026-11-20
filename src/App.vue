@@ -96,7 +96,7 @@ watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
   grid-template-columns: repeat(5, 1fr);
   background: rgb(11 12 14 / 0.92);
   backdrop-filter: blur(12px);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   z-index: 10;
 }
 
@@ -108,10 +108,10 @@ watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
   gap: 3px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .tabs button[aria-current='page'] {
-  color: var(--accent);
+  color: var(--primary);
 }
 </style>

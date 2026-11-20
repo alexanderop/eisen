@@ -24,9 +24,16 @@ pnpm build
 
 ## Design system
 
-The UI is built from a small set of components in `src/components/ui`, in the spirit of shadcn:
-the code lives in this repo, each component is one file, and variants are props.
-Tokens (color, space, radius, type, control heights) are CSS variables in `src/style.css`.
+The UI is built on [shadcn-vue](https://www.shadcn-vue.com) (Reka UI and Tailwind CSS 4).
+Its components are copied into `src/components/ui/<name>/` and adjusted for a phone in a gym:
+larger tap targets, a dark-only palette and lime as the primary colour.
+
+- From shadcn-vue: `Button`, `Card`, `Badge`, `Input`, `Drawer`, `Tabs`, `ToggleGroup`.
+- Composed from them in `src/components/ui/*.vue`: `Sheet` (a Drawer), `Segmented` (Tabs),
+  `ChipGroup` (a ToggleGroup), `Stepper`, `ConfirmButton`, plus the app's own `SetButton` and `Field`.
+- Add another one with `pnpm dlx shadcn-vue@latest add <name>`.
+
+Colours use the shadcn variable names (`--primary`, `--card`, `--muted-foreground`) in `src/style.css`.
 
 ```sh
 pnpm storybook        # browse and try every component at http://localhost:6006
@@ -35,4 +42,4 @@ pnpm build-storybook  # also runs in CI, so a broken story fails the build
 
 Views import from the barrel: `import { Button, Card } from '../components/ui'`.
 
-Built with Vue 3, Vite and vite-plugin-pwa. Pushing to `main` deploys to GitHub Pages.
+Built with Vue 3, Vite, Tailwind CSS and vite-plugin-pwa. Pushing to `main` deploys to GitHub Pages.

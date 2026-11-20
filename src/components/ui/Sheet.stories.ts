@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { ref } from 'vue'
-import Button from './Button.vue'
+import { Button } from './button'
 import Sheet from './Sheet.vue'
 import Stepper from './Stepper.vue'
 
@@ -19,13 +19,13 @@ export const Default: Story = {
     components: { Sheet, Button, Stepper },
     setup: () => ({ open: ref(true), weight: ref(80), format: (kg: number) => `${kg}kg` }),
     template: `
-      <Button variant="primary" block @click="open = true">Open sheet</Button>
+      <Button class="w-full" @click="open = true">Open sheet</Button>
       <Sheet v-if="open" title="Bench Press" @close="open = false">
         <div class="row">
           <span class="muted">Weight</span>
           <Stepper v-model="weight" :step="2.5" :min="2.5" label="weight" :format="format" />
         </div>
-        <Button variant="primary" block @click="open = false">Done</Button>
+        <Button class="w-full" @click="open = false">Done</Button>
       </Sheet>`,
   }),
 }
@@ -35,11 +35,11 @@ export const Confirmation: Story = {
     components: { Sheet, Button },
     setup: () => ({ open: ref(true) }),
     template: `
-      <Button block @click="open = true">Open sheet</Button>
+      <Button variant="secondary" class="w-full" @click="open = true">Open sheet</Button>
       <Sheet v-if="open" title="Finish early?" @close="open = false">
-        <p class="muted">Some sets are not logged. Unfinished exercises count as missed.</p>
-        <Button variant="primary" block @click="open = false">Finish workout</Button>
-        <Button block @click="open = false">Keep going</Button>
+        <p class="muted">Some sets are not logged. Exercises you did not start are skipped.</p>
+        <Button class="w-full" @click="open = false">Finish workout</Button>
+        <Button variant="secondary" class="w-full" @click="open = false">Keep going</Button>
       </Sheet>`,
   }),
 }

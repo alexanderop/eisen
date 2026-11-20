@@ -27,7 +27,7 @@ function duration(workout: Workout): string {
         <p class="muted meta">{{ formatDate(workout.startedAt) }} · {{ duration(workout) }}</p>
       </div>
       <div class="actions">
-        <CopyMarkdown variant="ghost" size="md" :workout="workout" />
+        <CopyMarkdown class="px-1" variant="ghost" size="md" :workout="workout" />
         <ConfirmButton
           variant="ghost"
           size="md"
@@ -82,7 +82,7 @@ li {
   gap: 8px;
   align-items: baseline;
   padding: 8px 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   font-size: 15px;
 }
 
@@ -94,7 +94,7 @@ li strong {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  color: var(--accent);
+  color: var(--primary);
   font-weight: 600;
 }
 

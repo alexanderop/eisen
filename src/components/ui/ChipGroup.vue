@@ -1,52 +1,36 @@
 <script setup lang="ts" generic="T extends string">
+import { ToggleGroup, ToggleGroupItem } from './toggle-group'
+
 /**
  * Picks one of many options in a row that scrolls sideways.
  * `bleed` lets the row run to the screen edge from inside a 16px padding.
  */
 const model = defineModel<T>({ required: true })
 defineProps<{ options: { value: T; label: string }[]; label: string; bleed?: boolean }>()
+
+/** One chip is always on: tapping the active chip again changes nothing. */
+function onChange(value: unknown) {
+  if (typeof value === 'string' && value !== '') model.value = value as T
+}
 </script>
 
 <template>
-  <div class="chips" :class="{ bleed }" role="group" :aria-label="label">
-    <button
+  <ToggleGroup
+    type="single"
+    :model-value="model"
+    :spacing="2"
+    :aria-label="label"
+    class="w-full overflow-x-auto pb-1 [scrollbar-width:none]"
+    :class="{ '-mx-4 w-auto px-4': bleed }"
+    @update:model-value="onChange"
+  >
+    <ToggleGroupItem
       v-for="option in options"
       :key="option.value"
-      :aria-pressed="model === option.value"
-      @click="model = option.value"
+      :value="option.value"
+      class="bg-secondary text-muted-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-10 rounded-full px-3.5 text-sm font-semibold"
     >
       {{ option.label }}
-    </button>
-  </div>
+    </ToggleGroupItem>
+  </ToggleGroup>
 </template>
-
-<style scoped>
-.chips {
-  display: flex;
-  gap: var(--space-2);
-  overflow-x: auto;
-  padding-bottom: var(--space-1);
-  scrollbar-width: none;
-}
-
-.bleed {
-  margin: 0 calc(-1 * var(--space-4));
-  padding-inline: var(--space-4);
-}
-
-button {
-  flex: none;
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: var(--radius-full);
-  background: var(--surface-2);
-  color: var(--muted);
-  font-weight: 600;
-  font-size: var(--text-sm-plus);
-}
-
-button[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-</style>

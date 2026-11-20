@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import IconButton from './IconButton.vue'
+import { Button } from './button'
 
 /** Changes a number in fixed steps with thumb-sized buttons: weights, sets, reps, seconds. */
 const model = defineModel<number>({ required: true })
@@ -15,13 +15,13 @@ function change(direction: 1 | -1) {
 
 <template>
   <div class="stepper">
-    <IconButton size="lg" :label="`Decrease ${label}`" :disabled="model <= min" @click="change(-1)">
+    <Button size="icon-lg" variant="secondary" :aria-label="`Decrease ${label}`" :disabled="model <= min" @click="change(-1)">
       −
-    </IconButton>
+    </Button>
     <output :aria-label="label">{{ format(model) }}</output>
-    <IconButton size="lg" :label="`Increase ${label}`" :disabled="model >= max" @click="change(1)">
+    <Button size="icon-lg" variant="secondary" :aria-label="`Increase ${label}`" :disabled="model >= max" @click="change(1)">
       +
-    </IconButton>
+    </Button>
   </div>
 </template>
 
@@ -36,6 +36,6 @@ output {
   min-width: 84px;
   text-align: center;
   font-weight: 700;
-  font-size: var(--text-md);
+  font-size: var(--fs-md);
 }
 </style>

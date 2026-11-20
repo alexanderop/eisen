@@ -16,7 +16,7 @@ export const Default: Story = {
     components: { ConfirmButton },
     setup: () => ({ count: ref(0) }),
     template: `
-      <ConfirmButton block label="Erase all data" confirm-label="Tap again to erase everything" @confirm="count++" />
+      <ConfirmButton class="w-full" label="Erase all data" confirm-label="Tap again to erase everything" @confirm="count++" />
       <p class="muted" style="margin-top: 12px; font-size: 13px">Confirmed {{ count }} times</p>`,
   }),
 }

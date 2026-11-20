@@ -12,10 +12,10 @@ withDefaults(defineProps<{ state?: 'empty' | 'done' | 'missed' }>(), { state: 'e
   aspect-ratio: 1;
   max-width: 68px;
   width: 100%;
-  border-radius: var(--radius-full);
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: var(--text-lg);
+  border-radius: var(--r-full);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: var(--fs-lg);
   font-weight: 700;
   transition:
     background-color 0.12s ease,
@@ -27,8 +27,8 @@ withDefaults(defineProps<{ state?: 'empty' | 'done' | 'missed' }>(), { state: 'e
 }
 
 .done {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .missed {

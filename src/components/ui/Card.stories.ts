@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite'
-import Badge from './Badge.vue'
-import Card from './Card.vue'
+import { Badge } from './badge'
+import { Card } from './card'
 
-const meta = { title: 'UI/Card', component: Card } satisfies Meta<typeof Card>
+const meta: Meta<typeof Card> = { title: 'UI/Card', component: Card }
 
 export default meta
-type Story = StoryObj<typeof meta>
+type Story = StoryObj
 
 export const Default: Story = {
   render: () => ({

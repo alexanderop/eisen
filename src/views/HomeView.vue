@@ -92,7 +92,7 @@ function start() {
   <Card v-if="lastChanges" as="section" class="summary">
     <div class="row">
       <h2>Workout saved</h2>
-      <Button variant="ghost" size="md" @click="lastChanges = null">Dismiss</Button>
+      <Button class="px-1" variant="ghost" size="md" @click="lastChanges = null">Dismiss</Button>
     </div>
     <p v-if="saved" class="saved-line">
       <strong>{{ saved.minutes }} min</strong>
@@ -110,7 +110,7 @@ function start() {
     <p v-if="saved && saved.skipped.length > 0" class="muted skipped">
       Skipped: {{ saved.skipped.join(', ') }}
     </p>
-    <CopyMarkdown v-if="lastWorkout" block :workout="lastWorkout" label="Copy as Markdown" />
+    <CopyMarkdown v-if="lastWorkout" class="w-full" :workout="lastWorkout" label="Copy as Markdown" />
   </Card>
 
   <Card as="section" class="next">
@@ -135,8 +135,8 @@ function start() {
         <strong>{{ row.weight === null ? 'BW' : fmt(row.weight) }}</strong>
       </li>
     </ul>
-    <Button v-if="state.active" variant="primary" block @click="emit('open')">Resume workout</Button>
-    <Button v-else variant="primary" block :disabled="rows.length === 0" @click="start">
+    <Button class="w-full" v-if="state.active" @click="emit('open')">Resume workout</Button>
+    <Button class="w-full" v-else :disabled="rows.length === 0" @click="start">
       Start workout
     </Button>
     <ConfirmButton
@@ -204,7 +204,7 @@ li {
   gap: 12px;
   align-items: baseline;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 li.exercise {
@@ -236,7 +236,7 @@ li strong {
 }
 
 .summary .up strong {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .summary .deload strong {
@@ -249,7 +249,7 @@ li strong {
   gap: 10px;
 }
 
-.stats .card {
+.stats > * {
   display: flex;
   flex-direction: column;
   gap: 2px;

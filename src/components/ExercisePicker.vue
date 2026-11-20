@@ -78,14 +78,14 @@ function create() {
           </button>
         </div>
       </Field>
-      <Button variant="primary" block :disabled="name.trim() === ''">Create and add</Button>
-      <Button type="button" block @click="creating = false">Back to the list</Button>
+      <Button class="w-full" :disabled="name.trim() === ''">Create and add</Button>
+      <Button variant="secondary" class="w-full" type="button" @click="creating = false">Back to the list</Button>
     </form>
 
     <template v-else>
       <Input v-model="query" type="search" placeholder="Search exercises" aria-label="Search exercises" />
       <ChipGroup v-model="filter" class="filters" :options="filters" label="Muscle group" bleed />
-      <Button class="create" block @click="startCreating">
+      <Button variant="secondary" class="create w-full" @click="startCreating">
         {{
           query.trim() && sections.length === 0
             ? `Create “${query.trim()}”`
@@ -139,15 +139,15 @@ function create() {
 .types button {
   min-height: 48px;
   border-radius: 12px;
-  background: var(--surface-2);
-  color: var(--muted);
+  background: var(--secondary);
+  color: var(--muted-foreground);
   font-weight: 600;
   font-size: 14px;
 }
 
 .types button[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .list {
@@ -167,7 +167,7 @@ function create() {
 .item {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .pick {

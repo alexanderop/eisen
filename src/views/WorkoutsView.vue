@@ -72,7 +72,7 @@ function onDelete(routine: Routine) {
 
 <template>
   <template v-if="editing">
-    <Button class="back" variant="ghost" size="md" @click="editingId = null">‹ Workouts</Button>
+    <Button class="back px-1" variant="ghost" size="md" @click="editingId = null">‹ Workouts</Button>
 
     <Field label="Name">
       <Input v-model="editing.name" maxlength="30" @blur="onName(editing)" />
@@ -120,14 +120,14 @@ function onDelete(routine: Routine) {
           Max reps instead of a fixed number
         </button>
         <div class="row tools">
-          <Button :disabled="index === 0" @click="moveSlot(editing, index, -1)">↑ Move up</Button>
-          <Button :disabled="index === editing.slots.length - 1" @click="moveSlot(editing, index, 1)">
+          <Button variant="secondary" :disabled="index === 0" @click="moveSlot(editing, index, -1)">↑ Move up</Button>
+          <Button variant="secondary" :disabled="index === editing.slots.length - 1" @click="moveSlot(editing, index, 1)">
             ↓ Move down
           </Button>
         </div>
-        <ConfirmButton
+        <ConfirmButton class="w-full"
           :key="slot.exerciseId"
-          block
+         
           variant="ghost"
           label="Remove from workout"
           confirm-label="Tap again to remove"
@@ -136,7 +136,7 @@ function onDelete(routine: Routine) {
       </div>
     </Card>
 
-    <Button variant="primary" block @click="picking = true">Add exercise</Button>
+    <Button class="w-full" @click="picking = true">Add exercise</Button>
     <p v-if="state.active" class="muted small note">
       Changes apply from the next workout. The one in progress stays as it is.
     </p>
@@ -170,7 +170,7 @@ function onDelete(routine: Routine) {
       <span class="muted small">{{ summary(routine) }}</span>
     </Card>
 
-    <Button block @click="editingId = addRoutine().id">New workout</Button>
+    <Button variant="secondary" class="w-full" @click="editingId = addRoutine().id">New workout</Button>
   </template>
 </template>
 
@@ -231,7 +231,7 @@ function onDelete(routine: Routine) {
   gap: 10px;
   min-height: 44px;
   text-align: left;
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 14px;
 }
 
@@ -239,7 +239,7 @@ function onDelete(routine: Routine) {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  border: 2px solid var(--line);
+  border: 2px solid var(--border);
   display: grid;
   place-items: center;
   font-size: 13px;
@@ -248,13 +248,13 @@ function onDelete(routine: Routine) {
 }
 
 .max[aria-pressed='true'] {
-  color: var(--text);
+  color: var(--foreground);
 }
 
 .max[aria-pressed='true'] .box {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .tools {
@@ -277,7 +277,7 @@ function onDelete(routine: Routine) {
 }
 
 .chevron {
-  color: var(--accent);
+  color: var(--primary);
   font-size: 22px;
 }
 </style>

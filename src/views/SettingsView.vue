@@ -130,13 +130,13 @@ function onReset() {
   <Card as="section" class="group">
     <h2>Your data</h2>
     <p class="muted small">Everything is stored on this device only.</p>
-    <Button block @click="download">Download backup</Button>
-    <Button as="label" block>
+    <Button variant="secondary" class="w-full" @click="download">Download backup</Button>
+    <Button variant="secondary" class="w-full" as="label">
       Restore backup
       <input type="file" accept="application/json" hidden @change="onImport" />
     </Button>
-    <ConfirmButton
-      block
+    <ConfirmButton class="w-full"
+     
       label="Erase all data"
       confirm-label="Tap again to erase everything"
       @confirm="onReset"
@@ -164,6 +164,6 @@ h2 {
 input[type='checkbox'] {
   width: 24px;
   height: 24px;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 }
 </style>

@@ -39,21 +39,21 @@ const sized = computed(() =>
 .shaft {
   width: 96px;
   height: 8px;
-  background: var(--muted);
+  background: var(--muted-foreground);
   border-radius: 4px 0 0 4px;
 }
 
 .collar {
   width: 8px;
   height: 22px;
-  background: var(--muted);
+  background: var(--muted-foreground);
   border-radius: 2px;
 }
 
 .sleeve {
   min-width: 96px;
   height: 12px;
-  background: var(--line);
+  background: var(--border);
   border-radius: 0 4px 4px 0;
   display: flex;
   align-items: center;
@@ -63,7 +63,7 @@ const sized = computed(() =>
 
 .plate {
   flex: none;
-  background: var(--accent);
+  background: var(--primary);
   border-radius: 4px;
 }
 </style>

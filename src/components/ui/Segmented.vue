@@ -1,45 +1,23 @@
 <script setup lang="ts" generic="T extends string">
+import { Tabs, TabsList, TabsTrigger } from './tabs'
+
 /** A switch between two or three views or modes of the same thing. */
 const model = defineModel<T>({ required: true })
 defineProps<{ options: { value: T; label: string }[]; disabled?: boolean }>()
 </script>
 
 <template>
-  <div class="segmented">
-    <button
-      v-for="option in options"
-      :key="option.value"
-      :aria-pressed="model === option.value"
-      :disabled="disabled"
-      @click="model = option.value"
-    >
-      {{ option.label }}
-    </button>
-  </div>
+  <Tabs :model-value="model" @update:model-value="model = $event as T">
+    <TabsList class="bg-card w-full rounded-xl border p-1 group-data-horizontal/tabs:h-11">
+      <TabsTrigger
+        v-for="option in options"
+        :key="option.value"
+        :value="option.value"
+        :disabled="disabled"
+        class="data-active:bg-secondary data-active:text-foreground h-full rounded-[9px] text-sm font-semibold"
+      >
+        {{ option.label }}
+      </TabsTrigger>
+    </TabsList>
+  </Tabs>
 </template>
-
-<style scoped>
-.segmented {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-}
-
-button {
-  min-height: var(--control-sm);
-  border-radius: 9px;
-  font-weight: 600;
-  font-size: var(--text-sm-plus);
-  color: var(--muted);
-}
-
-button[aria-pressed='true'] {
-  background: var(--surface-2);
-  color: var(--text);
-}
-</style>

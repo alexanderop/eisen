@@ -21,7 +21,7 @@ async function copy() {
 </script>
 
 <template>
-  <Button @click="copy">
+  <Button variant="secondary" @click="copy">
     <span aria-live="polite">
       {{ status === 'copied' ? 'Copied' : status === 'failed' ? 'Copy failed' : (label ?? 'Copy') }}
     </span>
