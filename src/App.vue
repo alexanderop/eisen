@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import UpdatePrompt from './components/UpdatePrompt.vue'
 import { state } from './store'
 import HistoryView from './views/HistoryView.vue'
 import HomeView from './views/HomeView.vue'
@@ -79,6 +80,8 @@ watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
         {{ item.label }}
       </button>
     </nav>
+    <!-- Not during a workout: an update can wait until the last set is done. -->
+    <UpdatePrompt />
   </template>
 </template>
 

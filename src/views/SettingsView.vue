@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { applyUpdate, build, checkForUpdate, checkResult, updateReady } from '../pwa'
 import { Button, Card, ConfirmButton, Segmented, Stepper } from '../components/ui'
 import { computed, ref } from 'vue'
 import { stepFor, UNIT_DEFAULTS } from '../domain/program'
@@ -52,6 +53,17 @@ async function onImport(event: Event) {
     : 'That file is not an Eisen backup. Nothing was changed.'
   input.value = ''
 }
+
+const builtAt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+  build.builtAt,
+)
+
+const CHECK_TEXT = {
+  latest: 'You have the latest version.',
+  downloading: 'Downloading the new version…',
+  offline: 'Could not check. Are you online?',
+  unsupported: 'Updates need the installed app or a supported browser.',
+} as const
 
 function onReset() {
   stopRest()
@@ -142,6 +154,35 @@ function onReset() {
       @confirm="onReset"
     />
     <p v-if="message" class="small" role="status">{{ message }}</p>
+  </Card>
+
+  <Card as="section" class="group">
+    <h2>About</h2>
+    <div class="row">
+      <span>Version</span>
+      <strong>{{ build.version }}</strong>
+    </div>
+    <div class="row">
+      <span>Build</span>
+      <span class="muted">{{ build.commit }} · {{ builtAt }}</span>
+    </div>
+    <template v-if="updateReady">
+      <p class="small" role="status">A new version is ready.</p>
+      <Button class="w-full" @click="applyUpdate">Update now</Button>
+    </template>
+    <template v-else>
+      <Button
+        variant="secondary"
+        class="w-full"
+        :disabled="checkResult === 'checking'"
+        @click="checkForUpdate"
+      >
+        {{ checkResult === 'checking' ? 'Checking…' : 'Check for updates' }}
+      </Button>
+      <p v-if="checkResult && checkResult !== 'checking'" class="muted small" role="status">
+        {{ CHECK_TEXT[checkResult] }}
+      </p>
+    </template>
   </Card>
 </template>
 
