@@ -16,7 +16,8 @@ import {
   warmupStep,
   type ExerciseLog,
 } from '../domain/program'
-import { emptyWeightFor, fmt, loadFor, platesText } from '../format'
+import { lastLogged } from '../domain/records'
+import { emptyWeightFor, fmt, formatShortDate, loadFor, platesText } from '../format'
 import { haptic } from '../haptics'
 import { startRest, stopRest } from '../rest'
 import {
@@ -69,6 +70,16 @@ function warmups(log: ExerciseLog) {
     emptyWeightFor(log.equipment),
     warmupStep(log.equipment, state.settings.unit),
   )
+}
+
+/** "12 Nov: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. */
+function lastTime(id: string): string | null {
+  const last = lastLogged(state.history, id)
+  if (!last) return null
+  const { workout: then, log } = last
+  const reps = log.sets.map((count) => count ?? '–').join(' ')
+  const load = log.equipment === 'bodyweight' ? '' : `${fmt(log.weight, then.unit)} · `
+  return `${formatShortDate(then.startedAt)}: ${load}${reps}`
 }
 
 function toggleWarmup(key: string) {
@@ -259,6 +270,7 @@ onBeforeUnmount(() => {
                 {{ reps ?? log.targetReps ?? '+' }}
               </SetButton>
             </div>
+            <p v-if="lastTime(log.id)" class="plates last">Last time, {{ lastTime(log.id) }}</p>
             <p v-if="log.targetReps === null" class="plates">
               As many reps as you can. Tap a set to enter them.
             </p>
@@ -508,6 +520,10 @@ onBeforeUnmount(() => {
 .plates {
   font-size: 13px;
   color: var(--muted-foreground);
+}
+
+.last {
+  color: var(--foreground);
 }
 
 .hint {

@@ -18,6 +18,7 @@ import {
   startProgress,
   UNIT_DEFAULTS,
   type Change,
+  type ExerciseLog,
   type ExerciseProgress,
   type Routine,
 } from './domain/program'
@@ -195,6 +196,12 @@ export function finishWorkout(): void {
   state.nextRoutineId = nextRoutineId(state.routines, workout.routineId, nextRoutine.value.id)
   state.active = null
   lastChanges.value = result.changes
+}
+
+/** Corrects what a finished workout logged. Working weights stay as they are. */
+export function updateWorkout(id: string, exercises: ExerciseLog[]): void {
+  const workout = state.history.find((entry) => entry.id === id)
+  if (workout) workout.exercises = exercises
 }
 
 export function deleteWorkout(id: string): void {

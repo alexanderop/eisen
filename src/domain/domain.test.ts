@@ -18,6 +18,7 @@ import {
   type Routine,
   type Workout,
 } from './program'
+import { lastLogged, recordIds, recordOf } from './records'
 import { workoutMarkdown } from './share'
 import { freshState, isAppState, migrate } from './state'
 
@@ -312,6 +313,51 @@ describe('migrate', () => {
     expect(migrate(fresh)).toBe(fresh)
     expect(isAppState(migrate({ version: 99 }))).toBe(false)
     expect(isAppState(migrate('nope'))).toBe(false)
+  })
+})
+
+describe('records', () => {
+  function logged(id: string, weight: number, sets: (number | null)[], startedAt: number): Workout {
+    const workout = workoutWith({ hackSquat: sets })
+    workout.id = id
+    workout.startedAt = startedAt
+    workout.exercises[0].weight = weight
+    return workout
+  }
+  // Newest first, like the history.
+  const history = [
+    logged('skipped', 95, [null, null, null, null, null], 5),
+    logged('missed', 95, [5, 5, 5, 4, 3], 4),
+    logged('second', 90, ALL, 3),
+    logged('deload', 80, ALL, 2),
+    logged('first', 85, ALL, 1),
+  ]
+
+  it('finds the last workout that logged the exercise', () => {
+    expect(lastLogged(history, 'hackSquat')?.workout.id).toBe('missed')
+    expect(lastLogged(history, 'bench')).toBeNull()
+  })
+
+  it('counts a weight as a record only when every rep was done and it beats what came before', () => {
+    expect(history.map((_, index) => recordIds(history, index).has('hackSquat'))).toEqual([
+      false,
+      false,
+      true,
+      false,
+      false,
+    ])
+    expect(recordOf(history, 'hackSquat')?.workout.id).toBe('second')
+  })
+
+  it('compares records across units and counts total reps for bodyweight exercises', () => {
+    const inPounds = { ...logged('lb', 200, ALL, 6), unit: 'lb' as const }
+    expect(recordIds([inPounds, ...history], 0).has('hackSquat')).toBe(true)
+    const lighter = { ...logged('lb', 195, ALL, 6), unit: 'lb' as const }
+    expect(recordIds([lighter, ...history], 0).has('hackSquat')).toBe(false)
+
+    const dips = (sets: number[]) => workoutWith({ dips: sets })
+    expect(recordIds([dips([10, 9, 8]), dips([10, 8, 8])], 0).has('dips')).toBe(true)
+    expect(recordIds([dips([10, 8, 8]), dips([10, 9, 8])], 0).has('dips')).toBe(false)
   })
 })
 

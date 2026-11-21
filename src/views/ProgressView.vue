@@ -4,8 +4,9 @@ import { computed, ref } from 'vue'
 import LineChart from '../components/LineChart.vue'
 import type { Equipment } from '../domain/exercises'
 import { stepFor, totalReps } from '../domain/program'
+import { recordOf } from '../domain/records'
 import { convert, roundTo, type Unit } from '../domain/units'
-import { fmt } from '../format'
+import { fmt, formatShortDate } from '../format'
 import { findExercise, progressOf, state } from '../store'
 
 interface Option {
@@ -74,7 +75,20 @@ function format(value: number): string {
   return bodyweight.value ? `${value} reps` : fmt(value)
 }
 
-const best = computed(() => Math.max(...values.value))
+/** The best fully completed workout of the exercise, and the day it happened. */
+const record = computed(() => {
+  const found = selected.value && recordOf(state.history, selected.value.id)
+  if (!found) return null
+  const { workout, log } = found
+  return {
+    value: format(
+      log.equipment === 'bodyweight'
+        ? totalReps(log)
+        : inCurrentUnit(log.weight, workout.unit, log.equipment),
+    ),
+    date: formatShortDate(workout.startedAt),
+  }
+})
 const gained = computed(() => values.value[values.value.length - 1] - values.value[0])
 </script>
 
@@ -111,8 +125,9 @@ const gained = computed(() => values.value[values.value.length - 1] - values.val
           <dd>{{ values.length }}</dd>
         </div>
         <div>
-          <dt>Best</dt>
-          <dd>{{ format(best) }}</dd>
+          <dt>Record</dt>
+          <dd>{{ record?.value ?? '–' }}</dd>
+          <dd v-if="record" class="when">{{ record.date }}</dd>
         </div>
         <div>
           <dt>Gained</dt>
@@ -162,5 +177,11 @@ dd {
   margin: 0;
   font-weight: 700;
   font-size: 17px;
+}
+
+dd.when {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
 }
 </style>

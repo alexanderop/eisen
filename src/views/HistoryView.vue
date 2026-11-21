@@ -1,16 +1,44 @@
 <script setup lang="ts">
-import { Card, ConfirmButton } from '../components/ui'
+import { Badge, Button, Card, ConfirmButton, SetButton, Sheet, Stepper } from '../components/ui'
+import { computed, ref, toRaw } from 'vue'
 import CopyMarkdown from '../components/CopyMarkdown.vue'
-import type { Workout } from '../domain/program'
+import { nextReps, stepFor, type ExerciseLog, type Workout } from '../domain/program'
+import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
 import { fmt, formatDate } from '../format'
-import { deleteWorkout, state } from '../store'
+import { haptic } from '../haptics'
+import { deleteWorkout, state, updateWorkout } from '../store'
 
 function duration(workout: Workout): string {
   const minutes = durationMinutes(workout)
   return minutes === null ? '' : `${minutes} min`
 }
 
+/** Per workout, the exercises that set a record on that day. */
+const records = computed(() => state.history.map((_, index) => recordIds(state.history, index)))
+
+/** A copy of the workout being corrected. Nothing changes until it is saved. */
+const draft = ref<Workout | null>(null)
+
+function edit(workout: Workout) {
+  draft.value = structuredClone(toRaw(workout))
+}
+
+function onTap(log: ExerciseLog, setIndex: number) {
+  if (log.targetReps === null) return
+  log.sets[setIndex] = nextReps(log.sets[setIndex], log.targetReps)
+  haptic('tap')
+}
+
+function setState(log: ExerciseLog, reps: number | null) {
+  if (reps === null) return 'empty'
+  return log.targetReps !== null && reps < log.targetReps ? 'missed' : 'done'
+}
+
+function save() {
+  if (draft.value) updateWorkout(draft.value.id, draft.value.exercises)
+  draft.value = null
+}
 </script>
 
 <template>
@@ -20,7 +48,7 @@ function duration(workout: Workout): string {
     No workouts yet. Finish your first one and it shows up here.
   </Card>
 
-  <Card v-for="workout in state.history" as="article" :key="workout.id">
+  <Card v-for="(workout, position) in state.history" as="article" :key="workout.id">
     <header class="row">
       <div>
         <h2>{{ workout.name }}</h2>
@@ -28,6 +56,7 @@ function duration(workout: Workout): string {
       </div>
       <div class="actions">
         <CopyMarkdown class="px-1" variant="ghost" size="md" :workout="workout" />
+        <Button class="px-1" variant="ghost" size="md" @click="edit(workout)">Edit</Button>
         <ConfirmButton
           variant="ghost"
           size="md"
@@ -39,7 +68,10 @@ function duration(workout: Workout): string {
     </header>
     <ul>
       <li v-for="log in workout.exercises" :key="log.id">
-        <span class="name">{{ log.name }}</span>
+        <span class="name">
+          {{ log.name }}
+          <Badge v-if="records[position].has(log.id)">Record</Badge>
+        </span>
         <strong>{{ log.equipment === 'bodyweight' ? 'BW' : fmt(log.weight, workout.unit) }}</strong>
         <span class="reps">
           <span
@@ -52,6 +84,50 @@ function duration(workout: Workout): string {
       </li>
     </ul>
   </Card>
+
+  <Sheet v-if="draft" :title="`Edit ${draft.name}`" @close="draft = null">
+    <p class="muted meta">
+      {{ formatDate(draft.startedAt) }}. This corrects the log. Your next weights stay as they are.
+    </p>
+    <section v-for="log in draft.exercises" :key="log.id" class="edit">
+      <div class="row">
+        <h3>{{ log.name }}</h3>
+        <Stepper
+          v-if="log.equipment !== 'bodyweight'"
+          v-model="log.weight"
+          :step="stepFor(log.equipment, draft.unit)"
+          :min="stepFor(log.equipment, draft.unit)"
+          :label="`${log.name} weight`"
+          :format="(value: number) => fmt(value, draft?.unit)"
+        />
+      </div>
+      <div v-if="log.targetReps !== null" class="sets">
+        <SetButton
+          v-for="(reps, index) in log.sets"
+          :key="index"
+          :state="setState(log, reps)"
+          :aria-label="`${log.name} set ${index + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
+          @click="onTap(log, index)"
+        >
+          {{ reps ?? log.targetReps }}
+        </SetButton>
+      </div>
+      <template v-else>
+        <div v-for="(reps, index) in log.sets" :key="index" class="row">
+          <span class="muted">Set {{ index + 1 }}</span>
+          <Stepper
+            :model-value="reps ?? 0"
+            :step="1"
+            :label="`${log.name} set ${index + 1} reps`"
+            :format="(value: number) => (value === 0 ? '–' : String(value))"
+            @update:model-value="log.sets[index] = $event === 0 ? null : $event"
+          />
+        </div>
+      </template>
+    </section>
+    <Button class="w-full" @click="save">Save changes</Button>
+    <Button variant="secondary" class="w-full" @click="draft = null">Cancel</Button>
+  </Sheet>
 </template>
 
 <style scoped>
@@ -68,6 +144,25 @@ h2 {
 
 .meta {
   font-size: 13px;
+}
+
+.edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.sets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
 }
 
 ul {

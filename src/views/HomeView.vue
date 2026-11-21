@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
+import { Badge, Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
 import { computed } from 'vue'
 import CopyMarkdown from '../components/CopyMarkdown.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
-import { outcome } from '../domain/program'
+import { outcome, totalReps } from '../domain/program'
+import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
 import { fmt, formatDate, formatShortDate } from '../format'
 import { stopRest } from '../rest'
@@ -67,6 +68,20 @@ const saved = computed(() => {
   }
 })
 
+/** Records the workout that was just saved set, as "Hack Squat 85kg". */
+const records = computed(() => {
+  const workout = lastWorkout.value
+  if (!workout) return []
+  const ids = recordIds(state.history, 0)
+  return workout.exercises
+    .filter((log) => ids.has(log.id))
+    .map((log) =>
+      log.equipment === 'bodyweight'
+        ? `${log.name} ${totalReps(log)} reps`
+        : `${log.name} ${fmt(log.weight, workout.unit)}`,
+    )
+})
+
 const CHANGE_TEXT = { up: 'Up', repeat: 'Repeat', deload: 'Deload' } as const
 
 function onDiscard() {
@@ -98,6 +113,10 @@ function start() {
       <strong>{{ saved.minutes }} min</strong>
       <span class="muted">·</span>
       <strong>{{ saved.logged }} of {{ saved.total }} sets</strong>
+    </p>
+    <p v-if="records.length > 0" class="records">
+      <Badge>New record</Badge>
+      {{ records.join(', ') }}
     </p>
     <p v-if="lastChanges.length === 0" class="muted">No weight changes this time.</p>
     <ul v-else>
@@ -190,6 +209,14 @@ h2 {
 
 .skipped {
   font-size: 13px;
+}
+
+.records {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
 }
 
 ul {
