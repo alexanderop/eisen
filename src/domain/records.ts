@@ -17,6 +17,17 @@ export function lastLogged(history: Workout[], id: string): Logged | null {
   return logsOf(history, id).find(({ log }) => log.sets.some((reps) => reps !== null)) ?? null
 }
 
+/** The exercises trained most recently, each once, newest first. History is newest first. */
+export function recentExerciseIds(history: Workout[]): string[] {
+  const ids = new Set<string>()
+  for (const workout of history) {
+    for (const log of workout.exercises) {
+      if (log.sets.some((reps) => reps !== null)) ids.add(log.id)
+    }
+  }
+  return [...ids]
+}
+
 /**
  * What a logged exercise counts as for records, comparable across units.
  * Bodyweight exercises count their total reps. Weighted ones count the weight in kg,

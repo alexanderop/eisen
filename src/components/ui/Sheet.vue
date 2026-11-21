@@ -5,6 +5,7 @@ import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle } from '.
 /**
  * A dialog that rises from the bottom edge, in reach of the thumb.
  * Mount it to open it. It closes on a swipe down, the backdrop, the close button and Escape.
+ * The `action` slot sits in the header, next to the close button.
  */
 defineProps<{ title: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -22,16 +23,19 @@ function onOpen(open: boolean) {
     >
       <DrawerHeader class="flex-row items-center justify-between gap-3 px-4 pt-3 pb-4 text-left!">
         <DrawerTitle class="text-xl font-extrabold">{{ title }}</DrawerTitle>
-        <DrawerClose as-child>
-          <Button
-            size="icon"
-            variant="secondary"
-            class="text-muted-foreground rounded-full"
-            aria-label="Close"
-          >
-            ✕
-          </Button>
-        </DrawerClose>
+        <div class="flex items-center gap-2">
+          <slot name="action" />
+          <DrawerClose as-child>
+            <Button
+              size="icon"
+              variant="secondary"
+              class="text-muted-foreground rounded-full"
+              aria-label="Close"
+            >
+              ✕
+            </Button>
+          </DrawerClose>
+        </div>
       </DrawerHeader>
       <div
         class="flex flex-col gap-4 overflow-y-auto overscroll-contain px-4 pt-0.5 *:shrink-0 pb-[calc(env(safe-area-inset-bottom)+20px)]"

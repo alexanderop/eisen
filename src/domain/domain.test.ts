@@ -19,7 +19,7 @@ import {
   type Routine,
   type Workout,
 } from './program'
-import { lastLogged, recordIds, recordOf } from './records'
+import { lastLogged, recentExerciseIds, recordIds, recordOf } from './records'
 import { decodeShared, encodeShared, sharedFromHash, sharedStats, sharedUrl, toShared, workoutMarkdown } from './share'
 import { freshState, isAppState, migrate } from './state'
 
@@ -359,6 +359,17 @@ describe('records', () => {
     const dips = (sets: number[]) => workoutWith({ dips: sets })
     expect(recordIds([dips([10, 9, 8]), dips([10, 8, 8])], 0).has('dips')).toBe(true)
     expect(recordIds([dips([10, 8, 8]), dips([10, 9, 8])], 0).has('dips')).toBe(false)
+  })
+})
+
+describe('recentExerciseIds', () => {
+  it('lists each trained exercise once, newest first, and skips unlogged ones', () => {
+    const history = [
+      workoutWith({ bench: [5, 5, 5, 5, 5], row: [null, null, null, null, null] }),
+      workoutWith({ hackSquat: [5, 5, 5, 5, 5], bench: [5, 5, 5, 5, 5] }),
+      workoutWith({ row: [5, 5, 5, 5, 5] }),
+    ]
+    expect(recentExerciseIds(history)).toEqual(['bench', 'hackSquat', 'row'])
   })
 })
 

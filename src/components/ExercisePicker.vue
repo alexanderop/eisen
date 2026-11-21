@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ExerciseImage from './ExerciseImage.vue'
 import { Button, ChipGroup, ConfirmButton, Field, Input, Sheet } from './ui'
+import { Check, Plus } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import {
   EQUIPMENT,
@@ -8,9 +9,11 @@ import {
   GROUPS,
   kindLabel,
   type Equipment,
+  type Exercise,
   type Group,
 } from '../domain/exercises'
-import { addCustomExercise, deleteCustomExercise, exercises } from '../store'
+import { recentExerciseIds } from '../domain/records'
+import { addCustomExercise, deleteCustomExercise, exercises, state } from '../store'
 
 const props = defineProps<{ exclude: string[] }>()
 const emit = defineEmits<{ pick: [id: string]; close: [] }>()
@@ -31,7 +34,27 @@ const filters = computed(() =>
     .map((group) => ({ value: group, label: group === 'Custom' ? 'Yours' : group })),
 )
 
-const sections = computed(() => {
+interface Section {
+  key: string
+  title: string
+  /** Recent exercises come from every group, so their rows name it. */
+  showGroup: boolean
+  items: Exercise[]
+}
+
+const RECENT_LIMIT = 5
+
+/** What the lifter trained last and has not added yet. Only on the unfiltered, unsearched list. */
+const recent = computed<Exercise[]>(() => {
+  if (filter.value !== 'All' || query.value.trim() !== '') return []
+  return recentExerciseIds(state.history)
+    .filter((id) => !props.exclude.includes(id))
+    .slice(0, RECENT_LIMIT)
+    .map((id) => exercises.value.find((exercise) => exercise.id === id))
+    .filter((exercise) => exercise !== undefined)
+})
+
+const sections = computed<Section[]>(() => {
   const needle = query.value.trim().toLowerCase()
   // The lifter's own exercises stay listed even when already added, so they can be deleted here.
   const available = exercises.value.filter(
@@ -40,12 +63,21 @@ const sections = computed(() => {
       (filter.value === 'All' || exercise.group === filter.value) &&
       exercise.name.toLowerCase().includes(needle),
   )
-  return ORDER.map((group) => ({
-    group,
+  const groups = ORDER.map((group) => ({
+    key: group,
     title: GROUP_TITLES[group] ?? group,
+    showGroup: false,
     items: available.filter((exercise) => exercise.group === group),
-  })).filter((section) => section.items.length > 0)
+  }))
+  return [{ key: 'recent', title: 'Recent', showGroup: true, items: recent.value }, ...groups].filter(
+    (section) => section.items.length > 0,
+  )
 })
+
+function subtitle(exercise: Exercise, showGroup: boolean): string {
+  const kind = kindLabel(exercise)
+  return showGroup ? `${kind} · ${GROUP_TITLES[exercise.group] ?? exercise.group}` : kind
+}
 
 function startCreating() {
   name.value = query.value.trim()
@@ -82,18 +114,18 @@ function create() {
       <Button variant="secondary" class="w-full" type="button" @click="creating = false">Back to the list</Button>
     </form>
 
-    <template v-else>
+    <template v-if="!creating" #action>
+      <Button size="sm" variant="secondary" class="rounded-full" @click="startCreating">
+        <Plus />
+        New
+      </Button>
+    </template>
+
+    <template v-if="!creating">
       <Input v-model="query" type="search" placeholder="Search exercises" aria-label="Search exercises" />
       <ChipGroup v-model="filter" class="filters" :options="filters" label="Muscle group" bleed />
-      <Button variant="secondary" class="create w-full" @click="startCreating">
-        {{
-          query.trim() && sections.length === 0
-            ? `Create “${query.trim()}”`
-            : 'Create your own exercise'
-        }}
-      </Button>
       <div class="list">
-        <section v-for="section in sections" :key="section.group">
+        <section v-for="section in sections" :key="section.key">
           <h3 class="eyebrow">{{ section.title }}</h3>
           <div v-for="exercise in section.items" :key="exercise.id" class="item">
             <button
@@ -102,10 +134,15 @@ function create() {
               @click="emit('pick', exercise.id)"
             >
               <ExerciseImage :image="exercise.image" :name="exercise.name" />
-              <span class="pick-name">{{ exercise.name }}</span>
-              <span class="muted kind">
-                {{ exclude.includes(exercise.id) ? 'Added' : kindLabel(exercise) }}
+              <span class="pick-text">
+                <span class="pick-name">{{ exercise.name }}</span>
+                <span class="muted kind">{{ subtitle(exercise, section.showGroup) }}</span>
               </span>
+              <span v-if="exclude.includes(exercise.id)" class="muted state">
+                <Check aria-hidden="true" />
+                Added
+              </span>
+              <Plus v-else class="add" aria-hidden="true" />
             </button>
             <ConfirmButton
               v-if="exercise.group === 'Custom'"
@@ -117,7 +154,13 @@ function create() {
             />
           </div>
         </section>
-        <p v-if="sections.length === 0" class="muted none">No exercise matches.</p>
+        <div v-if="sections.length === 0" class="none">
+          <p class="muted">No exercise matches.</p>
+          <Button variant="secondary" class="w-full" @click="startCreating">
+            <Plus />
+            {{ query.trim() ? `Create “${query.trim()}”` : 'Create your own exercise' }}
+          </Button>
+        </div>
       </div>
     </template>
   </Sheet>
@@ -159,7 +202,6 @@ function create() {
   flex: none;
 }
 
-.create,
 .filters {
   flex: none;
 }
@@ -172,25 +214,54 @@ function create() {
 
 .pick {
   flex: 1;
-  min-height: 60px;
+  min-width: 0;
+  min-height: 64px;
   display: flex;
   align-items: center;
   gap: 12px;
   text-align: left;
-  font-weight: 600;
+}
+
+.pick-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .pick-name {
-  flex: 1;
+  font-weight: 600;
 }
 
 .kind {
-  flex: none;
   font-size: 13px;
-  font-weight: 400;
+}
+
+.state {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.state svg {
+  width: 16px;
+  height: 16px;
+}
+
+.add {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--primary);
 }
 
 .none {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   padding: 24px 0;
   text-align: center;
 }
