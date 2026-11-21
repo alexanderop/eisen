@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { calendarWeeks, niceTicks, weekStart, weekStreak } from './chart'
 import { CATALOG, catalogExercise, customExercise } from './exercises'
 import { platesPerSide, warmupSets } from './plates'
 import {
@@ -384,5 +385,46 @@ describe('createLog', () => {
     const curl = catalogExercise('barbellCurl')!
     const log = createLog(curl, defaultSlot(curl), { barbellCurl: { weight: 30, fails: 0, increment: 2.5 } }, 'kg')
     expect(log).toMatchObject({ id: 'barbellCurl', weight: 30, targetReps: 5, sets: [null, null, null, null, null] })
+  })
+})
+
+describe('charts', () => {
+  const day = (year: number, month: number, date: number) => new Date(year, month - 1, date, 18).getTime()
+
+  it('picks round axis values that cover the data', () => {
+    expect(niceTicks(80, 95)).toEqual([80, 85, 90, 95])
+    expect(niceTicks(62.5, 70)).toEqual([62.5, 65, 67.5, 70])
+    expect(niceTicks(23, 31)).toEqual([20, 25, 30, 35])
+    expect(niceTicks(40, 125)).toEqual([0, 50, 100, 150])
+    expect(niceTicks(80, 80)).toEqual([50, 100])
+  })
+
+  it('starts the week on Monday', () => {
+    // 21 November 2026 is a Saturday.
+    expect(new Date(weekStart(day(2026, 11, 21))).getDate()).toBe(16)
+    expect(new Date(weekStart(day(2026, 11, 16))).getDate()).toBe(16)
+    expect(new Date(weekStart(day(2026, 11, 22))).getDate()).toBe(16)
+  })
+
+  it('counts weeks in a row and lets the running week still be open', () => {
+    const now = day(2026, 11, 18)
+    const lastThree = [day(2026, 11, 13), day(2026, 11, 3), day(2026, 10, 30)]
+    expect(weekStreak(lastThree, now)).toBe(3)
+    expect(weekStreak([now, ...lastThree], now)).toBe(4)
+    expect(weekStreak([day(2026, 11, 3)], now)).toBe(0)
+    expect(weekStreak([], now)).toBe(0)
+  })
+
+  it('lays the last weeks out as columns of seven days ending this week', () => {
+    const now = day(2026, 11, 21)
+    const workout = { ...start('A'), startedAt: day(2026, 11, 19) }
+    const weeks = calendarWeeks([workout], now, 12)
+    expect(weeks).toHaveLength(12)
+    expect(weeks.every((week) => week.length === 7)).toBe(true)
+    const thisWeek = weeks[11]
+    expect(thisWeek.map((entry) => new Date(entry.time).getDate())).toEqual([16, 17, 18, 19, 20, 21, 22])
+    expect(thisWeek.map((entry) => entry.workouts.length)).toEqual([0, 0, 0, 1, 0, 0, 0])
+    expect(thisWeek[5]).toMatchObject({ today: true, future: false })
+    expect(thisWeek[6]).toMatchObject({ today: false, future: true })
   })
 })
