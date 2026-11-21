@@ -96,6 +96,36 @@ function beep(): void {
   }
 }
 
+/**
+ * Gets the sound ready. Call from a tap handler: browsers only allow sound after a user gesture.
+ * Safe to call again: a phone suspends the sound when the app was in the background.
+ */
+async function unlockSound(): Promise<void> {
+  if (!state.settings.sound) return
+  audio ??= new AudioContext()
+  void audio.resume()
+  await loadVoices(audio)
+}
+
+function signalEnd(): void {
+  void audio?.resume()
+  if (!say('over')) beep()
+}
+
+/** Plays the end-of-rest sound once, so the lifter hears what switching it on does. */
+export async function previewSound(): Promise<void> {
+  await unlockSound()
+  signalEnd()
+}
+
+/**
+ * A timer that came back after a reload has no sound yet: nothing was tapped in this session.
+ * The first tap anywhere gets it ready, so the end of that rest is still heard.
+ */
+function unlockOnTap(): void {
+  if (rest.active) void unlockSound()
+}
+
 function tick(): void {
   now.value = Date.now()
   if (!rest.active) return
@@ -106,18 +136,14 @@ function tick(): void {
   }
   if (!rest.signalled && left <= 0) {
     rest.signalled = true
-    if (!say('over')) beep()
+    signalEnd()
     navigator.vibrate?.([300, 120, 300, 120, 300])
   }
 }
 
 /** Call from a tap handler: browsers only allow sound after a user gesture. */
 export function startRest(seconds: number, note: string): void {
-  if (state.settings.sound) {
-    audio ??= new AudioContext()
-    void audio.resume()
-    void loadVoices(audio)
-  }
+  void unlockSound()
   now.value = Date.now()
   rest.active = true
   rest.startedAt = now.value
@@ -173,6 +199,8 @@ function restore(): void {
 }
 
 restore()
+// `click` and not `pointerdown`: a button pressed with the keyboard counts as well.
+window.addEventListener('click', unlockOnTap, { capture: true })
 
 export function formatClock(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60)

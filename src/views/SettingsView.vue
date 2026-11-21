@@ -23,7 +23,7 @@ import { stepFor, UNIT_DEFAULTS } from '../domain/program'
 import type { Unit } from '../domain/units'
 import { fmt } from '../format'
 import { haptic, hapticsSupported } from '../haptics'
-import { formatClock, stopRest } from '../rest'
+import { formatClock, previewSound, stopRest } from '../rest'
 import {
   exportData,
   findExercise,
@@ -130,6 +130,7 @@ function pickUnit(unit: Unit) {
 function toggle(setting: 'sound' | 'haptics') {
   state.settings[setting] = !state.settings[setting]
   haptic('tap')
+  if (setting === 'sound' && state.settings.sound) void previewSound()
 }
 
 const message = ref('')
