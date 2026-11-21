@@ -7,7 +7,7 @@ const sized = computed(() =>
   props.plates.map((plate) => ({
     plate,
     height: 26 + Math.sqrt(plate / props.largest) * 54,
-    width: plate / props.largest > 0.3 ? 16 : 11,
+    width: plate / props.largest > 0.3 ? 22 : 18,
   })),
 )
 </script>
@@ -20,7 +20,9 @@ const sized = computed(() =>
         :key="index"
         class="plate"
         :style="{ height: `${item.height}px`, width: `${item.width}px` }"
-      />
+      >
+        <span class="plate-label">{{ item.plate }}</span>
+      </div>
     </div>
     <div class="collar" />
     <div class="shaft" />
@@ -65,5 +67,20 @@ const sized = computed(() =>
   flex: none;
   background: var(--primary);
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Reads bottom to top, like the print on a real plate seen from the side. */
+.plate-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  color: var(--primary-foreground);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 </style>
