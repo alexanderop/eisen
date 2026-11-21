@@ -133,6 +133,13 @@ export function removeActiveExercise(exerciseIndex: number): void {
   if (workout && workout.exercises.length > 1) workout.exercises.splice(exerciseIndex, 1)
 }
 
+/** Moves an exercise behind the others, for when its machine or rack is taken. */
+export function deferActiveExercise(exerciseIndex: number): void {
+  const workout = state.active
+  if (!workout || exerciseIndex < 0 || exerciseIndex >= workout.exercises.length) return
+  workout.exercises.push(...workout.exercises.splice(exerciseIndex, 1))
+}
+
 export function tapSet(exerciseIndex: number, setIndex: number): number | null {
   const log = state.active?.exercises[exerciseIndex]
   if (!log || log.targetReps === null) return null

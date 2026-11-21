@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Button, Card, ConfirmButton, Segmented, SetButton, Sheet, Stepper } from '../components/ui'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import BarbellPlates from '../components/BarbellPlates.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
 import ExercisePicker from '../components/ExercisePicker.vue'
@@ -22,6 +22,7 @@ import { haptic } from '../haptics'
 import { startRest, stopRest } from '../rest'
 import {
   addActiveExercise,
+  deferActiveExercise,
   discardWorkout,
   findExercise,
   finishWorkout,
@@ -91,7 +92,9 @@ function onRemove(index: number) {
   editing.value = null
 }
 /**
- * Finished exercises sink to the bottom and fold up, so the top of the screen is what is left to do.
+ * The exercise being worked on rises to the top, finished ones sink to the bottom and fold up,
+ * so the top of the screen is what to do now. Starting with the third exercise because the
+ * first one's machine is taken needs no sorting by hand.
  * The exercise tapped last stays where it is for a moment: the tap after a full set is
  * how missed reps are entered, and the card must not jump away under the thumb.
  */
@@ -100,20 +103,61 @@ const settling = ref<string | null>(null)
 const expanded = ref(new Set<string>())
 let settleTimer: ReturnType<typeof setTimeout> | undefined
 
+function isStarted(log: ExerciseLog) {
+  return log.sets.some((reps) => reps !== null)
+}
+
+function isDone(log: ExerciseLog) {
+  return log.sets.every((reps) => reps !== null)
+}
+
+/** Exercises with sets logged, most recently worked on first. */
+const current = ref<string[]>(
+  (state.active?.exercises ?? []).filter((log) => isStarted(log) && !isDone(log)).map((log) => log.id),
+)
+
+function settle() {
+  clearTimeout(settleTimer)
+  const id = settling.value
+  settling.value = null
+  if (id === null) return
+  const log = workout.value?.exercises.find((item) => item.id === id)
+  const rises = log !== undefined && isStarted(log) && !isDone(log)
+  const wasFirst = ordered.value[0]?.log.id === id
+  current.value = [...(rises ? [id] : []), ...current.value.filter((item) => item !== id)]
+  if (rises && !wasFirst) void nextTick(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
+}
+
 function touch(id: string) {
+  if (settling.value !== id) settle()
   settling.value = id
   clearTimeout(settleTimer)
-  settleTimer = setTimeout(() => (settling.value = null), SETTLE_MS)
+  settleTimer = setTimeout(settle, SETTLE_MS)
 }
 
 const ordered = computed(() => {
   const items = (workout.value?.exercises ?? []).map((log, index) => ({
     log,
     index,
-    done: log.id !== settling.value && log.sets.every((reps) => reps !== null),
+    done: log.id !== settling.value && isDone(log),
   }))
-  return [...items.filter((item) => !item.done), ...items.filter((item) => item.done)]
+  const open = items.filter((item) => !item.done)
+  const rank = (id: string) => current.value.indexOf(id)
+  return [
+    ...open.filter((item) => rank(item.log.id) !== -1).sort((a, b) => rank(a.log.id) - rank(b.log.id)),
+    ...open.filter((item) => rank(item.log.id) === -1),
+    ...items.filter((item) => item.done),
+  ]
 })
+const openCount = computed(() => ordered.value.length - doneCount.value)
+
+function onDefer(index: number) {
+  const id = workout.value?.exercises[index]?.id
+  current.value = current.value.filter((item) => item !== id)
+  deferActiveExercise(index)
+  editing.value = null
+}
+
 const doneCount = computed(() => ordered.value.filter((item) => item.done).length)
 
 function toggle(id: string) {
@@ -362,6 +406,14 @@ onBeforeUnmount(() => {
         />
       </div>
       <Button class="w-full" @click="editing = null">Done</Button>
+      <Button
+        v-if="openCount > 1 && !isDone(editedLog)"
+        variant="secondary"
+        class="w-full"
+        @click="onDefer(editing)"
+      >
+        Do later
+      </Button>
       <ConfirmButton
         v-if="workout.exercises.length > 1"
         :key="editedLog.id"
