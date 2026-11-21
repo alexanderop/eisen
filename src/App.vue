@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import UpdatePrompt from './components/UpdatePrompt.vue'
+import { sharedFromHash } from './domain/share'
 import { state } from './store'
 import HistoryView from './views/HistoryView.vue'
 import HomeView from './views/HomeView.vue'
 import ProgressView from './views/ProgressView.vue'
 import SettingsView from './views/SettingsView.vue'
+import SharedWorkoutView from './views/SharedWorkoutView.vue'
 import WorkoutView from './views/WorkoutView.vue'
 import WorkoutsView from './views/WorkoutsView.vue'
 
@@ -50,15 +52,34 @@ function onPopState() {
   workoutOpen.value = false
 }
 
-onMounted(() => window.addEventListener('popstate', onPopState))
-onBeforeUnmount(() => window.removeEventListener('popstate', onPopState))
+/** A link to a shared workout carries the workout after the `#`. It shows before anything else. */
+const shared = ref(sharedFromHash(location.hash))
+
+function onHashChange() {
+  shared.value = sharedFromHash(location.hash)
+}
+
+function closeShared() {
+  shared.value = null
+  history.replaceState(history.state, '', location.pathname + location.search)
+}
+
+onMounted(() => {
+  window.addEventListener('popstate', onPopState)
+  window.addEventListener('hashchange', onHashChange)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', onPopState)
+  window.removeEventListener('hashchange', onHashChange)
+})
 
 /** Every screen starts at the top instead of inheriting the last screen's scroll position. */
-watch([tab, showWorkout], () => window.scrollTo(0, 0), { flush: 'post' })
+watch([tab, showWorkout, shared], () => window.scrollTo(0, 0), { flush: 'post' })
 </script>
 
 <template>
-  <WorkoutView v-if="showWorkout" @close="workoutOpen = false" />
+  <SharedWorkoutView v-if="shared" :shared="shared" @close="closeShared" />
+  <WorkoutView v-else-if="showWorkout" @close="workoutOpen = false" />
   <template v-else>
     <main class="page">
       <HomeView v-if="tab === 'home'" @open="workoutOpen = true" />

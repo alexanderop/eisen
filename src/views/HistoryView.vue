@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Badge, Button, Card, ConfirmButton, SetButton, Sheet, Stepper } from '../components/ui'
 import { computed, ref, toRaw } from 'vue'
-import CopyMarkdown from '../components/CopyMarkdown.vue'
+import ShareWorkout from '../components/ShareWorkout.vue'
 import { nextReps, stepFor, type ExerciseLog, type Workout } from '../domain/program'
 import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
@@ -55,7 +55,7 @@ function save() {
         <p class="muted meta">{{ formatDate(workout.startedAt) }} · {{ duration(workout) }}</p>
       </div>
       <div class="actions">
-        <CopyMarkdown class="px-1" variant="ghost" size="md" :workout="workout" />
+        <ShareWorkout class="px-1" variant="ghost" size="md" :workout="workout" />
         <Button class="px-1" variant="ghost" size="md" @click="edit(workout)">Edit</Button>
         <ConfirmButton
           variant="ghost"

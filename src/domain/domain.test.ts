@@ -20,7 +20,7 @@ import {
   type Workout,
 } from './program'
 import { lastLogged, recordIds, recordOf } from './records'
-import { workoutMarkdown } from './share'
+import { decodeShared, encodeShared, sharedFromHash, sharedStats, sharedUrl, toShared, workoutMarkdown } from './share'
 import { freshState, isAppState, migrate } from './state'
 
 function initialProgress(): Progress {
@@ -377,6 +377,41 @@ describe('workoutMarkdown', () => {
         '- **Dips** BW: 12, 9, 7',
       ].join('\n'),
     )
+  })
+})
+
+describe('shared workouts', () => {
+  const workout = workoutWith({ hackSquat: ALL, bench: [5, 5, 4, null, null], dips: [12, 9, 7] })
+  workout.finishedAt = 50 * 60000
+  workout.name = 'Größer & stärker 💪'
+  const shared = toShared(workout, new Set(['hackSquat']))
+
+  it('leaves out skipped exercises and marks records', () => {
+    expect(shared.exercises.map((exercise) => exercise.name)).toEqual(['Hack Squat', 'Bench Press', 'Dips'])
+    expect(shared.exercises.map((exercise) => exercise.record)).toEqual([true, false, false])
+    expect(shared.exercises[2]).toMatchObject({ bodyweight: true, weight: 0, targetReps: null })
+    expect(shared.minutes).toBe(50)
+  })
+
+  it('adds up volume, sets and reps', () => {
+    expect(sharedStats(shared)).toEqual({ volume: 80 * 25 + 80 * 14, sets: 11, reps: 25 + 14 + 28 })
+  })
+
+  it('survives the trip through a link', () => {
+    const url = sharedUrl('https://example.com/eisen/#old', shared)
+    expect(url).toMatch(/^https:\/\/example\.com\/eisen\/#w=[\w-]+$/)
+    expect(sharedFromHash(new URL(url).hash)).toEqual(shared)
+  })
+
+  it('rejects links that hold no workout', () => {
+    expect(sharedFromHash('')).toBeNull()
+    expect(sharedFromHash('#w=')).toBeNull()
+    expect(decodeShared('not base64!')).toBeNull()
+    expect(decodeShared(btoa('{"a":1}'))).toBeNull()
+    expect(decodeShared(btoa(JSON.stringify([1, 'A', 0, 1, 1, []])))).toBeNull()
+    expect(decodeShared(btoa(JSON.stringify([1, 'A', 0, 1, 1, [['Squat', 0, 80, 5, 0, [5, 'x']]]])))).toBeNull()
+    expect(decodeShared(btoa(JSON.stringify([2, 'A', 0, 1, 1, [['Squat', 0, 80, 5, 0, [5]]]])))).toBeNull()
+    expect(decodeShared(encodeShared({ ...shared, name: 'x'.repeat(81) }))).toBeNull()
   })
 })
 

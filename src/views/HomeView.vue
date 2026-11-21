@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Badge, Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
 import { computed } from 'vue'
-import CopyMarkdown from '../components/CopyMarkdown.vue'
+import ShareWorkout from '../components/ShareWorkout.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
 import { outcome, totalReps } from '../domain/program'
 import { recordIds } from '../domain/records'
@@ -129,7 +129,7 @@ function start() {
     <p v-if="saved && saved.skipped.length > 0" class="muted skipped">
       Skipped: {{ saved.skipped.join(', ') }}
     </p>
-    <CopyMarkdown v-if="lastWorkout" class="w-full" :workout="lastWorkout" label="Copy as Markdown" />
+    <ShareWorkout v-if="lastWorkout" class="w-full" :workout="lastWorkout" label="Share workout" />
   </Card>
 
   <Card as="section" class="next">

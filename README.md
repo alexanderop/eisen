@@ -11,6 +11,7 @@ An offline 5×5 barbell workout tracker that installs as a PWA.
 - Rest timer after each set
 - Weight goes up after a completed exercise and drops 10% after three misses in a row
 - Warmup and plate calculator, history, progress chart, kg and lb
+- Share a finished workout as a picture, as a link that shows it, or as Markdown
 - All data stays on your device, with JSON backup and restore
 
 ## Develop
