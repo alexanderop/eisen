@@ -17,10 +17,12 @@ export interface Settings {
   /** Rest in seconds after a set with missed reps. */
   restMissed: number
   sound: boolean
+  /** Short vibration when a set, a stepper or a finished workout is tapped. */
+  haptics: boolean
 }
 
 export interface AppState {
-  version: 5
+  version: 6
   settings: Settings
   /** Working weight per exercise id. Bodyweight exercises have no entry. */
   progress: Progress
@@ -47,8 +49,15 @@ function catalogProgress(ids: readonly string[], unit: Unit): Progress {
 export function freshState(unit: Unit = 'kg'): AppState {
   const routines = defaultRoutines()
   return {
-    version: 5,
-    settings: { unit, bar: UNIT_DEFAULTS[unit].bar, restDone: 90, restMissed: 300, sound: true },
+    version: 6,
+    settings: {
+      unit,
+      bar: UNIT_DEFAULTS[unit].bar,
+      restDone: 90,
+      restMissed: 300,
+      sound: true,
+      haptics: true,
+    },
     progress: catalogProgress(
       routines.flatMap((routine) => routine.slots.map((slot) => slot.exerciseId)),
       unit,
@@ -161,6 +170,15 @@ export function migrate(value: unknown): unknown {
     }
   }
 
+  // Version 6 added vibration on taps. It starts switched on.
+  if (data.version === 5) {
+    data = {
+      ...data,
+      version: 6,
+      settings: isObject(data.settings) ? { ...data.settings, haptics: true } : data.settings,
+    }
+  }
+
   return data
 }
 
@@ -179,7 +197,7 @@ function fiveDeadliftSets(routine: unknown): unknown {
 export function isAppState(value: unknown): value is AppState {
   return (
     isObject(value) &&
-    value.version === 5 &&
+    value.version === 6 &&
     Array.isArray(value.history) &&
     Array.isArray(value.routines) &&
     value.routines.length > 0 &&

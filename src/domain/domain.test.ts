@@ -300,6 +300,13 @@ describe('migrate', () => {
     expect(edited.routines[0].slots).toEqual(slots({ exerciseId: 'deadlift', sets: 3, reps: 3 }))
   })
 
+  it('switches vibration on for an install from before it existed', () => {
+    const { haptics: _, ...settings } = freshState('kg').settings
+    const migrated = migrate({ ...freshState('kg'), version: 5, settings })
+    if (!isAppState(migrated)) throw new Error('not a valid state')
+    expect(migrated.settings).toEqual(freshState('kg').settings)
+  })
+
   it('leaves a current state alone and rejects junk', () => {
     const fresh = freshState('kg')
     expect(migrate(fresh)).toBe(fresh)

@@ -17,6 +17,7 @@ import {
   type ExerciseLog,
 } from '../domain/program'
 import { emptyWeightFor, fmt, loadFor, platesText } from '../format'
+import { haptic } from '../haptics'
 import { startRest, stopRest } from '../rest'
 import {
   addActiveExercise,
@@ -126,6 +127,8 @@ function onTap(exerciseIndex: number, setIndex: number) {
   }
   const reps = tapSet(exerciseIndex, setIndex)
   touch(log.id)
+  if (reps !== null && reps < log.targetReps) haptic('warning')
+  else haptic(outcome(log) === 'success' ? 'success' : 'tap')
   if (reps === null || isComplete(active)) {
     stopRest()
     return
@@ -148,6 +151,7 @@ function saveEntry(reps: number | null) {
   logReps(entry.value.exerciseIndex, entry.value.setIndex, reps)
   touch(active.exercises[entry.value.exerciseIndex].id)
   entry.value = null
+  haptic('tap')
   if (reps === null || isComplete(active)) stopRest()
   else startRest(state.settings.restDone, 'Max set logged.')
 }
@@ -160,6 +164,7 @@ function onFinish() {
 }
 
 function finish() {
+  haptic('done')
   stopRest()
   finishWorkout()
   emit('close')

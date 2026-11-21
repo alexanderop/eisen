@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { haptic } from '../../haptics'
 import { Button } from './button'
 
 /** Changes a number in fixed steps with thumb-sized buttons: weights, sets, reps, seconds. */
@@ -9,7 +10,10 @@ const props = withDefaults(
 )
 
 function change(direction: 1 | -1) {
-  model.value = Math.min(props.max, Math.max(props.min, model.value + direction * props.step))
+  const next = Math.min(props.max, Math.max(props.min, model.value + direction * props.step))
+  if (next === model.value) return
+  model.value = next
+  haptic('step')
 }
 </script>
 

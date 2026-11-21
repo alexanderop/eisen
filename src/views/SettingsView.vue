@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import { stepFor, UNIT_DEFAULTS } from '../domain/program'
 import type { Unit } from '../domain/units'
 import { fmt } from '../format'
+import { hapticsSupported } from '../haptics'
 import { formatClock, stopRest } from '../rest'
 import {
   exportData,
@@ -136,6 +137,10 @@ function onReset() {
     <label class="row">
       <span>Sound when rest ends</span>
       <input v-model="state.settings.sound" type="checkbox" />
+    </label>
+    <label v-if="hapticsSupported" class="row">
+      <span>Vibrate on taps</span>
+      <input v-model="state.settings.haptics" type="checkbox" />
     </label>
   </Card>
 
