@@ -64,7 +64,7 @@ describe('applyProgression', () => {
   })
 
   it('adds 5kg to the deadlift', () => {
-    const workout = workoutWith({ hackSquat: ALL, ohp: ALL, deadlift: [5] }, 'B')
+    const workout = workoutWith({ hackSquat: ALL, ohp: ALL, deadlift: ALL }, 'B')
     const { progress } = applyProgression(initialProgress(), workout, 20)
     expect(progress.deadlift.weight).toBe(105)
   })
@@ -282,6 +282,22 @@ describe('migrate', () => {
       ['Hack Squat', 'machine'],
       ['Dips', 'bodyweight'],
     ])
+  })
+
+  it('gives a deadlift still on one set all five, and leaves an edited one alone', () => {
+    const slots = (deadlift: object) => [{ exerciseId: 'ohp', sets: 5, reps: 5 }, deadlift]
+    const v4 = (deadlift: object) => ({
+      ...freshState('kg'),
+      version: 4,
+      routines: [{ id: 'B', name: 'Workout B', slots: slots(deadlift) }],
+    })
+    const upgraded = migrate(v4({ exerciseId: 'deadlift', sets: 1, reps: 5 }))
+    if (!isAppState(upgraded)) throw new Error('not a valid state')
+    expect(upgraded.routines[0].slots).toEqual(slots({ exerciseId: 'deadlift', sets: 5, reps: 5 }))
+
+    const edited = migrate(v4({ exerciseId: 'deadlift', sets: 3, reps: 3 }))
+    if (!isAppState(edited)) throw new Error('not a valid state')
+    expect(edited.routines[0].slots).toEqual(slots({ exerciseId: 'deadlift', sets: 3, reps: 3 }))
   })
 
   it('leaves a current state alone and rejects junk', () => {

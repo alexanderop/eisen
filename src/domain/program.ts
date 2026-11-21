@@ -36,7 +36,7 @@ export function defaultRoutines(): Routine[] {
       slots: [
         { exerciseId: 'hackSquat', sets: 5, reps: 5 },
         { exerciseId: 'ohp', sets: 5, reps: 5 },
-        { exerciseId: 'deadlift', sets: 1, reps: 5 },
+        { exerciseId: 'deadlift', sets: 5, reps: 5 },
         { exerciseId: 'pullups', sets: 3, reps: null },
       ],
     },

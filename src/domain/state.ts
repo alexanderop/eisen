@@ -20,7 +20,7 @@ export interface Settings {
 }
 
 export interface AppState {
-  version: 4
+  version: 5
   settings: Settings
   /** Working weight per exercise id. Bodyweight exercises have no entry. */
   progress: Progress
@@ -47,7 +47,7 @@ function catalogProgress(ids: readonly string[], unit: Unit): Progress {
 export function freshState(unit: Unit = 'kg'): AppState {
   const routines = defaultRoutines()
   return {
-    version: 4,
+    version: 5,
     settings: { unit, bar: UNIT_DEFAULTS[unit].bar, restDone: 90, restMissed: 300, sound: true },
     progress: catalogProgress(
       routines.flatMap((routine) => routine.slots.map((slot) => slot.exerciseId)),
@@ -152,13 +152,34 @@ export function migrate(value: unknown): unknown {
     }
   }
 
+  // Version 5 made the deadlift 5×5 too. A workout still on the old single set gets all five.
+  if (data.version === 4) {
+    data = {
+      ...data,
+      version: 5,
+      routines: Array.isArray(data.routines) ? data.routines.map(fiveDeadliftSets) : data.routines,
+    }
+  }
+
   return data
+}
+
+function fiveDeadliftSets(routine: unknown): unknown {
+  if (!isObject(routine) || !Array.isArray(routine.slots)) return routine
+  return {
+    ...routine,
+    slots: routine.slots.map((slot: unknown) =>
+      isObject(slot) && slot.exerciseId === 'deadlift' && slot.sets === 1 && slot.reps === 5
+        ? { ...slot, sets: 5 }
+        : slot,
+    ),
+  }
 }
 
 export function isAppState(value: unknown): value is AppState {
   return (
     isObject(value) &&
-    value.version === 4 &&
+    value.version === 5 &&
     Array.isArray(value.history) &&
     Array.isArray(value.routines) &&
     value.routines.length > 0 &&
