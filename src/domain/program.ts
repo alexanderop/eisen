@@ -58,7 +58,7 @@ interface UnitDefaults {
 }
 
 export const UNIT_DEFAULTS: Record<Unit, UnitDefaults> = {
-  kg: { bar: 20, step: 2.5, plates: [25, 20, 15, 10, 5, 2.5, 1.25] },
+  kg: { bar: 20, step: 2.5, plates: [20, 15, 10, 5, 2.5, 1.25] },
   lb: { bar: 45, step: 5, plates: [45, 35, 25, 10, 5, 2.5] },
 }
 
