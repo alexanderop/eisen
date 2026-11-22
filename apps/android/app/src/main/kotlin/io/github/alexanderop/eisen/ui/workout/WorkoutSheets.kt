@@ -84,9 +84,17 @@ internal fun WorkoutSheet(title: String, onDismiss: () -> Unit, content: @Compos
     }
 }
 
-/** Weight, plates and increment of one exercise in the running workout, and removing it. */
+/** Weight, plates and increment of one exercise in the running workout, putting it off and removing it. */
 @Composable
-internal fun EditExerciseSheet(index: Int, log: ExerciseLog, canRemove: Boolean, onRemove: () -> Unit, onDismiss: () -> Unit) {
+internal fun EditExerciseSheet(
+    index: Int,
+    log: ExerciseLog,
+    canDefer: Boolean,
+    onDefer: () -> Unit,
+    canRemove: Boolean,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val settings = Store.state.settings
     WorkoutSheet(log.name, onDismiss) { close ->
         if (log.equipment != Equipment.BODYWEIGHT) {
@@ -129,6 +137,7 @@ internal fun EditExerciseSheet(index: Int, log: ExerciseLog, canRemove: Boolean,
             }
         }
         PrimaryButton("Done", onClick = close)
+        if (canDefer) SecondaryButton("Do later", onClick = onDefer)
         if (canRemove) {
             // A new exercise must not inherit an armed button from the one shown before.
             androidx.compose.runtime.key(log.id) {

@@ -1,8 +1,5 @@
 package io.github.alexanderop.eisen.ui.home
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -29,18 +26,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -56,7 +49,6 @@ import io.github.alexanderop.eisen.domain.durationMinutes
 import io.github.alexanderop.eisen.domain.outcome
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.totalReps
-import io.github.alexanderop.eisen.domain.workoutMarkdown
 import io.github.alexanderop.eisen.rest.Rest
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
@@ -68,7 +60,7 @@ import io.github.alexanderop.eisen.ui.picker.ConfirmButton
 import io.github.alexanderop.eisen.ui.picker.EisenCard
 import io.github.alexanderop.eisen.ui.picker.Eyebrow
 import io.github.alexanderop.eisen.ui.picker.PillBadge
-import kotlinx.coroutines.delay
+import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
 
 private const val WEEK_MS = 7L * 24 * 60 * 60 * 1000
 
@@ -195,7 +187,7 @@ private fun SavedCard(changes: List<Change>, workout: Workout?) {
                 if (skipped.isNotEmpty()) {
                     Text("Skipped: ${skipped.joinToString(", ")}", color = EisenColors.MutedForeground, fontSize = 13.sp)
                 }
-                CopyMarkdownButton(workout)
+                ShareButton(workout)
             }
         }
     }
@@ -215,43 +207,19 @@ private fun ChangeRow(change: Change) {
     }
 }
 
-private enum class CopyStatus { IDLE, COPIED, FAILED }
-
+/** Opens the sheet that shares the workout as a picture, a link or Markdown. */
 @Composable
-private fun CopyMarkdownButton(workout: Workout) {
-    val context = LocalContext.current
-    var status by remember { mutableStateOf(CopyStatus.IDLE) }
-    // Every tap restarts the two seconds the result stays on the button.
-    var taps by remember { mutableStateOf(0) }
-    LaunchedEffect(taps) {
-        if (taps == 0) return@LaunchedEffect
-        delay(2000)
-        status = CopyStatus.IDLE
-    }
+private fun ShareButton(workout: Workout) {
+    var sharing by rememberSaveable { mutableStateOf(false) }
     FilledTonalButton(
-        onClick = {
-            val copied = runCatching {
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText(workout.name, workoutMarkdown(workout, formatDate(workout.startedAt))))
-            }.isSuccess
-            status = if (copied) CopyStatus.COPIED else CopyStatus.FAILED
-            taps++
-        },
+        onClick = { sharing = true },
         modifier = Modifier.fillMaxWidth().height(ButtonHeight),
         shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
     ) {
-        Text(
-            when (status) {
-                CopyStatus.COPIED -> "Copied"
-                CopyStatus.FAILED -> "Copy failed"
-                CopyStatus.IDLE -> "Copy as Markdown"
-            },
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-        )
+        Text("Share workout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
+    if (sharing) ShareWorkoutSheet(workout, onDismiss = { sharing = false })
 }
 
 @Composable

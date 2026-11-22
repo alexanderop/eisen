@@ -74,6 +74,7 @@ import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.incrementStep
 import io.github.alexanderop.eisen.domain.stepFor
 import io.github.alexanderop.eisen.domain.unitDefaults
+import io.github.alexanderop.eisen.health.HealthConnectRows
 import io.github.alexanderop.eisen.rest.Cues
 import io.github.alexanderop.eisen.rest.Rest
 import io.github.alexanderop.eisen.ui.EisenColors
@@ -318,6 +319,7 @@ fun SettingsScreen() {
                 // Some file managers do not call a .json file JSON, so any file can be picked and is checked after.
                 onClick = { restore.launch(arrayOf("application/json", "*/*")) },
             )
+            HealthConnectRows()
             SettingRow(
                 icon = TrashIcon,
                 label = "Erase all data",

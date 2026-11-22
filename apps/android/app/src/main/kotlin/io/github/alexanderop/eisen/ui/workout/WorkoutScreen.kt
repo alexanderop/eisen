@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +44,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import io.github.alexanderop.eisen.data.Store
+import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.Outcome
 import io.github.alexanderop.eisen.domain.isComplete
 import io.github.alexanderop.eisen.domain.isPlateLoaded
@@ -66,6 +70,7 @@ import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.picker.ExercisePickerSheet
 import io.github.alexanderop.eisen.ui.rememberHaptics
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private enum class Mode(val label: String) { WORKOUT("Workout"), WARMUP("Warmup") }
 
@@ -73,10 +78,25 @@ private enum class Mode(val label: String) { WORKOUT("Workout"), WARMUP("Warmup"
 private data class Entry(val exerciseIndex: Int, val setIndex: Int, val reps: Int)
 
 /**
+ * The exercise being worked on rises to the top, finished ones sink to the bottom and fold up,
+ * so the top of the screen is what to do now. Starting with the third exercise because the
+ * first one's machine is taken needs no sorting by hand.
  * The exercise tapped last stays where it is for a moment: the tap after a full set is
  * how missed reps are entered, and the card must not jump away under the thumb.
  */
 private const val SETTLE_MS = 2500L
+
+private fun isStarted(log: ExerciseLog) = log.sets.any { it != null }
+
+private fun isDone(log: ExerciseLog) = log.sets.all { it != null }
+
+/** Exercises worked on recently first, in the order of [current], then the untouched ones, then the finished ones. */
+private fun order(exercises: List<ExerciseLog>, settling: String?, current: List<String>): List<ExerciseItem> {
+    val items = exercises.mapIndexed { index, log -> ExerciseItem(log, index, done = log.id != settling && isDone(log)) }
+    val open = items.filterNot { it.done }
+    val (ranked, rest) = open.partition { it.log.id in current }
+    return ranked.sortedBy { current.indexOf(it.log.id) } + rest + items.filter { it.done }
+}
 
 private val ChevronLeft = pathIcon("ChevronLeft", "m15 18-6-6 6-6")
 
@@ -96,6 +116,10 @@ fun WorkoutScreen(onClose: () -> Unit) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var settling by remember { mutableStateOf<String?>(null) }
     var settleCount by remember { mutableIntStateOf(0) }
+    // Exercises with sets logged, most recently worked on first.
+    var current by remember { mutableStateOf(workout.exercises.filter { isStarted(it) && !isDone(it) }.map { it.id }) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     // The lifter looks at the phone between sets without touching it; it must not go dark.
     val view = LocalView.current
@@ -104,23 +128,38 @@ fun WorkoutScreen(onClose: () -> Unit) {
         onDispose { view.keepScreenOn = false }
     }
 
+    fun settle() {
+        val id = settling ?: return
+        settling = null
+        val exercises = Store.state.active?.exercises ?: return
+        val log = exercises.firstOrNull { it.id == id }
+        val rises = log != null && isStarted(log) && !isDone(log)
+        val wasFirst = order(exercises, null, current).firstOrNull()?.log?.id == id
+        current = (if (rises) listOf(id) else emptyList()) + current.filter { it != id }
+        if (rises && !wasFirst) {
+            scope.launch {
+                // Waits for the list to show the new order before it scrolls.
+                withFrameNanos { }
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
+
     LaunchedEffect(settleCount) {
         if (settling == null) return@LaunchedEffect
         delay(SETTLE_MS)
-        settling = null
+        settle()
     }
 
     fun touch(id: String) {
+        if (settling != id) settle()
         settling = id
         settleCount++
     }
 
-    // Finished exercises sink to the bottom and fold up, so the top of the screen is what is left to do.
-    val items = workout.exercises.mapIndexed { index, log ->
-        ExerciseItem(log, index, done = log.id != settling && log.sets.all { it != null })
-    }
-    val ordered = items.filterNot { it.done } + items.filter { it.done }
+    val ordered = order(workout.exercises, settling, current)
     val doneCount = ordered.count { it.done }
+    val openCount = ordered.size - doneCount
     val nothingLogged = workout.exercises.all { outcome(it) == Outcome.SKIPPED }
 
     fun onTap(exerciseIndex: Int, setIndex: Int) {
@@ -198,6 +237,7 @@ fun WorkoutScreen(onClose: () -> Unit) {
             val bottom = WindowInsets.navigationBars.union(WindowInsets.ime).asPaddingValues().calculateBottomPadding()
             LazyColumn(
                 Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottom + 32.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
@@ -267,6 +307,12 @@ fun WorkoutScreen(onClose: () -> Unit) {
         EditExerciseSheet(
             index = editIndex,
             log = edited,
+            canDefer = openCount > 1 && !isDone(edited),
+            onDefer = {
+                current = current - edited.id
+                Store.deferActiveExercise(editIndex)
+                editing = null
+            },
             canRemove = workout.exercises.size > 1,
             onRemove = {
                 Store.removeActiveExercise(editIndex)
@@ -341,7 +387,7 @@ internal fun Hint(text: String, modifier: Modifier = Modifier) {
     Text(text, modifier.fillMaxWidth(), color = EisenColors.MutedForeground, fontSize = 13.sp, textAlign = TextAlign.Center)
 }
 
-private fun LazyListScope.warmupItems(logs: List<io.github.alexanderop.eisen.domain.ExerciseLog>) {
+private fun LazyListScope.warmupItems(logs: List<ExerciseLog>) {
     if (logs.isEmpty()) {
         item(key = "warmup-hint") { Hint("Warmup sets are worked out for barbell and plate machine exercises.") }
     }

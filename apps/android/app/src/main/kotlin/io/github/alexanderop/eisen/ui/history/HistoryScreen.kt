@@ -1,10 +1,5 @@
 package io.github.alexanderop.eisen.ui.history
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,8 +33,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -53,7 +46,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -72,7 +64,6 @@ import io.github.alexanderop.eisen.domain.durationMinutes
 import io.github.alexanderop.eisen.domain.nextReps
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.stepFor
-import io.github.alexanderop.eisen.domain.workoutMarkdown
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
@@ -84,6 +75,7 @@ import io.github.alexanderop.eisen.ui.fmt
 import io.github.alexanderop.eisen.ui.formatDate
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
+import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
 import kotlinx.coroutines.launch
 
 private val ShareIcon = pathIcon(
@@ -93,11 +85,6 @@ private val ShareIcon = pathIcon(
     "M15 19a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
     "M8.59 13.51 15.42 17.49",
     "M15.41 6.51 8.59 10.49",
-)
-private val CopyIcon = pathIcon(
-    "Copy",
-    "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z",
-    "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2",
 )
 private val MoreIcon = pathIcon(
     "More",
@@ -114,37 +101,14 @@ private val DraftSaver = Saver<Workout?, String>(
 
 private fun duration(workout: Workout): String = durationMinutes(workout)?.let { "$it min" } ?: ""
 
-private fun markdown(workout: Workout): String = workoutMarkdown(workout, formatDate(workout.startedAt))
-
-/**
- * The web copies a workout as Markdown to paste into a chat or a note. On a phone the share
- * sheet does that in one step, so it is the main action. Copy stays for pasting somewhere later.
- */
-private fun share(context: Context, workout: Workout) {
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, markdown(workout))
-        putExtra(Intent.EXTRA_TITLE, workout.name)
-    }
-    context.startActivity(Intent.createChooser(send, null))
-}
-
-private fun copy(context: Context, workout: Workout): Boolean = runCatching {
-    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return false
-    clipboard.setPrimaryClip(ClipData.newPlainText(workout.name, markdown(workout)))
-    true
-}.getOrDefault(false)
-
 @Composable
 fun HistoryScreen() {
     val history = Store.state.history
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
     // Per workout, the exercises that set a record on that day.
     val records = remember(history) { history.indices.map { recordIds(history, it) } }
     var draft by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(null) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
+    var sharing by rememberSaveable { mutableStateOf<String?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -176,20 +140,16 @@ fun HistoryScreen() {
                 WorkoutCard(
                     workout = workout,
                     records = records.getOrElse(position) { emptySet() },
-                    onShare = { share(context, workout) },
-                    onCopy = {
-                        val copied = copy(context, workout)
-                        // From Android 13 the system confirms a copy itself. A second note would only repeat it.
-                        if (!copied || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            scope.launch { snackbar.showSnackbar(if (copied) "Copied" else "Copy failed") }
-                        }
-                    },
+                    onShare = { sharing = workout.id },
                     onEdit = { draft = workout },
                     onDelete = { deleting = workout.id },
                 )
             }
         }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+
+    history.firstOrNull { it.id == sharing }?.let { workout ->
+        ShareWorkoutSheet(workout, onDismiss = { sharing = null })
     }
 
     draft?.let { current ->
@@ -241,7 +201,6 @@ private fun WorkoutCard(
     workout: Workout,
     records: Set<String>,
     onShare: () -> Unit,
-    onCopy: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -257,14 +216,6 @@ private fun WorkoutCard(
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(MoreIcon, contentDescription = "More options for ${workout.name}") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Copy") },
-                        leadingIcon = { Icon(CopyIcon, contentDescription = null) },
-                        onClick = {
-                            menuOpen = false
-                            onCopy()
-                        },
-                    )
                     DropdownMenuItem(
                         text = { Text("Delete", color = EisenColors.Destructive) },
                         leadingIcon = { Icon(Icons.Trash, contentDescription = null, tint = EisenColors.Destructive) },

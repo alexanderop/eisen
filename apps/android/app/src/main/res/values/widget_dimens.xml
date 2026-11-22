@@ -1,0 +1,14 @@
+<resources>
+    <!-- Android 12 and later replace these with the launcher's own corner radius. -->
+    <dimen name="widget_corner_radius">20dp</dimen>
+    <dimen name="widget_inner_radius">12dp</dimen>
+
+    <!-- The provider counts how many exercise rows fit from these, so the layouts must use them. -->
+    <dimen name="widget_padding_horizontal">16dp</dimen>
+    <dimen name="widget_padding_vertical">12dp</dimen>
+    <dimen name="widget_header_height">44dp</dimen>
+    <dimen name="widget_status_height">20dp</dimen>
+    <dimen name="widget_gap">2dp</dimen>
+    <dimen name="widget_row_height">22dp</dimen>
+    <dimen name="widget_more_height">18dp</dimen>
+</resources>

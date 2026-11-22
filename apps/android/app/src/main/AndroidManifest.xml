@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The rest countdown as a live chip in the status bar (Android 16). -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <!-- While a rest counts down. Android only lets an app in this state start a sound. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -11,10 +13,19 @@
     <uses-permission
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
         android:maxSdkVersion="32" />
+    <!-- Finished workouts are written to Health Connect when the lifter turns it on. Nothing is read. -->
+    <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
+
+    <!-- Lets the app see whether Health Connect is installed on Android 13 and older. -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 
     <application
         android:name=".EisenApp"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -36,10 +47,45 @@
             android:name=".rest.RestReceiver"
             android:exported="false" />
 
+        <!-- The "Next workout" home-screen widget. -->
+        <receiver
+            android:name=".widget.NextWorkoutWidget"
+            android:exported="false"
+            android:label="@string/widget_next_workout_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_next_workout_info" />
+        </receiver>
+
         <service
             android:name=".rest.RestService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- What Health Connect shows behind its "privacy policy" link. Android 13 and older open it by this action. -->
+        <activity
+            android:name=".health.HealthRationaleActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Android 14 and newer open the same screen through this alias. Only the system may start it. -->
+        <activity-alias
+            android:name=".health.ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity=".health.HealthRationaleActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Hands a backup file to the share sheet. -->
         <provider

@@ -1,0 +1,9 @@
+<resources>
+    <!-- The app's EisenColors, for the home-screen widget that cannot use Compose. -->
+    <color name="widget_card">#15171B</color>
+    <color name="widget_text">#F4F5F7</color>
+    <color name="widget_muted">#8D939F</color>
+    <color name="widget_lime">#C8F031</color>
+    <color name="widget_on_lime">#11140A</color>
+    <color name="widget_pressed">#33000000</color>
+</resources>

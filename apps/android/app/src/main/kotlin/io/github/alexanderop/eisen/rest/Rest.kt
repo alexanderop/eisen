@@ -180,6 +180,8 @@ object Rest {
             .setContentText(current.note)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setOngoing(true)
+            // Android 16 shows it as a live countdown chip in the status bar and on the always-on display.
+            .setRequestPromotedOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(true)
             .setWhen(current.endsAt)

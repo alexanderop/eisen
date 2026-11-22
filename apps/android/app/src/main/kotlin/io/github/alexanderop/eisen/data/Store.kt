@@ -52,6 +52,15 @@ object Store {
     /** What the last finished workout changed. Shown once on the home screen. */
     var lastChanges: List<Change>? by mutableStateOf(null)
 
+    /**
+     * Called on the main thread after every change, with the new state.
+     * For what lives outside the screens: the home-screen widget and the app shortcuts.
+     */
+    val changeListeners = mutableListOf<(AppState) -> Unit>()
+
+    /** Called on the main thread with every workout that was finished and saved. */
+    val finishListeners = mutableListOf<(Workout) -> Unit>()
+
     private var file: File? = null
     private val writer = Executors.newSingleThreadExecutor()
 
@@ -69,6 +78,7 @@ object Store {
         val next = change(state)
         if (next == state) return
         state = next
+        for (listener in changeListeners) listener(next)
         val target = file ?: return
         writer.execute {
             // Written next to the file and renamed, so a crash mid-write cannot leave half a file.
@@ -156,6 +166,14 @@ object Store {
         }
     }
 
+    /** Moves an exercise behind the others, for when its machine or rack is taken. */
+    fun deferActiveExercise(exerciseIndex: Int) = update { current ->
+        current.editActive { workout ->
+            val log = workout.exercises.getOrNull(exerciseIndex) ?: return@editActive workout
+            workout.copy(exercises = workout.exercises.filterIndexed { index, _ -> index != exerciseIndex } + log)
+        }
+    }
+
     /** One tap on a set. Returns what the set shows now, or null when it was cleared or cannot be tapped. */
     fun tapSet(exerciseIndex: Int, setIndex: Int): Int? {
         val log = state.active?.exercises?.getOrNull(exerciseIndex) ?: return null
@@ -210,15 +228,17 @@ object Store {
         }
         val result = applyProgression(state.progress, workout, state.settings.bar)
         val following = nextRoutineId(state.routines, workout.routineId, nextRoutine.id)
+        val finished = workout.copy(finishedAt = System.currentTimeMillis())
         update {
             it.copy(
                 progress = result.progress,
-                history = listOf(workout.copy(finishedAt = System.currentTimeMillis())) + it.history,
+                history = listOf(finished) + it.history,
                 nextRoutineId = following,
                 active = null,
             )
         }
         lastChanges = result.changes
+        for (listener in finishListeners) listener(finished)
     }
 
     /** Corrects what a finished workout logged. Working weights stay as they are. */
