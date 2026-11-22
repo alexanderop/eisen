@@ -86,7 +86,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.TypedAffixes
+import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.stepFor
+import io.github.alexanderop.eisen.domain.typedWeightSnap
 import io.github.alexanderop.eisen.domain.formatNumber
+import io.github.alexanderop.eisen.domain.typedAffixes
 import io.github.alexanderop.eisen.domain.typedValue
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -239,6 +245,30 @@ fun IntStepper(
     whole = true,
 )
 
+const val ADDED_WEIGHT_HINT = "For a dip belt or a weight vest. Counts on top of your bodyweight."
+
+/** The weight added to a bodyweight exercise. 0 is "None": the lifter adds nothing by default. */
+@Composable
+fun AddedWeightStepper(
+    value: Double,
+    onValueChange: (Double) -> Unit,
+    unit: WeightUnit,
+    modifier: Modifier = Modifier,
+    label: String = "added weight",
+    large: Boolean = false,
+) =
+    Stepper(
+        value = value,
+        onValueChange = onValueChange,
+        step = stepFor(Equipment.BODYWEIGHT, unit),
+        label = label,
+        modifier = modifier,
+        min = 0.0,
+        format = { fmtAdded(it, unit) },
+        snap = typedWeightSnap(Equipment.BODYWEIGHT, unit),
+        large = large,
+    )
+
 private const val FIRST_REPEAT_MS = 400L
 private const val SECOND_REPEAT_MS = 250L
 private const val FASTEST_REPEAT_MS = 60L
@@ -316,11 +346,10 @@ private fun NumberStepper(
     val stepNow by rememberUpdatedState<(Int) -> Boolean> { stepBy(it) }
 
     val shown = format(value)
-    val plain = typedText(value, whole)
-    val at = if (typedSuffix == null) shown.indexOf(plain) else -1
-    // "+5kg" is typed as 5 between "+" and "kg". A format without the plain number shows nothing around it.
-    val prefix = if (at >= 0) shown.substring(0, at) else ""
-    val suffix = typedSuffix ?: if (at >= 0) shown.substring(at + plain.length) else ""
+    // "+5kg" is typed as 5 between "+" and "kg". A value shown as a word ("None") borrows them from one step away.
+    val probe = if (value + step <= max) value + step else value - step
+    val (prefix, suffix) = if (typedSuffix != null) TypedAffixes("", typedSuffix)
+    else typedAffixes(value, probe, format) { typedText(it, whole) }
     val style = if (large) LargeNumber else SmallNumber
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 

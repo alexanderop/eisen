@@ -1,9 +1,13 @@
 package io.github.alexanderop.eisen
 
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.TypedAffixes
 import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.formatNumber
+import io.github.alexanderop.eisen.domain.formatWeight
 import io.github.alexanderop.eisen.domain.parseTypedNumber
 import io.github.alexanderop.eisen.domain.snapTo
+import io.github.alexanderop.eisen.domain.typedAffixes
 import io.github.alexanderop.eisen.domain.typedIncrementSnap
 import io.github.alexanderop.eisen.domain.typedValue
 import io.github.alexanderop.eisen.domain.typedWeightSnap
@@ -91,5 +95,23 @@ class NumberInputTest {
         assertEquals(0.5, typedWeightSnap(Equipment.WEIGHT, WeightUnit.KG), 0.0)
         assertEquals(0.25, typedIncrementSnap(WeightUnit.KG), 0.0)
         assertEquals(1.25, typed("1.25", typedIncrementSnap(WeightUnit.KG), min = 0.5)!!, 0.0)
+    }
+
+    private val added = { value: Double -> if (value == 0.0) "None" else "+" + formatWeight(value, WeightUnit.KG) }
+
+    @Test fun `finds the text around the typed number`() {
+        assertEquals(TypedAffixes("+", "kg"), typedAffixes(10.0, 11.0, added, ::formatNumber))
+        assertEquals(TypedAffixes("", "kg"), typedAffixes(82.5, 85.0, { formatWeight(it, WeightUnit.KG) }, ::formatNumber))
+    }
+
+    @Test fun `a value shown as a word takes the text around the number from one step away`() {
+        // "None" has no 0 in it, but the unit still belongs next to the field while 0 is typed.
+        assertEquals(TypedAffixes("+", "kg"), typedAffixes(0.0, 1.0, added, ::formatNumber))
+        assertEquals(TypedAffixes("", ""), typedAffixes(0.0, 1.0, { if (it == 0.0) "–" else formatNumber(it) }, ::formatNumber))
+    }
+
+    @Test fun `typing 0 is a value when 0 is allowed`() {
+        assertEquals(0.0, typed("0", 0.5)!!, 0.0)
+        assertEquals(10.0, typed("10", 0.5)!!, 0.0)
     }
 }

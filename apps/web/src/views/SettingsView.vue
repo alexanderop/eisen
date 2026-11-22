@@ -21,7 +21,7 @@ import { computed, ref } from 'vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
 import { stepFor, UNIT_DEFAULTS } from '../domain/program'
 import type { Unit } from '../domain/units'
-import { fmt } from '../format'
+import { ADDED_WEIGHT_HINT, fmt, fmtAdded, fmtLoad } from '../format'
 import { haptic, hapticsSupported } from '../haptics'
 import { formatClock, previewSound, stopRest } from '../rest'
 import {
@@ -36,13 +36,10 @@ import {
 } from '../store'
 
 const defaults = computed(() => UNIT_DEFAULTS[state.settings.unit])
-/** Every weighted exercise that is part of a workout, once. */
-const weighted = computed(() => {
+/** Every exercise that is part of a workout, once. Bodyweight ones are here for their added weight. */
+const inWorkouts = computed(() => {
   const ids = new Set(state.routines.flatMap((routine) => routine.slots.map((slot) => slot.exerciseId)))
-  return [...ids].flatMap((id) => {
-    const exercise = findExercise(id)
-    return exercise && exercise.equipment !== 'bodyweight' ? [exercise] : []
-  })
+  return [...ids].flatMap((id) => findExercise(id) ?? [])
 })
 const UNITS: { value: Unit; label: string }[] = [
   { value: 'kg', label: 'Kilograms' },
@@ -56,6 +53,8 @@ const editing = ref<Editing | null>(null)
 
 interface NumberEditor {
   title: string
+  /** Shown above the number when the title alone does not say what it is. */
+  caption?: string
   label: string
   hint: string
   value: number
@@ -109,6 +108,19 @@ const numberEditor = computed<NumberEditor | null>(() => {
   const exercise = findExercise(target.exerciseId)
   if (!exercise) return null
   const step = stepFor(exercise.equipment, state.settings.unit)
+  if (exercise.equipment === 'bodyweight') {
+    return {
+      title: exercise.name,
+      caption: 'Added weight',
+      label: `${exercise.name} added weight`,
+      hint: ADDED_WEIGHT_HINT,
+      value: progressOf(exercise.id).weight,
+      step,
+      min: 0,
+      format: (value) => fmtAdded(value),
+      set: (value) => setProgressWeight(exercise.id, value),
+    }
+  }
   return {
     title: exercise.name,
     label: `${exercise.name} weight`,
@@ -196,12 +208,12 @@ function onReset() {
 
     <section>
       <h2>Working weights</h2>
-      <p v-if="weighted.length === 0" class="note">No weighted exercises in your workouts.</p>
+      <p v-if="inWorkouts.length === 0" class="note">No exercises in your workouts.</p>
       <ListRow
-        v-for="exercise in weighted"
+        v-for="exercise in inWorkouts"
         :key="exercise.id"
         :label="exercise.name"
-        :value="fmt(progressOf(exercise.id).weight)"
+        :value="fmtLoad(exercise.equipment, progressOf(exercise.id).weight)"
         @click="editing = { exerciseId: exercise.id }"
       >
         <template #leading>
@@ -314,6 +326,7 @@ function onReset() {
   </Sheet>
 
   <Sheet v-if="numberEditor" :title="numberEditor.title" @close="editing = null">
+    <p v-if="numberEditor.caption" class="muted caption">{{ numberEditor.caption }}</p>
     <div class="number">
       <Stepper
         :model-value="numberEditor.value"
@@ -414,8 +427,13 @@ h2 {
   letter-spacing: -0.02em;
 }
 
-.hint {
+.hint,
+.caption {
   font-size: 13px;
   text-align: center;
+}
+
+.caption {
+  margin-bottom: -16px;
 }
 </style>

@@ -3,6 +3,7 @@ package io.github.alexanderop.eisen
 import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.Effect
 import io.github.alexanderop.eisen.domain.Env
+import io.github.alexanderop.eisen.domain.ExerciseProgress
 import io.github.alexanderop.eisen.domain.FinishReason
 import io.github.alexanderop.eisen.domain.Feel
 import io.github.alexanderop.eisen.domain.Routine
@@ -125,10 +126,26 @@ class WorkoutMachineTest {
         assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StopRest), at.effects)
     }
 
-    @Test fun `the last full set of an exercise feels like a success`() {
+    @Test fun `the last set of an exercise feels like a success and leaves no rest behind`() {
         val four = (0 until 4).fold(started()) { at, set -> at.send(TapSet(0, set)) }
+        assertEquals(Effect.StartRest(90, "All reps done."), four.effects.last())
         val result = four.send(TapSet(0, 4))
-        assertEquals(listOf(Effect.Haptic(Feel.SUCCESS), Effect.StartRest(90, "All reps done.")), result.effects)
+        assertEquals(listOf(Effect.Haptic(Feel.SUCCESS), Effect.StopRest), result.effects)
+        // The workout itself is far from done: the timer goes because the exercise is.
+        assertEquals(Stage.UNDERWAY, stageOf(result.workout))
+    }
+
+    @Test fun `a last set with missed reps leaves no rest behind either`() {
+        val done = (0 until 5).fold(started()) { at, set -> at.send(TapSet(0, set)) }
+        val missed = done.send(TapSet(0, 4))
+        assertEquals(4, missed.workout.exercises[0].sets[4])
+        assertEquals(listOf(Effect.Haptic(Feel.WARNING), Effect.StopRest), missed.effects)
+    }
+
+    @Test fun `the last max-reps set of an exercise leaves no rest behind`() {
+        val two = started().send(LogReps(3, 0, 12)).send(LogReps(3, 1, 10))
+        assertEquals(Effect.StartRest(90, "Max set logged."), two.effects.last())
+        assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StopRest), two.send(LogReps(3, 2, 8)).effects)
     }
 
     @Test fun `the set that completes the workout stops the rest`() {
@@ -165,7 +182,8 @@ class WorkoutMachineTest {
         val result = started().send(SetWeight(1, 42.5))
         assertEquals(42.5, result.workout.exercises[1].weight, 0.0)
         assertEquals(42.5, result.state.progress.getValue("bench").weight, 0.0)
-        assertIgnored(started(), SetWeight(3, 10.0))
+        // Dips take a weight too now (added weight, see below); only an exercise that is not there is ignored.
+        assertIgnored(started(), SetWeight(9, 10.0))
     }
 
     @Test fun `AddExercise adds it once, with a working weight`() {
@@ -376,6 +394,83 @@ class WorkoutMachineTest {
         val idle = transition(Session.Idle, freshState(WeightUnit.KG), SetWorkingWeight("bench", 55.0), env)
         assertEquals(Session.Idle, idle.session)
         assertEquals(55.0, idle.state.progress.getValue("bench").weight, 0.0)
+    }
+
+    // Added weight on a bodyweight exercise (Dips, the 4th exercise)
+
+    private fun added(weight: Double) = ExerciseProgress(weight, fails = 0, increment = 0.0)
+
+    @Test fun `starting a workout makes no entry for a bodyweight exercise`() {
+        val result = started()
+        assertFalse("dips" in result.state.progress)
+        assertEquals(0.0, result.workout.exercises[3].weight, 0.0)
+    }
+
+    @Test fun `SetWeight on a bodyweight exercise sets its added weight for this and the next workouts`() {
+        val result = started().send(SetWeight(3, 10.0))
+        assertEquals(10.0, result.workout.exercises[3].weight, 0.0)
+        assertEquals(10.0, result.state.active!!.exercises[3].weight, 0.0)
+        assertEquals(added(10.0), result.state.progress["dips"])
+    }
+
+    @Test fun `an added weight set back to none removes its entry`() {
+        val start = started()
+        val result = start.send(SetWeight(3, 10.0)).send(SetWeight(3, 0.0))
+        assertEquals(0.0, result.workout.exercises[3].weight, 0.0)
+        assertEquals(start.state.progress, result.state.progress)
+    }
+
+    @Test fun `an added weight never goes below none`() {
+        val result = started().send(SetWeight(3, -1.0))
+        assertEquals(0.0, result.workout.exercises[3].weight, 0.0)
+        assertFalse("dips" in result.state.progress)
+    }
+
+    @Test fun `finishing keeps the added weight as it is and the next workout starts with it`() {
+        val saved = started().send(SetWeight(3, 10.0)).everything().send(RequestFinish)
+        assertEquals(Session.Idle, saved.session)
+        assertEquals(added(10.0), saved.state.progress["dips"])
+        assertEquals(10.0, saved.state.history[0].exercises[3].weight, 0.0)
+        assertTrue((saved.effects.last() as Effect.Saved).changes.none { it.id == "dips" })
+
+        val nextA = saved.state.copy(nextRoutineId = "A")
+        assertEquals(10.0, started(nextA).workout.exercises[3].weight, 0.0)
+    }
+
+    @Test fun `discarding removes an added weight set during the workout and Undo brings it back`() {
+        val start = started()
+        val edited = start.send(SetWeight(3, 10.0)).send(TapSet(0, 0))
+        val discarded = edited.send(RequestDiscard).send(Confirm)
+        assertEquals(start.state.progress, discarded.state.progress)
+        assertFalse("dips" in discarded.state.progress)
+
+        val restored = discarded.send(Undo)
+        assertEquals(added(10.0), restored.state.progress["dips"])
+        assertEquals(edited.state, restored.state)
+    }
+
+    @Test fun `discarding brings back an added weight cleared during the workout and Undo clears it again`() {
+        val before = freshState(WeightUnit.KG).let { it.copy(progress = it.progress + ("dips" to added(5.0))) }
+        val start = started(before)
+        assertEquals(5.0, start.workout.exercises[3].weight, 0.0)
+        val cleared = start.send(SetWeight(3, 0.0)).send(TapSet(0, 0))
+        assertFalse("dips" in cleared.state.progress)
+
+        val discarded = cleared.send(RequestDiscard).send(Confirm)
+        assertEquals(start.state.progress, discarded.state.progress)
+
+        val restored = discarded.send(Undo)
+        assertEquals(cleared.state, restored.state)
+    }
+
+    @Test fun `an added weight set in Settings follows into the running workout`() {
+        val running = started().send(SetWorkingWeight("dips", 5.0))
+        assertEquals(5.0, running.workout.exercises[3].weight, 0.0)
+        assertEquals(added(5.0), running.state.progress["dips"])
+
+        val none = running.send(SetWorkingWeight("dips", 0.0))
+        assertEquals(0.0, none.workout.exercises[3].weight, 0.0)
+        assertFalse("dips" in none.state.progress)
     }
 
     // Ignored events

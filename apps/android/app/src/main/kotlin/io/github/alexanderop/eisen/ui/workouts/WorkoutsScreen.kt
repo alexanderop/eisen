@@ -84,7 +84,7 @@ import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.IntStepper
 import io.github.alexanderop.eisen.ui.ReorderableColumnItem
-import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.keyboardPadding
 import io.github.alexanderop.eisen.ui.longPressToReorder
 import io.github.alexanderop.eisen.ui.pathIcon
@@ -231,13 +231,14 @@ private fun RoutineList(onOpen: (String) -> Unit) {
     }
 }
 
-/** "5 × 5 · 80kg · Barbell". Bodyweight exercises have no weight to show. */
+/** "5 × 5 · 80kg · Barbell" or "3 × max · BW + 10kg · Bodyweight". Plain bodyweight has no load to show. */
 private fun detail(slot: Slot): String {
     val exercise = Store.findExercise(slot.exerciseId) ?: return ""
     val scheme = "${slot.sets} × ${slot.reps ?: "max"}"
     val kind = kindLabel(exercise.id, exercise.equipment)
-    return if (exercise.equipment == Equipment.BODYWEIGHT) "$scheme · $kind"
-    else "$scheme · ${fmt(Store.progressOf(exercise.id).weight)} · $kind"
+    val weight = Store.progressOf(exercise.id).weight
+    return if (exercise.equipment == Equipment.BODYWEIGHT && weight == 0.0) "$scheme · $kind"
+    else "$scheme · ${fmtLoad(exercise.equipment, weight)} · $kind"
 }
 
 @Composable

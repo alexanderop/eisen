@@ -3,7 +3,7 @@ package io.github.alexanderop.eisen.health
 import androidx.health.connect.client.records.ExerciseSegment
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Workout
-import io.github.alexanderop.eisen.domain.formatWeight
+import io.github.alexanderop.eisen.domain.loadText
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -71,7 +71,8 @@ fun segmentTypeFor(exerciseId: String): Int? = SEGMENT_TYPES[exerciseId]
 fun workoutNotes(workout: Workout): String = workout.exercises
     .filter { log -> log.sets.any { it != null } }
     .joinToString("\n") { log ->
-        val load = if (log.equipment == Equipment.BODYWEIGHT) "bodyweight" else formatWeight(log.weight, workout.unit)
+        // Spelled out: health apps show the notes to people who never saw the app's "BW".
+        val load = loadText(log.equipment == Equipment.BODYWEIGHT, log.weight, workout.unit, label = "bodyweight")
         val full = log.targetReps != null && log.sets.all { it == log.targetReps }
         val reps = if (full) "${log.sets.size}×${log.targetReps}" else log.sets.joinToString(", ") { it?.toString() ?: "–" }
         "${log.name} $load: $reps"

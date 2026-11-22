@@ -6,7 +6,7 @@ import ExerciseImage from '../components/ExerciseImage.vue'
 import { outcome, totalReps } from '../domain/program'
 import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
-import { fmt, formatDate, formatShortDate } from '../format'
+import { fmt, fmtLoad, formatDate, formatShortDate } from '../format'
 import { stopRest } from '../rest'
 import {
   discardWorkout,
@@ -31,7 +31,7 @@ const rows = computed(() => {
       name: log.name,
       sets: log.sets.length,
       reps: log.targetReps,
-      weight: log.equipment === 'bodyweight' ? null : log.weight,
+      load: fmtLoad(log.equipment, log.weight),
     }))
   }
   return nextRoutine.value.slots.flatMap((slot) => {
@@ -43,7 +43,7 @@ const rows = computed(() => {
         name: exercise.name,
         sets: slot.sets,
         reps: slot.reps,
-        weight: exercise.equipment === 'bodyweight' ? null : progressOf(exercise.id).weight,
+        load: fmtLoad(exercise.equipment, progressOf(exercise.id).weight),
       },
     ]
   })
@@ -151,7 +151,7 @@ function start() {
         <ExerciseImage :image="findExercise(row.id)?.image" :name="row.name" :size="40" />
         <span>{{ row.name }}</span>
         <span class="muted">{{ row.sets }}×{{ row.reps ?? 'max' }}</span>
-        <strong>{{ row.weight === null ? 'BW' : fmt(row.weight) }}</strong>
+        <strong>{{ row.load }}</strong>
       </li>
     </ul>
     <Button class="w-full" v-if="state.active" @click="emit('open')">Resume workout</Button>
@@ -234,8 +234,9 @@ li {
   border-bottom: 1px solid var(--border);
 }
 
+/* The load column grows for "BW + 12.5kg" instead of wrapping it. */
 li.exercise {
-  grid-template-columns: 40px 1fr auto 76px;
+  grid-template-columns: 40px 1fr auto minmax(76px, auto);
   align-items: center;
   padding: 8px 0;
 }

@@ -80,6 +80,7 @@ import io.github.alexanderop.eisen.domain.nextReps
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.stepFor
 import io.github.alexanderop.eisen.domain.typedWeightSnap
+import io.github.alexanderop.eisen.ui.AddedWeightStepper
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
@@ -88,6 +89,7 @@ import io.github.alexanderop.eisen.ui.SetButton
 import io.github.alexanderop.eisen.ui.SetState
 import io.github.alexanderop.eisen.ui.Stepper
 import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.formatDate
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
@@ -335,7 +337,7 @@ private fun LogRow(log: ExerciseLog, workout: Workout, record: Boolean) {
         }
         Spacer(Modifier.width(8.dp))
         Text(
-            if (log.equipment == Equipment.BODYWEIGHT) "BW" else fmt(log.weight, workout.unit),
+            fmtLoad(log.equipment, log.weight, workout.unit),
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.End,
@@ -407,8 +409,19 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     HorizontalDivider(color = EisenColors.Border)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(log.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        if (log.equipment != Equipment.BODYWEIGHT) {
+                        if (log.equipment == Equipment.BODYWEIGHT) {
+                            Column(Modifier.weight(1f)) {
+                                Text(log.name, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text("Added weight", fontSize = 13.sp, color = EisenColors.MutedForeground)
+                            }
+                            AddedWeightStepper(
+                                value = log.weight,
+                                onValueChange = { weight -> editLog(index) { it.copy(weight = weight) } },
+                                unit = draft.unit,
+                                label = "${log.name} added weight",
+                            )
+                        } else {
+                            Text(log.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                             val step = stepFor(log.equipment, draft.unit)
                             Stepper(
                                 value = log.weight,

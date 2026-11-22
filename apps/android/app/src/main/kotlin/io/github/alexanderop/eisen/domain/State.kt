@@ -31,7 +31,10 @@ data class Settings(
 data class AppState(
     val version: Int,
     val settings: Settings,
-    /** Working weight per exercise id. Bodyweight exercises have no entry. */
+    /**
+     * Working weight per exercise id. A bodyweight exercise has an entry only while weight is added
+     * to it (fails and increment 0). Older builds of both apps ignore such an entry.
+     */
     val progress: Progress,
     val routines: List<Routine>,
     /** The workout the home screen offers next. */

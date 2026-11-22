@@ -43,3 +43,21 @@ fun typedWeightSnap(equipment: Equipment, unit: WeightUnit): Double =
 
 /** Increments in kg include 1.25, which the 0.5 grid of the buttons cannot hold. */
 fun typedIncrementSnap(unit: WeightUnit): Double = if (unit == WeightUnit.KG) 0.25 else incrementStep(unit)
+
+/** The text shown before and after a typed number, such as "+" and "kg" around the 5 of "+5kg". */
+data class TypedAffixes(val prefix: String, val suffix: String)
+
+/**
+ * The text around the number in the formatted [value]. A value the format writes as a word ("None"
+ * for 0) has no number to find, so the text around [probe], a value the format writes as a number,
+ * is used instead. That way the unit stays next to the field while 0 is typed.
+ */
+fun typedAffixes(value: Double, probe: Double, format: (Double) -> String, plain: (Double) -> String): TypedAffixes {
+    for (candidate in listOf(value, probe)) {
+        val shown = format(candidate)
+        val number = plain(candidate)
+        val at = shown.indexOf(number)
+        if (at >= 0) return TypedAffixes(shown.substring(0, at), shown.substring(at + number.length))
+    }
+    return TypedAffixes("", "")
+}

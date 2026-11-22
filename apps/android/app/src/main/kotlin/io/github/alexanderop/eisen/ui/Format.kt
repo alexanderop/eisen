@@ -7,6 +7,7 @@ import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.emptyWeight
 import io.github.alexanderop.eisen.domain.formatNumber
 import io.github.alexanderop.eisen.domain.formatWeight
+import io.github.alexanderop.eisen.domain.loadText
 import io.github.alexanderop.eisen.domain.platesPerSide
 import io.github.alexanderop.eisen.domain.unitDefaults
 import java.time.Instant
@@ -16,6 +17,13 @@ import java.util.Locale
 
 /** "82.5kg" in the lifter's unit, or in the unit a finished workout was logged in. */
 fun fmt(value: Double, unit: WeightUnit = Store.state.settings.unit): String = formatWeight(value, unit)
+
+/** How heavy an exercise is: "80kg", "BW", or "BW + 10kg" with weight added to a bodyweight exercise. */
+fun fmtLoad(equipment: Equipment, weight: Double, unit: WeightUnit = Store.state.settings.unit): String =
+    loadText(equipment == Equipment.BODYWEIGHT, weight, unit)
+
+/** "None" or "+10kg": the added weight of a bodyweight exercise, as its stepper shows it. */
+fun fmtAdded(weight: Double, unit: WeightUnit = Store.state.settings.unit): String = if (weight == 0.0) "None" else "+${fmt(weight, unit)}"
 
 private fun format(pattern: String, timestamp: Long): String =
     DateTimeFormatter.ofPattern(pattern, Locale.getDefault()).format(Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()))

@@ -42,7 +42,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.data.Store
-import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Workout
@@ -50,7 +49,7 @@ import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.isStarted
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Icons
-import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
@@ -159,7 +158,7 @@ private fun LoggedRow(log: ExerciseLog, workout: Workout) {
         Text(log.name, Modifier.weight(1f), fontSize = 15.sp)
         Spacer(Modifier.width(8.dp))
         Text(
-            if (log.equipment == Equipment.BODYWEIGHT) "BW" else fmt(log.weight, workout.unit),
+            fmtLoad(log.equipment, log.weight, workout.unit),
             Modifier.widthIn(min = 64.dp),
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,

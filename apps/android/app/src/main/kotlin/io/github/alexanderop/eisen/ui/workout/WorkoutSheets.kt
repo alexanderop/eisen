@@ -43,6 +43,8 @@ import io.github.alexanderop.eisen.domain.incrementStep
 import io.github.alexanderop.eisen.domain.isPlateLoaded
 import io.github.alexanderop.eisen.domain.stepFor
 import io.github.alexanderop.eisen.domain.unitDefaults
+import io.github.alexanderop.eisen.ui.ADDED_WEIGHT_HINT
+import io.github.alexanderop.eisen.ui.AddedWeightStepper
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.IntStepper
@@ -86,7 +88,7 @@ internal fun WorkoutSheet(title: String, onDismiss: () -> Unit, content: @Compos
     }
 }
 
-/** Weight, plates and increment of one exercise in the running workout, putting it off and removing it. */
+/** Weight (or added weight), plates and increment of one exercise in the running workout, putting it off and removing it. */
 @Composable
 internal fun EditExerciseSheet(
     log: ExerciseLog,
@@ -99,7 +101,12 @@ internal fun EditExerciseSheet(
 ) {
     val settings = Store.state.settings
     WorkoutSheet(log.name, onDismiss) { close ->
-        if (log.equipment != Equipment.BODYWEIGHT) {
+        if (log.equipment == Equipment.BODYWEIGHT) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SheetRow("Added weight") { AddedWeightStepper(log.weight, onWeightChange, settings.unit) }
+                Text(ADDED_WEIGHT_HINT, color = EisenColors.MutedForeground, fontSize = 13.sp)
+            }
+        } else {
             val step = stepFor(log.equipment, settings.unit)
             SheetRow("Weight") {
                 Stepper(

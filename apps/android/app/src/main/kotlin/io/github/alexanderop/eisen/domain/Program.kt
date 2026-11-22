@@ -53,9 +53,13 @@ fun unitDefaults(unit: WeightUnit): UnitDefaults = if (unit == WeightUnit.KG) KG
 private fun increments(unit: WeightUnit): List<Double> =
     if (unit == WeightUnit.KG) listOf(0.5, 1.0, 1.25, 2.0, 2.5, 5.0, 7.5, 10.0) else listOf(2.5, 5.0, 10.0, 15.0, 20.0)
 
-/** Smallest weight change: plate pairs on a bar, finer for dumbbells and weight stacks. */
+/**
+ * Smallest weight change: plate pairs on a bar, finer for dumbbells and weight stacks.
+ * Weight added to a bodyweight exercise is a dumbbell or a plate on a belt, so it moves like a dumbbell.
+ */
 fun stepFor(equipment: Equipment, unit: WeightUnit): Double =
-    if (equipment == Equipment.WEIGHT) (if (unit == WeightUnit.KG) 1.0 else 2.5) else unitDefaults(unit).step
+    if (equipment == Equipment.WEIGHT || equipment == Equipment.BODYWEIGHT) (if (unit == WeightUnit.KG) 1.0 else 2.5)
+    else unitDefaults(unit).step
 
 /** Warmup weights on a machine use whole plates: nobody loads 1.25s onto a sled to warm up. */
 fun warmupStep(equipment: Equipment, unit: WeightUnit): Double {
@@ -88,6 +92,8 @@ private fun nearest(value: Double, options: List<Double>): Double =
     options.reduce { best, option -> if (abs(option - value) < abs(best - value)) option else best }
 
 private fun convertWeight(weight: Double, equipment: Equipment, from: WeightUnit, to: WeightUnit): Double {
+    // A bodyweight exercise counts the weight added on top. 0 means none and must not become a weight.
+    if (equipment == Equipment.BODYWEIGHT && weight == 0.0) return 0.0
     val step = stepFor(equipment, to)
     return max(step, roundTo(convert(weight, from, to), step))
 }
@@ -98,10 +104,11 @@ fun startProgress(exercise: Exercise, unit: WeightUnit) = ExerciseProgress(
     increment = nearest(convert(exercise.increment, WeightUnit.KG, unit), increments(unit)),
 )
 
+/** Added weight on a bodyweight exercise never goes up by itself, so its increment stays 0. */
 fun convertProgress(entry: ExerciseProgress, equipment: Equipment, from: WeightUnit, to: WeightUnit) = ExerciseProgress(
     weight = convertWeight(entry.weight, equipment, from, to),
     fails = entry.fails,
-    increment = nearest(convert(entry.increment, from, to), increments(to)),
+    increment = if (equipment == Equipment.BODYWEIGHT) entry.increment else nearest(convert(entry.increment, from, to), increments(to)),
 )
 
 @Serializable
@@ -110,7 +117,7 @@ data class ExerciseLog(
     /** Name and equipment are copied in, so the log still reads right after the exercise is deleted. */
     val name: String,
     val equipment: Equipment,
-    /** 0 for bodyweight exercises. */
+    /** For bodyweight exercises the weight added on top (dip belt, vest), 0 for none. */
     val weight: Double,
     /** null = as many reps as possible. */
     val targetReps: Int?,
@@ -139,7 +146,8 @@ fun createLog(exercise: Exercise, slot: Slot, progress: Progress, unit: WeightUn
     id = exercise.id,
     name = exercise.name,
     equipment = exercise.equipment,
-    weight = if (exercise.equipment == Equipment.BODYWEIGHT) 0.0
+    // A bodyweight exercise has an entry only while the lifter adds weight to it.
+    weight = if (exercise.equipment == Equipment.BODYWEIGHT) progress[exercise.id]?.weight ?: 0.0
     else (progress[exercise.id] ?: startProgress(exercise, unit)).weight,
     targetReps = slot.reps,
     sets = List(slot.sets) { null },
@@ -193,7 +201,8 @@ class Progression(val progress: Progress, val changes: List<Change>)
 /**
  * Progressive overload: all reps done -> add weight next time.
  * Missed reps -> repeat the weight. Three misses in a row -> drop 10%.
- * Bodyweight and max-reps exercises have no target weight to progress.
+ * Bodyweight and max-reps exercises have no target weight to progress. Weight added to a
+ * bodyweight exercise only changes when the lifter changes it.
  */
 fun applyProgression(progress: Progress, workout: Workout, bar: Double): Progression {
     val next = progress.toMutableMap()
@@ -227,3 +236,12 @@ fun applyProgression(progress: Progress, workout: Workout, bar: Double): Progres
 
     return Progression(next, changes)
 }
+
+/** How heavy a log is, as text: "80kg", "BW", or "BW + 10kg" with weight added to a bodyweight exercise. */
+fun loadText(bodyweight: Boolean, weight: Double, unit: WeightUnit, label: String = "BW"): String = when {
+    !bodyweight -> formatWeight(weight, unit)
+    weight > 0 -> "$label + ${formatWeight(weight, unit)}"
+    else -> label
+}
+
+fun loadText(log: ExerciseLog, unit: WeightUnit): String = loadText(log.equipment == Equipment.BODYWEIGHT, log.weight, unit)

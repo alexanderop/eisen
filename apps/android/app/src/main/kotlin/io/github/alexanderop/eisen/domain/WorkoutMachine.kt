@@ -75,8 +75,12 @@ sealed interface Session {
     data class ConfirmingFinish(override val run: Run, val reason: FinishReason) : WithRun
     data class ConfirmingDiscard(override val run: Run) : WithRun
 
-    /** Just discarded. [undo] holds the working weights the discard put back, to restore them on Undo. */
-    data class Discarded(override val run: Run, val undo: Progress) : WithRun
+    /**
+     * Just discarded. [undo] holds the working weights the discard put back, to restore them on Undo.
+     * [cleared] are the entries the workout had removed (an added weight set back to none): the
+     * discard brought them back, so Undo removes them again.
+     */
+    data class Discarded(override val run: Run, val undo: Progress, val cleared: Set<String> = emptySet()) : WithRun
 
     companion object {
         /** The session for a saved state: its workout running again, or nothing. */
@@ -108,7 +112,10 @@ sealed interface WorkoutEvent {
     /** Logs a set with an entered count. Null clears it. */
     data class LogReps(val exercise: Int, val set: Int, val reps: Int?) : WorkoutEvent
 
-    /** The weight of one exercise in the running workout. It is also its working weight. */
+    /**
+     * The weight of one exercise in the running workout. It is also its working weight.
+     * For a bodyweight exercise it is the weight added on top, 0 for none.
+     */
     data class SetWeight(val exercise: Int, val weight: Double) : WorkoutEvent
 
     /** A working weight set from Settings. A running workout follows it; any state takes it. */
@@ -189,10 +196,10 @@ private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): T
         is WorkoutEvent.LogReps -> logReps(run, state, event)
         is WorkoutEvent.SetWeight -> {
             val log = workout.exercises.getOrNull(event.exercise) ?: return null
-            if (log.equipment == Equipment.BODYWEIGHT) return null
+            val weight = event.weight.coerceAtLeast(0.0)
             Transition(
-                Session.Running(run.copy(workout = workout.editLog(event.exercise) { it.copy(weight = event.weight) })),
-                state.editProgress(log.id) { it.copy(weight = event.weight) },
+                Session.Running(run.copy(workout = workout.editLog(event.exercise) { it.copy(weight = weight) })),
+                state.editProgress(log.id) { it.copy(weight = weight) },
             )
         }
         is WorkoutEvent.AddExercise -> {
@@ -253,7 +260,7 @@ private fun confirmingDiscard(session: Session.ConfirmingDiscard, state: AppStat
 private fun discarded(session: Session.Discarded, state: AppState, event: WorkoutEvent, env: Env): Transition? =
     when (event) {
         // The rest timer is not restored: the rest it showed is long over or no longer true.
-        WorkoutEvent.Undo -> Transition(Session.Running(session.run), state.copy(progress = state.progress + session.undo))
+        WorkoutEvent.Undo -> Transition(Session.Running(session.run), state.copy(progress = state.progress + session.undo - session.cleared))
         WorkoutEvent.Forget -> Transition(Session.Idle, state)
         WorkoutEvent.Start -> start(state, env)
         else -> null
@@ -285,18 +292,25 @@ private fun tapSet(run: Run, state: AppState, event: WorkoutEvent.TapSet): Trans
         else -> Feel.TAP
     }
     val rest = when {
-        reps == null || isComplete(workout) -> Effect.StopRest
+        reps == null || lastSetLogged(workout, event.exercise) -> Effect.StopRest
         reps == target -> Effect.StartRest(state.settings.restDone, "All reps done.")
         else -> Effect.StartRest(state.settings.restMissed, "Missed reps. Rest longer.")
     }
     return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(feel), rest))
 }
 
+/**
+ * True when the exercise has no open set left. No rest follows its last set: the lifter
+ * moves on to the next exercise, and a timer for the old one would only be in the way.
+ */
+private fun lastSetLogged(workout: Workout, exercise: Int): Boolean =
+    workout.exercises[exercise].sets.all { it != null }
+
 private fun logReps(run: Run, state: AppState, event: WorkoutEvent.LogReps): Transition? {
     val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
     if (event.set !in log.sets.indices) return null
     val workout = run.workout.editLog(event.exercise) { it.copy(sets = it.sets.replaced(event.set, event.reps)) }
-    val rest = if (event.reps == null || isComplete(workout)) Effect.StopRest else Effect.StartRest(state.settings.restDone, "Max set logged.")
+    val rest = if (event.reps == null || lastSetLogged(workout, event.exercise)) Effect.StopRest else Effect.StartRest(state.settings.restDone, "Max set logged.")
     return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(Feel.TAP), rest))
 }
 
@@ -321,30 +335,30 @@ private fun finish(run: Run, state: AppState, env: Env): Transition {
 /**
  * Throws the workout away and puts every working weight back to what it was when the workout
  * started, increments included. What it puts back is kept, so Undo can restore it.
- * An entry that is gone (its custom exercise was deleted) stays gone.
+ * An entry made during the workout (an added weight on a bodyweight exercise) is removed, and one
+ * removed during it comes back. An entry whose custom exercise was deleted stays gone.
  */
 private fun discard(run: Run, state: AppState): Transition {
     val changed = state.progress.filter { (id, entry) -> run.baseline[id] != entry }
+    val cleared = run.baseline.filterKeys { it !in state.progress && state.findExercise(it) != null }
     val restored = buildMap {
         for ((id, entry) in state.progress) {
             if (id !in changed) put(id, entry) else run.baseline[id]?.let { put(id, it) }
         }
+        putAll(cleared)
     }
     return Transition(
-        Session.Discarded(run, undo = changed),
+        Session.Discarded(run, undo = changed, cleared = cleared.keys),
         state.copy(progress = restored),
         listOf(Effect.StopRest, Effect.DiscardedWorkout(run.workout)),
     )
 }
 
 private fun setWorkingWeight(session: Session, state: AppState, event: WorkoutEvent.SetWorkingWeight): Transition {
-    val next = state.editProgress(event.id) { it.copy(weight = event.weight, fails = 0) }
+    val weight = event.weight.coerceAtLeast(0.0)
+    val next = state.editProgress(event.id) { it.copy(weight = weight, fails = 0) }
     fun follow(run: Run) = run.copy(
-        workout = run.workout.copy(
-            exercises = run.workout.exercises.map {
-                if (it.id == event.id && it.equipment != Equipment.BODYWEIGHT) it.copy(weight = event.weight) else it
-            },
-        ),
+        workout = run.workout.copy(exercises = run.workout.exercises.map { if (it.id == event.id) it.copy(weight = weight) else it }),
     )
     val following = when (session) {
         // A discarded workout keeps the weights it had, so Undo brings back exactly that.
@@ -416,7 +430,10 @@ fun suggestedReps(history: List<Workout>, id: String, setIndex: Int): Int {
 /** The built-in exercise or the lifter's own with this id. */
 fun AppState.findExercise(id: String): Exercise? = catalogExercise(id) ?: customExercises.firstOrNull { it.id == id }
 
-/** The state with a working weight for the exercise. Unchanged when it has or needs none. */
+/**
+ * The state with a working weight for the exercise. Unchanged when it has or needs none.
+ * A bodyweight exercise needs none: it gets an entry only when the lifter adds weight, see [editProgress].
+ */
 fun AppState.ensureProgress(id: String): AppState {
     if (id in progress) return this
     val exercise = findExercise(id)
@@ -424,7 +441,18 @@ fun AppState.ensureProgress(id: String): AppState {
     return copy(progress = progress + (id to startProgress(exercise, settings.unit)))
 }
 
+private val NO_ADDED_WEIGHT = ExerciseProgress(weight = 0.0, fails = 0, increment = 0.0)
+
+/**
+ * Changes the working weight of an exercise. For a bodyweight exercise that is the weight added on
+ * top: it keeps an entry only while that is above 0, so an untouched and a reset install look the same.
+ * It never progresses by itself, so fails and increment stay 0.
+ */
 fun AppState.editProgress(id: String, change: (ExerciseProgress) -> ExerciseProgress): AppState {
+    if (findExercise(id)?.equipment == Equipment.BODYWEIGHT) {
+        val weight = change(progress[id] ?: NO_ADDED_WEIGHT).weight
+        return copy(progress = if (weight > 0) progress + (id to NO_ADDED_WEIGHT.copy(weight = weight)) else progress - id)
+    }
     val ready = ensureProgress(id)
     val entry = ready.progress[id] ?: return this
     return ready.copy(progress = ready.progress + (id to change(entry)))

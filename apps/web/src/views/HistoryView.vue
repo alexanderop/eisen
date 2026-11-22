@@ -5,7 +5,7 @@ import ShareWorkout from '../components/ShareWorkout.vue'
 import { nextReps, stepFor, type ExerciseLog, type Workout } from '../domain/program'
 import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
-import { fmt, formatDate } from '../format'
+import { fmt, fmtAdded, fmtLoad, formatDate } from '../format'
 import { haptic } from '../haptics'
 import { deleteWorkout, state, updateWorkout } from '../store'
 
@@ -72,7 +72,7 @@ function save() {
           {{ log.name }}
           <Badge v-if="records[position].has(log.id)">Record</Badge>
         </span>
-        <strong>{{ log.equipment === 'bodyweight' ? 'BW' : fmt(log.weight, workout.unit) }}</strong>
+        <strong>{{ fmtLoad(log.equipment, log.weight, workout.unit) }}</strong>
         <span class="reps">
           <span
             v-for="(reps, index) in log.sets"
@@ -93,7 +93,15 @@ function save() {
       <div class="row">
         <h3>{{ log.name }}</h3>
         <Stepper
-          v-if="log.equipment !== 'bodyweight'"
+          v-if="log.equipment === 'bodyweight'"
+          v-model="log.weight"
+          :step="stepFor(log.equipment, draft.unit)"
+          :min="0"
+          :label="`${log.name} added weight`"
+          :format="(value: number) => fmtAdded(value, draft?.unit)"
+        />
+        <Stepper
+          v-else
           v-model="log.weight"
           :step="stepFor(log.equipment, draft.unit)"
           :min="stepFor(log.equipment, draft.unit)"
@@ -171,9 +179,10 @@ ul {
   padding: 0;
 }
 
+/* The load column grows for "BW + 12.5kg" instead of wrapping it. */
 li {
   display: grid;
-  grid-template-columns: 1fr 64px minmax(92px, auto);
+  grid-template-columns: 1fr minmax(64px, auto) minmax(92px, auto);
   gap: 8px;
   align-items: baseline;
   padding: 8px 0;

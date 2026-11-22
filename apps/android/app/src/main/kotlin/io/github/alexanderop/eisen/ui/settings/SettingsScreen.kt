@@ -79,6 +79,8 @@ import io.github.alexanderop.eisen.domain.unitDefaults
 import io.github.alexanderop.eisen.health.HealthConnectRows
 import io.github.alexanderop.eisen.rest.Cues
 import io.github.alexanderop.eisen.rest.Rest
+import io.github.alexanderop.eisen.ui.ADDED_WEIGHT_HINT
+import io.github.alexanderop.eisen.ui.AddedWeightStepper
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.Haptic
@@ -86,6 +88,7 @@ import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.IntStepper
 import io.github.alexanderop.eisen.ui.Stepper
 import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.formatClock
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
@@ -184,11 +187,10 @@ private object Editing {
 /** The same name the PWA gives its download, so backups from both apps sort together. */
 private fun backupName(): String = "eisen-backup-${LocalDate.now(ZoneOffset.UTC)}.json"
 
-/** Every weighted exercise that is part of a workout, once. */
-private fun weightedExercises(): List<Exercise> =
+/** Every exercise that is part of a workout, once. Bodyweight ones are here for their added weight. */
+private fun workoutExercises(): List<Exercise> =
     Store.state.routines.flatMap { routine -> routine.slots.map { it.exerciseId } }.distinct()
         .mapNotNull { Store.findExercise(it) }
-        .filter { it.equipment != Equipment.BODYWEIGHT }
 
 /** Writes the backup into the folder the FileProvider shares and opens the share sheet with it. */
 private suspend fun shareBackup(context: Context) {
@@ -283,13 +285,13 @@ fun SettingsScreen() {
         }
 
         Section("Working weights") {
-            val weighted = weightedExercises()
-            if (weighted.isEmpty()) Note("No weighted exercises in your workouts.")
-            for (exercise in weighted) {
+            val exercises = workoutExercises()
+            if (exercises.isEmpty()) Note("No exercises in your workouts.")
+            for (exercise in exercises) {
                 SettingRow(
                     leading = { ExerciseTile(exercise.image, exercise.name, size = 36.dp) },
                     label = exercise.name,
-                    value = fmt(Store.progressOf(exercise.id).weight),
+                    value = fmtLoad(exercise.equipment, Store.progressOf(exercise.id).weight),
                     onClick = { editing = Editing.EXERCISE + exercise.id },
                 )
             }
@@ -434,6 +436,8 @@ fun SettingsScreen() {
             if (exercise == null) {
                 // A restored backup can drop the exercise while its sheet is open.
                 LaunchedEffect(target) { editing = null }
+            } else if (exercise.equipment == Equipment.BODYWEIGHT) {
+                AddedWeightSheet(exercise, settings.unit, onClose = { editing = null })
             } else {
                 WorkingWeightSheet(exercise, settings.unit, onClose = { editing = null })
             }
@@ -619,6 +623,26 @@ private fun NumberSheet(title: String, hint: String, onClose: () -> Unit, steppe
     Sheet(title, onClose) { close ->
         Box(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), contentAlignment = Alignment.Center) { stepper() }
         Hint(hint)
+        DoneButton(close)
+    }
+}
+
+/** The weight added to a bodyweight exercise. It never goes up by itself, so there is no increment to set. */
+@Composable
+private fun AddedWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: () -> Unit) {
+    Sheet(exercise.name, onClose) { close ->
+        Column(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Added weight", fontSize = 13.sp, color = EisenColors.MutedForeground)
+            AddedWeightStepper(
+                value = Store.progressOf(exercise.id).weight,
+                onValueChange = { Store.setProgressWeight(exercise.id, it) },
+                unit = unit,
+                label = "${exercise.name} added weight",
+                large = true,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+        }
+        Hint(ADDED_WEIGHT_HINT)
         DoneButton(close)
     }
 }

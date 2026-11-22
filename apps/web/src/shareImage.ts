@@ -1,5 +1,5 @@
+import { loadText } from './domain/program'
 import { sharedStats, type SharedExercise, type SharedWorkout } from './domain/share'
-import { formatWeight } from './domain/units'
 
 /** The app's palette. A canvas cannot read the CSS variables of a page it is not part of. */
 const COLOR = {
@@ -209,9 +209,10 @@ function exerciseRow(context: Context, shared: SharedWorkout, exercise: SharedEx
   const right = PAD + INNER - 32
   const baseline = top + 76
 
-  const load = exercise.bodyweight ? 'BW' : formatWeight(exercise.weight, shared.unit)
+  const load = loadText(exercise.bodyweight, exercise.weight, shared.unit)
   font(context, 800, 48)
-  context.fillStyle = exercise.bodyweight ? COLOR.muted : COLOR.primary
+  // Plain bodyweight stays quiet. Added weight is a load like any other and gets the accent.
+  context.fillStyle = exercise.bodyweight && exercise.weight === 0 ? COLOR.muted : COLOR.primary
   context.textAlign = 'right'
   context.fillText(load, right, baseline)
   const loadWidth = context.measureText(load).width

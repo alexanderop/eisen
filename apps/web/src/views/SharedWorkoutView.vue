@@ -3,7 +3,8 @@
 import { computed } from 'vue'
 import { Badge, Button, Card } from '../components/ui'
 import { sharedStats, type SharedWorkout } from '../domain/share'
-import { fmt, formatDate } from '../format'
+import { loadText } from '../domain/program'
+import { formatDate } from '../format'
 
 const props = defineProps<{ shared: SharedWorkout }>()
 const emit = defineEmits<{ close: [] }>()
@@ -44,7 +45,7 @@ const stats = computed(() => sharedStats(props.shared))
             {{ exercise.name }}
             <Badge v-if="exercise.record">Record</Badge>
           </span>
-          <strong>{{ exercise.bodyweight ? 'BW' : fmt(exercise.weight, shared.unit) }}</strong>
+          <strong>{{ loadText(exercise.bodyweight, exercise.weight, shared.unit) }}</strong>
           <span class="reps">
             <span
               v-for="(reps, set) in exercise.sets"

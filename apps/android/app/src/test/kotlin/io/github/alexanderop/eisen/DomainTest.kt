@@ -354,4 +354,86 @@ class DomainTest {
         assertTrue(thisWeek[5].today && !thisWeek[5].future)
         assertTrue(!thisWeek[6].today && thisWeek[6].future)
     }
+
+    // Added weight on bodyweight exercises: the same cases as `describe('added weight on bodyweight exercises')` in the PWA.
+
+    private val dips = catalogExercise("dips")!!
+    private val dipsSlot = defaultSlot(dips)
+    private fun added(weight: Number) = progress(weight, 0, 0)
+    private fun AppState.withAdded(weight: Double) = editProgress("dips") { it.copy(weight = weight) }
+
+    @Test fun `starts with no added weight when there is no progress entry`() {
+        assertEquals(0.0, createLog(dips, dipsSlot, emptyMap(), kg).weight, 0.0)
+        assertEquals(0.0, start("A").exercises.last().weight, 0.0)
+    }
+
+    @Test fun `starts with the added weight stored in progress`() {
+        assertEquals(10.0, createLog(dips, dipsSlot, mapOf("dips" to added(10)), kg).weight, 0.0)
+    }
+
+    @Test fun `stores an added weight as an entry with no fails and no increment`() {
+        assertEquals(added(10), freshState(kg).withAdded(10.0).progress["dips"])
+    }
+
+    @Test fun `removes the entry when the added weight goes back to none`() {
+        assertEquals(initialProgress(), freshState(kg).withAdded(10.0).withAdded(0.0).progress)
+    }
+
+    @Test fun `steps an added weight like a dumbbell, 1kg or 2,5lb`() {
+        assertEquals(1.0, stepFor(Equipment.BODYWEIGHT, kg), 0.0)
+        assertEquals(2.5, stepFor(Equipment.BODYWEIGHT, lb), 0.0)
+    }
+
+    @Test fun `never raises or deloads an added weight by itself`() {
+        val before = initialProgress() + ("dips" to added(10))
+        val started = start("A", before)
+        val workout = started.copy(exercises = started.exercises.map { if (it.id == "dips") it.copy(sets = listOf(12, 9, 7)) else it })
+        val result = applyProgression(before, workout, 20.0)
+        assertEquals(added(10), result.progress["dips"])
+        assertTrue(result.changes.isEmpty())
+    }
+
+    @Test fun `keeps no added weight at none when switching units`() {
+        assertEquals(added(0), convertProgress(added(0), Equipment.BODYWEIGHT, kg, lb))
+    }
+
+    @Test fun `converts an added weight and rounds it to the dumbbell step`() {
+        assertEquals(added(22.5), convertProgress(added(10), Equipment.BODYWEIGHT, kg, lb))
+        assertEquals(11.0, convertProgress(added(25), Equipment.BODYWEIGHT, lb, kg).weight, 0.0)
+    }
+
+    @Test fun `still counts total reps as the record`() {
+        val log = start("A", mapOf("dips" to added(10))).exercises[3].copy(sets = listOf(12, 9, 7))
+        assertEquals(28.0, recordValue(log, kg)!!, 0.0)
+    }
+
+    @Test fun `shows the load as BW, BW plus the added weight, or the weight`() {
+        assertEquals("BW", loadText(true, 0.0, kg))
+        assertEquals("BW + 10kg", loadText(true, 10.0, kg))
+        assertEquals("BW + 22.5lb", loadText(true, 22.5, lb))
+        assertEquals("80kg", loadText(false, 80.0, kg))
+    }
+
+    private fun weighted(): Workout {
+        val workout = workoutWith(mapOf("dips" to listOf(12, 9, 7)))
+        return workout.copy(
+            finishedAt = 50 * 60000L,
+            exercises = workout.exercises.map { if (it.id == "dips") it.copy(weight = 10.0) else it },
+        )
+    }
+
+    @Test fun `writes the added weight into the Markdown`() {
+        assertEquals("- **Dips** BW + 10kg: 12, 9, 7", workoutMarkdown(weighted(), "Thu, Nov 19").lines().last())
+    }
+
+    @Test fun `carries the added weight through a share link`() {
+        val shared = toShared(weighted())
+        assertEquals(listOf(SharedExercise("Dips", bodyweight = true, weight = 10.0, targetReps = null, sets = listOf(12, 9, 7), record = false)), shared.exercises)
+        assertEquals(shared, sharedFromHash("#" + java.net.URI(sharedUrl("https://example.com/", shared)).rawFragment))
+    }
+
+    @Test fun `counts only the added weight of a bodyweight exercise in the volume`() {
+        // The app does not know what the lifter weighs: 10kg × 28 reps, the body itself is not counted.
+        assertEquals(SharedStats(volume = 280.0, sets = 3, reps = 28), sharedStats(toShared(weighted())))
+    }
 }

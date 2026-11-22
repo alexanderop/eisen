@@ -1,4 +1,4 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, toRaw, watch } from 'vue'
 import {
   CATALOG,
   catalogExercise,
@@ -17,6 +17,7 @@ import {
   outcome,
   startProgress,
   UNIT_DEFAULTS,
+  withAddedWeight,
   type Change,
   type ExerciseLog,
   type ExerciseProgress,
@@ -73,7 +74,10 @@ export function findExercise(id: string): Exercise | undefined {
 
 const NO_PROGRESS: ExerciseProgress = { weight: 0, fails: 0, increment: 0 }
 
-/** The working weight of an exercise, or its starting weight when it was never used. */
+/**
+ * The working weight of an exercise, or its starting weight when it was never used.
+ * For a bodyweight exercise, the weight added on top of the body (0 = none).
+ */
 export function progressOf(id: string): ExerciseProgress {
   const stored = state.progress[id]
   if (stored) return stored
@@ -82,6 +86,7 @@ export function progressOf(id: string): ExerciseProgress {
   return startProgress(exercise, state.settings.unit)
 }
 
+/** Bodyweight exercises get no entry here: one is made only when the lifter adds weight. */
 function ensureProgress(id: string): ExerciseProgress | null {
   const exercise = findExercise(id)
   if (!exercise || exercise.equipment === 'bodyweight') return null
@@ -148,8 +153,19 @@ export function tapSet(exerciseIndex: number, setIndex: number): number | null {
   return reps
 }
 
+/** The weight added to a bodyweight exercise. It is kept for the next workouts, never below none. */
+function setAddedWeight(id: string, weight: number): number {
+  const added = Math.max(0, weight)
+  state.progress = withAddedWeight(state.progress, id, added)
+  return added
+}
+
 export function setActiveWeight(exerciseIndex: number, weight: number): void {
   const log = state.active?.exercises[exerciseIndex]
+  if (log?.equipment === 'bodyweight') {
+    log.weight = setAddedWeight(log.id, weight)
+    return
+  }
   const entry = log && ensureProgress(log.id)
   if (!log || !entry) return
   log.weight = weight
@@ -172,10 +188,14 @@ export function suggestedReps(id: string, setIndex: number): number {
 }
 
 export function setProgressWeight(id: string, weight: number): void {
-  const entry = ensureProgress(id)
-  if (!entry) return
-  entry.weight = weight
-  entry.fails = 0
+  if (findExercise(id)?.equipment === 'bodyweight') {
+    weight = setAddedWeight(id, weight)
+  } else {
+    const entry = ensureProgress(id)
+    if (!entry) return
+    entry.weight = weight
+    entry.fails = 0
+  }
   for (const log of state.active?.exercises ?? []) {
     if (log.id === id) log.weight = weight
   }
@@ -199,7 +219,9 @@ export function finishWorkout(): void {
   }
   const result = applyProgression(state.progress, workout, state.settings.bar)
   state.progress = result.progress
-  state.history.unshift({ ...workout, finishedAt: Date.now() })
+  // Spread from the raw object: a spread of the reactive one would carry reactive exercises
+  // into the history, and the history edit sheet cannot copy those until the next reload.
+  state.history.unshift({ ...toRaw(workout), finishedAt: Date.now() })
   state.nextRoutineId = nextRoutineId(state.routines, workout.routineId, nextRoutine.value.id)
   state.active = null
   lastChanges.value = result.changes

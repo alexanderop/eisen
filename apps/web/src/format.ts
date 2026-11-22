@@ -1,12 +1,25 @@
 import { platesPerSide } from './domain/plates'
 import type { Equipment } from './domain/exercises'
-import { emptyWeight, UNIT_DEFAULTS } from './domain/program'
+import { emptyWeight, loadText, UNIT_DEFAULTS } from './domain/program'
 import { formatWeight, type Unit } from './domain/units'
 import { state } from './store'
 
 export function fmt(value: number, unit: Unit = state.settings.unit): string {
   return formatWeight(value, unit)
 }
+
+/** How heavy an exercise is: "80kg", "BW" or "BW + 10kg". In the settings' unit unless given. */
+export function fmtLoad(equipment: Equipment, weight: number, unit: Unit = state.settings.unit): string {
+  return loadText(equipment === 'bodyweight', weight, unit)
+}
+
+/** The added weight of a bodyweight exercise on its own: "None" or "+10kg". */
+export function fmtAdded(weight: number, unit: Unit = state.settings.unit): string {
+  return weight > 0 ? `+${formatWeight(weight, unit)}` : 'None'
+}
+
+/** Under every "Added weight" stepper, so the lifter knows what it is for. */
+export const ADDED_WEIGHT_HINT = 'For a dip belt or a weight vest. Counts on top of your bodyweight.'
 
 const dateFormat = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',

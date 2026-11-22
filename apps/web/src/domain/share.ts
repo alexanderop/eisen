@@ -1,5 +1,5 @@
-import { MAX_REPS, MAX_SETS, type Workout } from './program'
-import { formatWeight, type Unit } from './units'
+import { loadText, MAX_REPS, MAX_SETS, type Workout } from './program'
+import type { Unit } from './units'
 
 export function durationMinutes(workout: Workout): number | null {
   if (workout.finishedAt === null) return null
@@ -16,7 +16,7 @@ export function workoutMarkdown(workout: Workout, date: string): string {
   const lines = [`## ${workout.name}`, '', minutes === null ? date : `${date} · ${minutes} min`, '']
   for (const log of workout.exercises) {
     if (log.sets.every((reps) => reps === null)) continue
-    const load = log.equipment === 'bodyweight' ? 'BW' : formatWeight(log.weight, workout.unit)
+    const load = loadText(log.equipment === 'bodyweight', log.weight, workout.unit)
     lines.push(`- **${log.name}** ${load}: ${repsText(log)}`)
   }
   return lines.join('\n')
@@ -25,7 +25,7 @@ export function workoutMarkdown(workout: Workout, date: string): string {
 export interface SharedExercise {
   name: string
   bodyweight: boolean
-  /** 0 for bodyweight exercises. */
+  /** For bodyweight exercises the weight added on top of the body: 0 = none. */
   weight: number
   /** null = as many reps as possible. */
   targetReps: number | null
@@ -59,7 +59,7 @@ export function toShared(workout: Workout, records: ReadonlySet<string> = new Se
       .map((log) => ({
         name: log.name,
         bodyweight: log.equipment === 'bodyweight',
-        weight: log.equipment === 'bodyweight' ? 0 : log.weight,
+        weight: log.weight,
         targetReps: log.targetReps,
         sets: [...log.sets],
         record: records.has(log.id),
@@ -68,7 +68,10 @@ export function toShared(workout: Workout, records: ReadonlySet<string> = new Se
 }
 
 export interface SharedStats {
-  /** Weight times reps over all weighted exercises, in the workout's unit. */
+  /**
+   * Weight times reps over all exercises, in the workout's unit.
+   * A bodyweight exercise adds only its added weight: the app does not know what the lifter weighs.
+   */
   volume: number
   sets: number
   reps: number
@@ -159,7 +162,8 @@ function decodeExercise(value: unknown): SharedExercise | null {
   return {
     name,
     bodyweight: bodyweight === 1,
-    weight: bodyweight === 1 ? 0 : weight,
+    // Older builds sent 0 here for bodyweight exercises. Newer ones send the added weight.
+    weight,
     targetReps: target === 0 ? null : target,
     sets: (sets as number[]).map((reps) => (reps === -1 ? null : reps)),
     record: record === 1,

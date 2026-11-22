@@ -17,7 +17,16 @@ import {
   type ExerciseLog,
 } from '../domain/program'
 import { lastLogged } from '../domain/records'
-import { emptyWeightFor, fmt, formatShortDate, loadFor, platesText } from '../format'
+import {
+  ADDED_WEIGHT_HINT,
+  emptyWeightFor,
+  fmt,
+  fmtAdded,
+  fmtLoad,
+  formatShortDate,
+  loadFor,
+  platesText,
+} from '../format'
 import { haptic } from '../haptics'
 import { startRest, stopRest } from '../rest'
 import {
@@ -73,13 +82,17 @@ function warmups(log: ExerciseLog) {
   )
 }
 
-/** "12 Nov: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. */
+/**
+ * "12 Nov: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat.
+ * Plain bodyweight shows only the reps, as there is no load worth naming.
+ */
 function lastTime(id: string): string | null {
   const last = lastLogged(state.history, id)
   if (!last) return null
   const { workout: then, log } = last
   const reps = log.sets.map((count) => count ?? '–').join(' ')
-  const load = log.equipment === 'bodyweight' ? '' : `${fmt(log.weight, then.unit)} · `
+  const plain = log.equipment === 'bodyweight' && log.weight === 0
+  const load = plain ? '' : `${fmtLoad(log.equipment, log.weight, then.unit)} · `
   return `${formatShortDate(then.startedAt)}: ${load}${reps}`
 }
 
@@ -184,7 +197,7 @@ function onTap(exerciseIndex: number, setIndex: number) {
   touch(log.id)
   if (reps !== null && reps < log.targetReps) haptic('warning')
   else haptic(outcome(log) === 'success' ? 'success' : 'tap')
-  if (reps === null || isComplete(active)) {
+  if (reps === null || lastSetLogged(log)) {
     stopRest()
     return
   }
@@ -195,6 +208,14 @@ function onTap(exerciseIndex: number, setIndex: number) {
   )
 }
 
+/**
+ * No rest follows the last set of an exercise: the lifter moves on to the next one,
+ * and a timer for the old one would only be in the way.
+ */
+function lastSetLogged(log: ExerciseLog) {
+  return log.sets.every((reps) => reps !== null)
+}
+
 function setState(log: ExerciseLog, reps: number | null) {
   if (reps === null) return 'empty'
   return log.targetReps !== null && reps < log.targetReps ? 'missed' : 'done'
@@ -203,11 +224,12 @@ function setState(log: ExerciseLog, reps: number | null) {
 function saveEntry(reps: number | null) {
   const active = workout.value
   if (!active || !entry.value) return
-  logReps(entry.value.exerciseIndex, entry.value.setIndex, reps)
-  touch(active.exercises[entry.value.exerciseIndex].id)
+  const { exerciseIndex } = entry.value
+  logReps(exerciseIndex, entry.value.setIndex, reps)
+  touch(active.exercises[exerciseIndex].id)
   entry.value = null
   haptic('tap')
-  if (reps === null || isComplete(active)) stopRest()
+  if (reps === null || lastSetLogged(active.exercises[exerciseIndex])) stopRest()
   else startRest(state.settings.restDone, 'Max set logged.')
 }
 
@@ -299,7 +321,7 @@ onBeforeUnmount(() => {
               <span class="name">{{ done ? 'Sets' : log.name }}</span>
               <span class="target">
                 {{ log.sets.length }}×{{ log.targetReps ?? 'max' }}
-                <strong>{{ log.equipment === 'bodyweight' ? 'BW' : fmt(log.weight) }}</strong>
+                <strong>{{ fmtLoad(log.equipment, log.weight) }}</strong>
                 <span class="chevron" aria-hidden="true">›</span>
               </span>
             </button>
@@ -369,7 +391,21 @@ onBeforeUnmount(() => {
       :title="editedLog.name"
       @close="editing = null"
     >
-      <div v-if="editedLog.equipment !== 'bodyweight'" class="row">
+      <template v-if="editedLog.equipment === 'bodyweight'">
+        <div class="row">
+          <span class="muted">Added weight</span>
+          <Stepper
+            :model-value="editedLog.weight"
+            :step="stepFor(editedLog.equipment, state.settings.unit)"
+            :min="0"
+            label="added weight"
+            :format="(value: number) => fmtAdded(value)"
+            @update:model-value="setActiveWeight(editing, $event)"
+          />
+        </div>
+        <p class="muted sheet-hint">{{ ADDED_WEIGHT_HINT }}</p>
+      </template>
+      <div v-else class="row">
         <span class="muted">Weight</span>
         <Stepper
           :model-value="editedLog.weight"
@@ -649,9 +685,13 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.sheet-bar {
-  text-align: center;
+.sheet-bar,
+.sheet-hint {
   font-size: 13px;
   margin-top: -12px;
+}
+
+.sheet-bar {
+  text-align: center;
 }
 </style>

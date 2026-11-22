@@ -16,11 +16,10 @@ import androidx.core.os.BundleCompat
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.R
 import io.github.alexanderop.eisen.data.Store
-import io.github.alexanderop.eisen.domain.Equipment
-import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 
-/** One exercise as the home screen's "Next up" card shows it. Weight is null for bodyweight exercises. */
-private class Row(val name: String, val sets: Int, val reps: Int?, val weight: Double?)
+/** One exercise as the home screen's "Next up" card shows it. [load] is "80kg", "BW" or "BW + 10kg". */
+private class Row(val name: String, val sets: Int, val reps: Int?, val load: String)
 
 /** What the widget shows: the running workout, or the next one as it is set up right now. */
 private class Content(
@@ -43,7 +42,7 @@ private fun content(): Content {
             routineId = null,
             name = active.name,
             rows = active.exercises.map { log ->
-                Row(log.name, log.sets.size, log.targetReps, if (log.equipment == Equipment.BODYWEIGHT) null else log.weight)
+                Row(log.name, log.sets.size, log.targetReps, fmtLoad(log.equipment, log.weight))
             },
             logged = sets.count { it != null },
             total = sets.size,
@@ -58,7 +57,7 @@ private fun content(): Content {
             exercise.name,
             slot.sets,
             slot.reps,
-            if (exercise.equipment == Equipment.BODYWEIGHT) null else Store.progressOf(exercise.id).weight,
+            fmtLoad(exercise.equipment, Store.progressOf(exercise.id).weight),
         )
     }
     return Content(running = false, routineId = next.id, name = next.name, rows = rows, logged = 0, total = 0)
@@ -153,7 +152,7 @@ private fun build(context: Context, content: Content, heightDp: Float): RemoteVi
         val item = RemoteViews(context.packageName, R.layout.widget_row)
         item.setTextViewText(R.id.widget_row_name, row.name)
         item.setTextViewText(R.id.widget_row_sets, "${row.sets}×${row.reps ?: "max"}")
-        item.setTextViewText(R.id.widget_row_weight, row.weight?.let { fmt(it) } ?: "BW")
+        item.setTextViewText(R.id.widget_row_weight, row.load)
         views.addView(R.id.widget_rows, item)
     }
     val hidden = content.rows.size - shown

@@ -5,7 +5,7 @@ import ExercisePicker from '../components/ExercisePicker.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
 import { kindLabel } from '../domain/exercises'
 import { MAX_REPS, MAX_SETS, type Routine, type Slot } from '../domain/program'
-import { fmt } from '../format'
+import { fmtLoad } from '../format'
 import {
   addRoutine,
   addSlot,
@@ -40,9 +40,11 @@ function detail(slot: Slot): string {
   const exercise = findExercise(slot.exerciseId)
   if (!exercise) return ''
   const scheme = `${slot.sets} × ${slot.reps ?? 'max'}`
-  return exercise.equipment === 'bodyweight'
+  const weight = progressOf(exercise.id).weight
+  // Plain bodyweight needs no load: the kind already says "Bodyweight".
+  return exercise.equipment === 'bodyweight' && weight === 0
     ? `${scheme} · ${kindLabel(exercise)}`
-    : `${scheme} · ${fmt(progressOf(exercise.id).weight)} · ${kindLabel(exercise)}`
+    : `${scheme} · ${fmtLoad(exercise.equipment, weight)} · ${kindLabel(exercise)}`
 }
 
 function toggleMax(slot: Slot) {

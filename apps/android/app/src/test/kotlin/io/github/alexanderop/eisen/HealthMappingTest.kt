@@ -65,6 +65,16 @@ class HealthMappingTest {
         assertTrue('*' !in notes && '#' !in notes)
     }
 
+    @Test fun `notes spell out bodyweight and the weight added to it`() {
+        val notes = workoutNotes(
+            workout(
+                log("dips", "Dips", 10.0, listOf(12, 9, 7), target = null, equipment = Equipment.BODYWEIGHT),
+                log("pullups", "Pull-ups", 0.0, listOf(8, 6), target = null, equipment = Equipment.BODYWEIGHT),
+            ),
+        )
+        assertEquals("Dips bodyweight + 10kg: 12, 9, 7\nPull-ups bodyweight: 8, 6", notes)
+    }
+
     @Test fun `pounds stay pounds in the notes`() {
         val notes = workoutNotes(workout(log("squat", "Squat", 225.0, listOf(5, 5, 5))).copy(unit = WeightUnit.LB))
         assertEquals("Squat 225lb: 3×5", notes)

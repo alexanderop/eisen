@@ -1,5 +1,5 @@
 import type { Equipment, Exercise } from './exercises'
-import { convert, roundTo, type Unit } from './units'
+import { convert, formatWeight, roundTo, type Unit } from './units'
 
 export interface Slot {
   exerciseId: string
@@ -69,9 +69,12 @@ const INCREMENTS: Record<Unit, number[]> = {
   lb: [2.5, 5, 10, 15, 20],
 }
 
-/** Smallest weight change: plate pairs on a bar, finer for dumbbells and weight stacks. */
+/**
+ * Smallest weight change: plate pairs on a bar, finer for dumbbells and weight stacks.
+ * Weight added to a bodyweight exercise hangs from a dip belt or sits in a vest, so it steps like a dumbbell.
+ */
 export function stepFor(equipment: Equipment, unit: Unit): number {
-  return equipment === 'weight' ? FINE_STEP[unit] : UNIT_DEFAULTS[unit].step
+  return equipment === 'weight' || equipment === 'bodyweight' ? FINE_STEP[unit] : UNIT_DEFAULTS[unit].step
 }
 
 /** Warmup weights on a machine use whole plates: nobody loads 1.25s onto a sled to warm up. */
@@ -96,6 +99,10 @@ export function emptyWeight(equipment: Equipment, bar: number): number {
 export const DELOAD_AFTER_FAILS = 3
 export const DELOAD_FACTOR = 0.9
 
+/**
+ * For a bodyweight exercise the entry holds the weight added on top of the body,
+ * with no fails and no increment. No entry means no added weight.
+ */
 export interface ExerciseProgress {
   weight: number
   /** Workouts in a row where this weight was not completed. */
@@ -113,6 +120,8 @@ function nearest(value: number, options: number[]): number {
 }
 
 function convertWeight(weight: number, equipment: Equipment, from: Unit, to: Unit): number {
+  // No added weight stays none. Rounding it up to one step would hang a belt on the lifter.
+  if (equipment === 'bodyweight' && weight === 0) return 0
   const step = stepFor(equipment, to)
   return Math.max(step, roundTo(convert(weight, from, to), step))
 }
@@ -134,8 +143,18 @@ export function convertProgress(
   return {
     weight: convertWeight(entry.weight, equipment, from, to),
     fails: entry.fails,
-    increment: nearest(convert(entry.increment, from, to), INCREMENTS[to]),
+    // Added weight never goes up by itself, so it has no increment to convert.
+    increment: equipment === 'bodyweight' ? 0 : nearest(convert(entry.increment, from, to), INCREMENTS[to]),
   }
+}
+
+/**
+ * Sets the weight added to a bodyweight exercise. Going back to none removes the entry,
+ * so an install that never added weight and one that took it off again look the same.
+ */
+export function withAddedWeight(progress: Progress, id: string, weight: number): Progress {
+  const { [id]: _, ...rest } = progress
+  return weight > 0 ? { ...rest, [id]: { weight, fails: 0, increment: 0 } } : rest
 }
 
 export interface ExerciseLog {
@@ -143,7 +162,7 @@ export interface ExerciseLog {
   /** Name and equipment are copied in, so the log still reads right after the exercise is deleted. */
   name: string
   equipment: Equipment
-  /** 0 for bodyweight exercises. */
+  /** For bodyweight exercises the weight added on top of the body: 0 = none. */
   weight: number
   /** null = as many reps as possible. */
   targetReps: number | null
@@ -183,7 +202,7 @@ export function createLog(
     equipment: exercise.equipment,
     weight:
       exercise.equipment === 'bodyweight'
-        ? 0
+        ? (progress[exercise.id]?.weight ?? 0)
         : (progress[exercise.id] ?? startProgress(exercise, unit)).weight,
     targetReps: slot.reps,
     sets: Array.from({ length: slot.sets }, () => null),
@@ -238,6 +257,15 @@ export function nextRoutineId(routines: Routine[], finishedId: string, current: 
   return routines[(index + 1) % routines.length].id
 }
 
+/**
+ * How heavy an exercise is, as text: "80kg", "BW", or "BW + 10kg" with a dip belt or a vest.
+ * Every screen and export that shows a load goes through here, so they all read the same.
+ */
+export function loadText(bodyweight: boolean, weight: number, unit: Unit): string {
+  if (!bodyweight) return formatWeight(weight, unit)
+  return weight > 0 ? `BW + ${formatWeight(weight, unit)}` : 'BW'
+}
+
 export function totalReps(log: ExerciseLog): number {
   return log.sets.reduce<number>((sum, reps) => sum + (reps ?? 0), 0)
 }
@@ -246,6 +274,7 @@ export function totalReps(log: ExerciseLog): number {
  * Progressive overload: all reps done -> add weight next time.
  * Missed reps -> repeat the weight. Three misses in a row -> drop 10%.
  * Bodyweight and max-reps exercises have no target weight to progress.
+ * Weight added to a bodyweight exercise only changes when the lifter changes it.
  */
 export function applyProgression(
   progress: Progress,

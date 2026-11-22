@@ -24,7 +24,10 @@ export interface Settings {
 export interface AppState {
   version: 6
   settings: Settings
-  /** Working weight per exercise id. Bodyweight exercises have no entry. */
+  /**
+   * Working weight per exercise id. A bodyweight exercise has an entry only while weight is
+   * added to it. Older builds skip those entries, so they still read this state.
+   */
   progress: Progress
   routines: Routine[]
   /** The workout the home screen offers next. */

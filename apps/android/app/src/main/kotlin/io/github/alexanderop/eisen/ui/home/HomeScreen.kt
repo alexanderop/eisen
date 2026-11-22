@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -53,6 +54,7 @@ import io.github.alexanderop.eisen.domain.totalReps
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.formatDate
 import io.github.alexanderop.eisen.ui.formatShortDate
 import io.github.alexanderop.eisen.ui.picker.ButtonHeight
@@ -64,8 +66,8 @@ import io.github.alexanderop.eisen.ui.workout.rememberWorkoutEffects
 
 private const val WEEK_MS = 7L * 24 * 60 * 60 * 1000
 
-/** One exercise of the workout on the card. Weight is null for bodyweight exercises. */
-private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val weight: Double?)
+/** One exercise of the workout on the card. [load] is "80kg", "BW" or "BW + 10kg". */
+private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val load: String)
 
 /** The running workout as it was started, or the next one as it is set up right now. */
 private fun rows(): List<ExerciseRow> {
@@ -78,7 +80,7 @@ private fun rows(): List<ExerciseRow> {
                 Store.findExercise(log.id)?.image,
                 log.sets.size,
                 log.targetReps,
-                if (log.equipment == Equipment.BODYWEIGHT) null else log.weight,
+                fmtLoad(log.equipment, log.weight),
             )
         }
     }
@@ -90,7 +92,7 @@ private fun rows(): List<ExerciseRow> {
             exercise.image,
             slot.sets,
             slot.reps,
-            if (exercise.equipment == Equipment.BODYWEIGHT) null else Store.progressOf(exercise.id).weight,
+            fmtLoad(exercise.equipment, Store.progressOf(exercise.id).weight),
         )
     }
 }
@@ -283,8 +285,9 @@ private fun NextCard(onOpenWorkout: () -> Unit) {
                             Text(row.name, modifier = Modifier.weight(1f))
                             Text("${row.sets}×${row.reps ?: "max"}", color = EisenColors.MutedForeground)
                             Text(
-                                row.weight?.let { fmt(it) } ?: "BW",
-                                modifier = Modifier.width(76.dp),
+                                row.load,
+                                modifier = Modifier.widthIn(min = 76.dp),
+                                maxLines = 1,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.End,
                             )

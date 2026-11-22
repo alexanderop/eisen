@@ -11,7 +11,7 @@ import android.graphics.Typeface
 import android.os.Build
 import io.github.alexanderop.eisen.domain.SharedExercise
 import io.github.alexanderop.eisen.domain.SharedWorkout
-import io.github.alexanderop.eisen.domain.formatWeight
+import io.github.alexanderop.eisen.domain.loadText
 import io.github.alexanderop.eisen.domain.sharedStats
 import java.util.Locale
 import kotlin.math.floor
@@ -238,9 +238,11 @@ private fun Card.exerciseRow(shared: SharedWorkout, exercise: SharedExercise, to
     val right = PAD + INNER - 32
     val baseline = top + 76
 
-    val load = if (exercise.bodyweight) "BW" else formatWeight(exercise.weight, shared.unit)
+    val load = loadText(exercise.bodyweight, exercise.weight, shared.unit)
+    // Plain bodyweight carries no number worth the accent colour; an added weight does.
+    val plain = exercise.bodyweight && exercise.weight == 0.0
     font(800, 48f)
-    text(load, right, baseline, if (exercise.bodyweight) Palette.MUTED else Palette.PRIMARY, Paint.Align.RIGHT)
+    text(load, right, baseline, if (plain) Palette.MUTED else Palette.PRIMARY, Paint.Align.RIGHT)
     val loadWidth = measure(load)
 
     val badgeSpace = if (exercise.record) badgeWidth() + 18 else 0f

@@ -29,8 +29,7 @@ fun workoutMarkdown(workout: Workout, date: String): String {
     val lines = mutableListOf("## ${workout.name}", "", if (minutes == null) date else "$date · $minutes min", "")
     for (log in workout.exercises) {
         if (log.sets.all { it == null }) continue
-        val load = if (log.equipment == Equipment.BODYWEIGHT) "BW" else formatWeight(log.weight, workout.unit)
-        lines += "- **${log.name}** $load: ${repsText(log.sets, log.targetReps)}"
+        lines += "- **${log.name}** ${loadText(log, workout.unit)}: ${repsText(log.sets, log.targetReps)}"
     }
     return lines.joinToString("\n")
 }
@@ -38,7 +37,7 @@ fun workoutMarkdown(workout: Workout, date: String): String {
 data class SharedExercise(
     val name: String,
     val bodyweight: Boolean,
-    /** 0 for bodyweight exercises. */
+    /** For bodyweight exercises the weight added on top, 0 for none. */
     val weight: Double,
     /** null = as many reps as possible. */
     val targetReps: Int?,
@@ -69,11 +68,10 @@ fun toShared(workout: Workout, records: Set<String> = emptySet()): SharedWorkout
     exercises = workout.exercises
         .filter { log -> log.sets.any { it != null } }
         .map { log ->
-            val bodyweight = log.equipment == Equipment.BODYWEIGHT
             SharedExercise(
                 name = log.name,
-                bodyweight = bodyweight,
-                weight = if (bodyweight) 0.0 else log.weight,
+                bodyweight = log.equipment == Equipment.BODYWEIGHT,
+                weight = log.weight,
                 targetReps = log.targetReps,
                 sets = log.sets,
                 record = log.id in records,
@@ -82,7 +80,10 @@ fun toShared(workout: Workout, records: Set<String> = emptySet()): SharedWorkout
 )
 
 data class SharedStats(
-    /** Weight times reps over all weighted exercises, in the workout's unit. */
+    /**
+     * Weight times reps over all exercises, in the workout's unit. A bodyweight exercise counts
+     * only the weight added on top: the app does not know what the lifter weighs.
+     */
     val volume: Double,
     val sets: Int,
     val reps: Int,
@@ -250,7 +251,8 @@ private fun decodeExercise(value: JsonElement): SharedExercise? {
     return SharedExercise(
         name = name,
         bodyweight = bodyweight,
-        weight = if (bodyweight) 0.0 else weight,
+        // Older links carry 0 for every bodyweight exercise, which reads as no added weight.
+        weight = weight,
         targetReps = if (target == 0.0) null else target!!.toInt(),
         sets = reps.map { if (it == -1.0) null else it!!.toInt() },
         record = record,

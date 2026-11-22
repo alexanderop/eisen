@@ -10,16 +10,19 @@ import {
   defaultRoutines,
   defaultSlot,
   emptyWeight,
+  loadText,
   nextReps,
   nextRoutineId,
   outcome,
   startProgress,
+  stepFor,
   warmupStep,
+  withAddedWeight,
   type Progress,
   type Routine,
   type Workout,
 } from './program'
-import { lastLogged, recordIds, recordOf } from './records'
+import { lastLogged, recordIds, recordOf, recordValue } from './records'
 import { decodeShared, encodeShared, sharedFromHash, sharedStats, sharedUrl, toShared, workoutMarkdown } from './share'
 import { freshState, isAppState, migrate } from './state'
 
@@ -461,5 +464,96 @@ describe('charts', () => {
     expect(thisWeek.map((entry) => entry.workouts.length)).toEqual([0, 0, 0, 1, 0, 0, 0])
     expect(thisWeek[5]).toMatchObject({ today: true, future: false })
     expect(thisWeek[6]).toMatchObject({ today: false, future: true })
+  })
+})
+
+describe('added weight on bodyweight exercises', () => {
+  const dips = catalogExercise('dips')!
+  const slot = defaultSlot(dips)
+
+  it('starts with no added weight when there is no progress entry', () => {
+    expect(createLog(dips, slot, {}, 'kg').weight).toBe(0)
+    expect(start('A').exercises.at(-1)?.weight).toBe(0)
+  })
+
+  it('starts with the added weight stored in progress', () => {
+    expect(createLog(dips, slot, { dips: { weight: 10, fails: 0, increment: 0 } }, 'kg').weight).toBe(10)
+  })
+
+  it('stores an added weight as an entry with no fails and no increment', () => {
+    expect(withAddedWeight(initialProgress(), 'dips', 10).dips).toEqual({ weight: 10, fails: 0, increment: 0 })
+  })
+
+  it('removes the entry when the added weight goes back to none', () => {
+    const added = withAddedWeight(initialProgress(), 'dips', 10)
+    expect(withAddedWeight(added, 'dips', 0)).toEqual(initialProgress())
+  })
+
+  it('steps an added weight like a dumbbell: 1kg or 2.5lb', () => {
+    expect(stepFor('bodyweight', 'kg')).toBe(1)
+    expect(stepFor('bodyweight', 'lb')).toBe(2.5)
+  })
+
+  it('never raises or deloads an added weight by itself', () => {
+    const before = { ...initialProgress(), dips: { weight: 10, fails: 0, increment: 0 } }
+    const workout = start('A', before)
+    workout.exercises[3].sets = [12, 9, 7]
+    const { progress, changes } = applyProgression(before, workout, 20)
+    expect(progress.dips).toEqual({ weight: 10, fails: 0, increment: 0 })
+    expect(changes).toEqual([])
+  })
+
+  it('keeps no added weight at none when switching units', () => {
+    expect(convertProgress({ weight: 0, fails: 0, increment: 0 }, 'bodyweight', 'kg', 'lb')).toEqual({
+      weight: 0,
+      fails: 0,
+      increment: 0,
+    })
+  })
+
+  it('converts an added weight and rounds it to the dumbbell step', () => {
+    expect(convertProgress({ weight: 10, fails: 0, increment: 0 }, 'bodyweight', 'kg', 'lb')).toEqual({
+      weight: 22.5,
+      fails: 0,
+      increment: 0,
+    })
+    expect(convertProgress({ weight: 25, fails: 0, increment: 0 }, 'bodyweight', 'lb', 'kg').weight).toBe(11)
+  })
+
+  it('still counts total reps as the record', () => {
+    const workout = start('A', { dips: { weight: 10, fails: 0, increment: 0 } })
+    workout.exercises[3].sets = [12, 9, 7]
+    expect(recordValue(workout.exercises[3], 'kg')).toBe(28)
+  })
+
+  it('shows the load as BW, BW plus the added weight, or the weight', () => {
+    expect(loadText(true, 0, 'kg')).toBe('BW')
+    expect(loadText(true, 10, 'kg')).toBe('BW + 10kg')
+    expect(loadText(true, 22.5, 'lb')).toBe('BW + 22.5lb')
+    expect(loadText(false, 80, 'kg')).toBe('80kg')
+  })
+
+  const weighted = () => {
+    const workout = workoutWith({ dips: [12, 9, 7] })
+    workout.exercises[3].weight = 10
+    workout.finishedAt = 50 * 60000
+    return workout
+  }
+
+  it('writes the added weight into the Markdown', () => {
+    expect(workoutMarkdown(weighted(), 'Thu, Nov 19').split('\n').at(-1)).toBe('- **Dips** BW + 10kg: 12, 9, 7')
+  })
+
+  it('carries the added weight through a share link', () => {
+    const shared = toShared(weighted())
+    expect(shared.exercises).toEqual([
+      { name: 'Dips', bodyweight: true, weight: 10, targetReps: null, sets: [12, 9, 7], record: false },
+    ])
+    expect(sharedFromHash(new URL(sharedUrl('https://example.com/', shared)).hash)).toEqual(shared)
+  })
+
+  it('counts only the added weight of a bodyweight exercise in the volume', () => {
+    // The app does not know what the lifter weighs: 10kg × 28 reps, the body itself is not counted.
+    expect(sharedStats(toShared(weighted()))).toEqual({ volume: 280, sets: 3, reps: 28 })
   })
 })

@@ -66,6 +66,7 @@ import io.github.alexanderop.eisen.ui.SetState
 import io.github.alexanderop.eisen.ui.emptyWeightFor
 import io.github.alexanderop.eisen.ui.exerciseBitmap
 import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.formatShortDate
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.platesText
@@ -84,11 +85,12 @@ private fun WorkoutCard(modifier: Modifier = Modifier, content: @Composable () -
     }
 }
 
-/** "Nov 12: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. */
+/** "Nov 12: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. Plain bodyweight shows only the reps. */
 internal fun lastTime(id: String): String? {
     val last = lastLogged(Store.state.history, id) ?: return null
     val reps = last.log.sets.joinToString(" ") { it?.toString() ?: "–" }
-    val load = if (last.log.equipment == Equipment.BODYWEIGHT) "" else "${fmt(last.log.weight, last.workout.unit)} · "
+    val plain = last.log.equipment == Equipment.BODYWEIGHT && last.log.weight == 0.0
+    val load = if (plain) "" else "${fmtLoad(last.log.equipment, last.log.weight, last.workout.unit)} · "
     return "${formatShortDate(last.workout.startedAt)}: $load$reps"
 }
 
@@ -157,7 +159,7 @@ internal fun ExerciseCard(
                         buildAnnotatedString {
                             append("${log.sets.size}×${log.targetReps ?: "max"} ")
                             withStyle(SpanStyle(color = EisenColors.Foreground, fontWeight = FontWeight.Bold)) {
-                                append(if (log.equipment == Equipment.BODYWEIGHT) "BW" else fmt(log.weight))
+                                append(fmtLoad(log.equipment, log.weight))
                             }
                         },
                         color = EisenColors.MutedForeground,
