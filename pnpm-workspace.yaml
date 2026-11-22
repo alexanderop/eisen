@@ -1,3 +1,5 @@
+packages:
+  - apps/web
 # esbuild only checks its binary in postinstall. The binary itself comes from an optional dependency.
 allowBuilds:
   esbuild: false

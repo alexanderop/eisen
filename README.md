@@ -14,7 +14,20 @@ An offline 5×5 barbell workout tracker that installs as a PWA.
 - Share a finished workout as a picture, as a link that shows it, or as Markdown
 - All data stays on your device, with JSON backup and restore
 
-## Develop
+## Two apps, one repository
+
+| Folder | What | How it ships |
+| --- | --- | --- |
+| `apps/web` | The PWA: Vue 3, Vite, Tailwind, shadcn-vue | GitHub Pages on every push to `main` |
+| `apps/android` | The native Android app: Kotlin, Jetpack Compose, Material 3 | A signed APK on the [`android-latest` release](https://github.com/alexanderop/eisen/releases/tag/android-latest) on every push to `main` |
+
+Both apps store the same JSON. A backup from one restores in the other.
+The rules of the program live in `apps/web/src/domain` and, ported file by file, in
+`apps/android/app/src/main/kotlin/io/github/alexanderop/eisen/domain`. The same test cases run
+against both, so a change to one has to be made in the other.
+The exercise pictures and spoken cues in `apps/web/src/assets` are packed into the APK as they are.
+
+## Develop the PWA
 
 ```sh
 pnpm install
@@ -23,18 +36,31 @@ pnpm test
 pnpm build
 ```
 
+## Develop the Android app
+
+Needs JDK 21 and the Android SDK (platform 37.2). `apps/android/local.properties` points to the SDK:
+`sdk.dir=/path/to/android-sdk`.
+
+```sh
+pnpm android:test   # unit tests of the domain rules
+pnpm android:apk    # debug APK in apps/android/app/build/outputs/apk/debug
+```
+
+A release build is signed with the key named by `EISEN_KEYSTORE` and `EISEN_KEYSTORE_PASSWORD`.
+Android only installs an update over the app when it is signed with the same key, so that key must not get lost.
+
 ## Design system
 
 The UI is built on [shadcn-vue](https://www.shadcn-vue.com) (Reka UI and Tailwind CSS 4).
-Its components are copied into `src/components/ui/<name>/` and adjusted for a phone in a gym:
+Its components are copied into `apps/web/src/components/ui/<name>/` and adjusted for a phone in a gym:
 larger tap targets, a dark-only palette and lime as the primary colour.
 
 - From shadcn-vue: `Button`, `Card`, `Badge`, `Input`, `Drawer`, `Tabs`, `ToggleGroup`.
-- Composed from them in `src/components/ui/*.vue`: `Sheet` (a Drawer), `Segmented` (Tabs),
+- Composed from them in `apps/web/src/components/ui/*.vue`: `Sheet` (a Drawer), `Segmented` (Tabs),
   `ChipGroup` (a ToggleGroup), `Stepper`, `ConfirmButton`, plus the app's own `SetButton` and `Field`.
 - Add another one with `pnpm dlx shadcn-vue@latest add <name>`.
 
-Colours use the shadcn variable names (`--primary`, `--card`, `--muted-foreground`) in `src/style.css`.
+Colours use the shadcn variable names (`--primary`, `--card`, `--muted-foreground`) in `apps/web/src/style.css`.
 
 ```sh
 pnpm storybook        # browse and try every component at http://localhost:6006
