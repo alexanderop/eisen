@@ -1,8 +1,10 @@
 package io.github.alexanderop.eisen.ui.workouts
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,20 +29,38 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -57,20 +77,42 @@ import io.github.alexanderop.eisen.domain.MAX_SETS
 import io.github.alexanderop.eisen.domain.Routine
 import io.github.alexanderop.eisen.domain.Slot
 import io.github.alexanderop.eisen.domain.kindLabel
+import io.github.alexanderop.eisen.ui.ColumnReorderState
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
+import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.IntStepper
+import io.github.alexanderop.eisen.ui.ReorderableColumnItem
 import io.github.alexanderop.eisen.ui.fmt
+import io.github.alexanderop.eisen.ui.keyboardPadding
+import io.github.alexanderop.eisen.ui.longPressToReorder
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.picker.ButtonHeight
 import io.github.alexanderop.eisen.ui.picker.ConfirmButton
 import io.github.alexanderop.eisen.ui.picker.EisenCard
 import io.github.alexanderop.eisen.ui.picker.ExercisePickerSheet
 import io.github.alexanderop.eisen.ui.picker.PillBadge
+import io.github.alexanderop.eisen.ui.rememberColumnReorderState
+import io.github.alexanderop.eisen.ui.rememberHaptics
+import io.github.alexanderop.eisen.ui.reorderContainer
+import io.github.alexanderop.eisen.ui.reorderHandle
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 
 private val ArrowUp = pathIcon("ArrowUp", "m5 12 7-7 7 7", "M12 19V5")
 private val ArrowDown = pathIcon("ArrowDown", "M12 5v14", "m19 12-7 7-7-7")
+
+// Lucide's grip-vertical: six dots, drawn filled because circles have no path of their own.
+private val Grip = pathIcon(
+    "GripVertical",
+    "M7 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0zM13 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0z" +
+        "M7 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0zM13 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0z" +
+        "M7 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0zM13 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0z",
+    filled = true,
+)
+
+private val OnDestructive = Color(0xFF2B0A0A)
 
 private const val NAME_LENGTH = 30
 
@@ -79,16 +121,39 @@ private const val NAME_LENGTH = 30
 fun WorkoutsScreen() {
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     val editing = Store.state.routines.firstOrNull { it.id == editingId }
+    // Out here and not in the editor, so Undo still works after going back to the list.
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    if (editing != null) {
-        // Back closes the editor first, like the "Workouts" button at the top.
-        BackHandler { editingId = null }
-        // A fresh scroll position and closed exercises for every workout opened.
-        key(editing.id) {
-            RoutineEditor(editing, onClose = { editingId = null })
+    fun offerUndo(routineId: String, index: Int, slot: Slot) {
+        val name = Store.findExercise(slot.exerciseId)?.name ?: "Deleted exercise"
+        scope.launch {
+            // A second remove replaces the first snackbar, so only the newest one can be undone.
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar("Removed $name", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) Store.insertSlot(routineId, index, slot)
         }
-    } else {
-        RoutineList(onOpen = { editingId = it })
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        if (editing != null) {
+            // Back closes the editor first, like the "Workouts" button at the top.
+            BackHandler { editingId = null }
+            // A fresh scroll position and closed exercises for every workout opened.
+            key(editing.id) {
+                RoutineEditor(editing, onClose = { editingId = null }, onRemoved = { index, slot -> offerUndo(editing.id, index, slot) })
+            }
+        } else {
+            RoutineList(onOpen = { editingId = it })
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).keyboardPadding().padding(horizontal = 8.dp)) { data ->
+            Snackbar(
+                data,
+                containerColor = EisenColors.Border,
+                contentColor = EisenColors.Foreground,
+                actionColor = EisenColors.Primary,
+            )
+        }
     }
 }
 
@@ -97,11 +162,24 @@ private fun summary(routine: Routine): String {
     return if (names.isNotEmpty()) names.joinToString(" · ") else "No exercises yet"
 }
 
+/** "Move up" and "Move down" for TalkBack, the same moves a drag makes. */
+private fun moveActions(index: Int, count: Int, move: (from: Int, to: Int) -> Unit): List<CustomAccessibilityAction> = buildList {
+    if (index > 0) add(CustomAccessibilityAction("Move up") { move(index, index - 1); true })
+    if (index < count - 1) add(CustomAccessibilityAction("Move down") { move(index, index + 1); true })
+}
+
 @Composable
 private fun RoutineList(onOpen: (String) -> Unit) {
     val nextId = Store.nextRoutine.id
+    val routines = Store.state.routines
+    val scroll = rememberScrollState()
+    val reorder = rememberColumnReorderState(
+        keys = routines.map { it.id },
+        onMove = { from, to -> Store.moveRoutine(from, to) },
+        scrollState = scroll,
+    )
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp),
+        Modifier.fillMaxSize().reorderContainer(reorder).verticalScroll(scroll).padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -112,17 +190,33 @@ private fun RoutineList(onOpen: (String) -> Unit) {
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = (-0.6).sp,
             )
-            Text("Workouts rotate in this order. Tap one to change it.", color = EisenColors.MutedForeground, fontSize = 13.sp)
+            Text(
+                if (routines.size > 1) "Workouts rotate in this order. Tap one to change it, hold one to move it."
+                else "Workouts rotate in this order. Tap one to change it.",
+                color = EisenColors.MutedForeground,
+                fontSize = 13.sp,
+            )
         }
-        for (routine in Store.state.routines) {
-            EisenCard(Modifier.fillMaxWidth(), onClick = { onOpen(routine.id) }) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(routine.name, modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        if (routine.id == nextId) PillBadge("Next")
-                        Icon(Icons.ChevronRight, contentDescription = null, tint = EisenColors.Primary)
+        routines.forEachIndexed { index, routine ->
+            key(routine.id) {
+                ReorderableColumnItem(reorder, key = routine.id, shape = MaterialTheme.shapes.large) {
+                    // A hold picks the card up, so a tap still opens it and the page still scrolls.
+                    EisenCard(
+                        Modifier
+                            .fillMaxWidth()
+                            .longPressToReorder(reorder, routine.id, enabled = routines.size > 1)
+                            .semantics { customActions = moveActions(index, routines.size, Store::moveRoutine) },
+                        onClick = { onOpen(routine.id) },
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(routine.name, modifier = Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                if (routine.id == nextId) PillBadge("Next")
+                                Icon(Icons.ChevronRight, contentDescription = null, tint = EisenColors.Primary)
+                            }
+                            Text(summary(routine), color = EisenColors.MutedForeground, fontSize = 13.sp)
+                        }
                     }
-                    Text(summary(routine), color = EisenColors.MutedForeground, fontSize = 13.sp)
                 }
             }
         }
@@ -147,11 +241,31 @@ private fun detail(slot: Slot): String {
 }
 
 @Composable
-private fun RoutineEditor(routine: Routine, onClose: () -> Unit) {
+private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (index: Int, slot: Slot) -> Unit) {
     var picking by rememberSaveable { mutableStateOf(false) }
-    // The exercise whose sets, reps and order are being changed. One at a time keeps the list short.
+    // The exercise whose sets and reps are being changed. One at a time keeps the list short.
     var openSlot by rememberSaveable { mutableStateOf<String?>(null) }
     val focus = LocalFocusManager.current
+    val haptics = rememberHaptics()
+    val scroll = rememberScrollState()
+    // A slot is known by its exercise: a workout holds every exercise at most once.
+    val reorder = rememberColumnReorderState(
+        keys = routine.slots.map { it.exerciseId },
+        onMove = { from, to -> Store.moveSlotTo(routine.id, from, to) },
+        scrollState = scroll,
+    )
+
+    // By exercise, not by index: a swipe and the button can both fire for the same card, and the
+    // second must not take the slot that moved into its place.
+    fun remove(exerciseId: String) {
+        val slots = Store.state.routines.firstOrNull { it.id == routine.id }?.slots ?: return
+        val index = slots.indexOfFirst { it.exerciseId == exerciseId }
+        if (index == -1) return
+        Store.removeSlot(routine.id, index)
+        if (openSlot == exerciseId) openSlot = null
+        haptics.perform(Haptic.TAP)
+        onRemoved(index, slots[index])
+    }
 
     // An empty name would leave a blank card. Leaving the editor counts as leaving the field.
     DisposableEffect(routine.id) {
@@ -159,7 +273,14 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit) {
     }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        // keyboardPadding: a typed number of sets or reps near the bottom stays above the keyboard.
+        // reorderContainer after it, so a drag scrolls at the edge of what the keyboard leaves visible.
+        Modifier
+            .fillMaxSize()
+            .keyboardPadding()
+            .reorderContainer(reorder)
+            .verticalScroll(scroll)
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         TextButton(
@@ -179,7 +300,7 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit) {
             label = { Text("Name") },
             singleLine = true,
             shape = MaterialTheme.shapes.small,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
         )
 
@@ -191,17 +312,19 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit) {
 
         routine.slots.forEachIndexed { index, slot ->
             key(slot.exerciseId) {
-                SlotCard(
-                    routine = routine,
-                    index = index,
-                    slot = slot,
-                    open = openSlot == slot.exerciseId,
-                    onToggle = { openSlot = if (openSlot == slot.exerciseId) null else slot.exerciseId },
-                    onRemove = {
-                        Store.removeSlot(routine.id, index)
-                        openSlot = null
-                    },
-                )
+                ReorderableColumnItem(reorder, key = slot.exerciseId, shape = MaterialTheme.shapes.large) {
+                    SwipeToRemove(enabled = !reorder.isDragging, onRemove = { remove(slot.exerciseId) }) {
+                        SlotCard(
+                            routine = routine,
+                            index = index,
+                            slot = slot,
+                            open = openSlot == slot.exerciseId,
+                            reorder = reorder,
+                            onToggle = { openSlot = if (openSlot == slot.exerciseId) null else slot.exerciseId },
+                            onRemove = { remove(slot.exerciseId) },
+                        )
+                    }
+                }
             }
         }
 
@@ -221,7 +344,21 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
         }
-        if (Store.state.routines.size > 1) {
+        val routines = Store.state.routines
+        if (routines.size > 1) {
+            // The list's hold-and-drag without a gesture.
+            val position = routines.indexOfFirst { it.id == routine.id }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Place in the rotation", color = EisenColors.MutedForeground, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MoveButton("Move up", ArrowUp, enabled = position > 0, modifier = Modifier.weight(1f)) {
+                        Store.moveRoutine(position, position - 1)
+                    }
+                    MoveButton("Move down", ArrowDown, enabled = position < routines.lastIndex, modifier = Modifier.weight(1f)) {
+                        Store.moveRoutine(position, position + 1)
+                    }
+                }
+            }
             ConfirmButton(
                 label = "Delete workout",
                 confirmLabel = "Tap again to delete",
@@ -252,26 +389,91 @@ private fun fixName(routineId: String) {
     if (routine.name.isBlank()) Store.renameRoutine(routineId, "Workout")
 }
 
+/**
+ * Swiping a slot to the left removes it; the snackbar offers Undo. It takes 40% of the width or
+ * a fling, so a sloppy vertical scroll removes nothing. Off while a card is dragged.
+ */
 @Composable
-private fun SlotCard(routine: Routine, index: Int, slot: Slot, open: Boolean, onToggle: () -> Unit, onRemove: () -> Unit) {
+private fun SwipeToRemove(enabled: Boolean, onRemove: () -> Unit, content: @Composable () -> Unit) {
+    val haptics = rememberHaptics()
+    // Not saved: a slot brought back by Undo must come back as a card, not as a swiped-away one.
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold = { it * 0.4f }) }
+    // A tick when the swipe passes the point where letting go removes, and again when it goes back.
+    LaunchedEffect(state) {
+        snapshotFlow { state.targetValue }.drop(1).collect { haptics.perform(Haptic.STEP) }
+    }
+    val remove by rememberUpdatedState(onRemove)
+    // The same callback every time: the box calls a new one again while the card is still swiped away.
+    val onDismiss = remember(state) { { _: SwipeToDismissBoxValue -> remove() } }
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            // Only while swiping: at rest the red would show at the card's round corners.
+            if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                Row(
+                    Modifier.fillMaxSize().clip(MaterialTheme.shapes.large).background(EisenColors.Destructive).padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Trash, contentDescription = null, tint = OnDestructive)
+                    Text("Remove", color = OnDestructive, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+        },
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        gesturesEnabled = enabled,
+        onDismiss = onDismiss,
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun SlotCard(
+    routine: Routine,
+    index: Int,
+    slot: Slot,
+    open: Boolean,
+    reorder: ColumnReorderState,
+    onToggle: () -> Unit,
+    onRemove: () -> Unit,
+) {
     val exercise = Store.findExercise(slot.exerciseId)
     fun update(next: Slot) = Store.updateSlot(routine.id, index, next)
+    val canMove = routine.slots.size > 1
+    val actions = moveActions(index, routine.slots.size) { from, to -> Store.moveSlotTo(routine.id, from, to) } +
+        CustomAccessibilityAction("Remove from workout") { onRemove(); true }
 
     EisenCard(Modifier.fillMaxWidth()) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .clickable(role = Role.Button, onClickLabel = if (open) "Close" else "Change", onClick = onToggle)
-                .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
-                .padding(start = 10.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                .semantics {
+                    stateDescription = if (open) "Expanded" else "Collapsed"
+                    customActions = actions
+                }
+                .padding(end = 16.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // On the leading edge, away from where a swipe to remove starts. A drag that starts here
+            // moves the card at once; a tap counts as a tap on the row.
+            Box(Modifier.size(48.dp).reorderHandle(reorder, slot.exerciseId, enabled = canMove), contentAlignment = Alignment.Center) {
+                Icon(
+                    Grip,
+                    contentDescription = null,
+                    tint = if (canMove) EisenColors.MutedForeground else EisenColors.Border,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             ExerciseTile(exercise?.image, exercise?.name ?: "?")
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(exercise?.name ?: "Deleted exercise", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Text(detail(slot), color = EisenColors.MutedForeground, fontSize = 13.sp)
             }
+            Spacer(Modifier.width(12.dp))
             Icon(if (open) Icons.ChevronUp else Icons.ChevronDown, contentDescription = null, tint = EisenColors.Primary)
         }
         if (open) {
@@ -317,14 +519,6 @@ private fun SlotCard(routine: Routine, index: Int, slot: Slot, open: Boolean, on
                         fontSize = 14.sp,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MoveButton("Move up", ArrowUp, enabled = index > 0, modifier = Modifier.weight(1f)) {
-                        Store.moveSlot(routine.id, index, -1)
-                    }
-                    MoveButton("Move down", ArrowDown, enabled = index < routine.slots.lastIndex, modifier = Modifier.weight(1f)) {
-                        Store.moveSlot(routine.id, index, 1)
-                    }
-                }
                 ConfirmButton(
                     label = "Remove from workout",
                     confirmLabel = "Tap again to remove",
@@ -338,7 +532,7 @@ private fun SlotCard(routine: Routine, index: Int, slot: Slot, open: Boolean, on
 }
 
 @Composable
-private fun MoveButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun MoveButton(label: String, icon: ImageVector, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     FilledTonalButton(
         onClick = onClick,
         enabled = enabled,

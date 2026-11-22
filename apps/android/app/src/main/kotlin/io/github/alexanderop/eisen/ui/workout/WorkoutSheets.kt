@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.ui.workout
 
+import io.github.alexanderop.eisen.domain.typedIncrementSnap
+import io.github.alexanderop.eisen.domain.typedWeightSnap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -87,8 +89,8 @@ internal fun WorkoutSheet(title: String, onDismiss: () -> Unit, content: @Compos
 /** Weight, plates and increment of one exercise in the running workout, putting it off and removing it. */
 @Composable
 internal fun EditExerciseSheet(
-    index: Int,
     log: ExerciseLog,
+    onWeightChange: (Double) -> Unit,
     canDefer: Boolean,
     onDefer: () -> Unit,
     canRemove: Boolean,
@@ -102,11 +104,12 @@ internal fun EditExerciseSheet(
             SheetRow("Weight") {
                 Stepper(
                     value = log.weight,
-                    onValueChange = { Store.setActiveWeight(index, it) },
+                    onValueChange = onWeightChange,
                     step = step,
                     min = step,
                     label = "weight",
                     format = { fmt(it) },
+                    snap = typedWeightSnap(log.equipment, Store.state.settings.unit),
                 )
             }
         }
@@ -133,6 +136,7 @@ internal fun EditExerciseSheet(
                     min = step,
                     label = "weight added after a full workout",
                     format = { "+${fmt(it)}" },
+                    snap = typedIncrementSnap(Store.state.settings.unit),
                 )
             }
         }
@@ -158,7 +162,7 @@ internal fun RepsEntrySheet(
 ) {
     WorkoutSheet(title, onDismiss) {
         SheetRow("Reps") {
-            IntStepper(value = reps, onValueChange = onRepsChange, label = "reps")
+            IntStepper(value = reps, onValueChange = onRepsChange, label = "reps", onDone = { onSave(it) })
         }
         PrimaryButton("Save set") { onSave(reps) }
         SecondaryButton("Clear set") { onSave(null) }

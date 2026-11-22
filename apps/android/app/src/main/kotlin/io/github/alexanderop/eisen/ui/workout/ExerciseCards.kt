@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -22,13 +23,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
@@ -38,9 +49,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
+import io.github.alexanderop.eisen.domain.OrderedExercise
 import io.github.alexanderop.eisen.domain.isPlateLoaded
 import io.github.alexanderop.eisen.domain.lastLogged
 import io.github.alexanderop.eisen.domain.warmupSets
@@ -54,12 +67,10 @@ import io.github.alexanderop.eisen.ui.emptyWeightFor
 import io.github.alexanderop.eisen.ui.exerciseBitmap
 import io.github.alexanderop.eisen.ui.fmt
 import io.github.alexanderop.eisen.ui.formatShortDate
+import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.platesText
 
-/** An exercise of the running workout, where it sits in the workout and whether it is finished. */
-internal class ExerciseItem(val log: ExerciseLog, val index: Int, val done: Boolean)
-
-private val CardShape = RoundedCornerShape(18.dp)
+internal val CardShape = RoundedCornerShape(18.dp)
 
 @Composable
 private fun WorkoutCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -93,7 +104,7 @@ private fun setState(log: ExerciseLog, reps: Int?): SetState = when {
  */
 @Composable
 internal fun ExerciseCard(
-    item: ExerciseItem,
+    item: OrderedExercise,
     first: Boolean,
     expanded: Boolean,
     lastTime: String?,
@@ -101,6 +112,7 @@ internal fun ExerciseCard(
     onEdit: () -> Unit,
     onTap: (setIndex: Int) -> Unit,
     modifier: Modifier = Modifier,
+    actions: List<CustomAccessibilityAction> = emptyList(),
 ) {
     val log = item.log
     val image = Store.findExercise(log.id)?.image
@@ -133,7 +145,9 @@ internal fun ExerciseCard(
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(role = Role.Button, onClickLabel = "Edit ${log.name}", onClick = onEdit),
+                        .clickable(role = Role.Button, onClickLabel = "Edit ${log.name}", onClick = onEdit)
+                        // Moving and putting off the exercise without a gesture, for TalkBack.
+                        .semantics { if (actions.isNotEmpty()) customActions = actions },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -262,5 +276,52 @@ private fun Check(done: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (done) Icon(Icons.Check, contentDescription = null, tint = EisenColors.OnPrimary, modifier = Modifier.size(14.dp))
+    }
+}
+
+private val Clock = pathIcon("Clock", "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z", "M12 6v6l4 2")
+
+/**
+ * Swiping an open exercise to the left puts it off, like its "Do later" button. The card springs
+ * back and moves behind the other open ones. Only sideways drags start it, so scrolling and
+ * tapping a set never do.
+ */
+@Composable
+internal fun DeferSwipe(enabled: Boolean, onDefer: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(positionalThreshold = { distance -> distance * 0.35f })
+    val scope = rememberCoroutineScope()
+    val defer by rememberUpdatedState(onDefer)
+    // The same callback every time: the box calls a new one again while the card springs back.
+    val onDismiss = remember(state) {
+        { _: SwipeToDismissBoxValue ->
+            defer()
+            scope.launch { state.reset() }
+            Unit
+        }
+    }
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        gesturesEnabled = enabled,
+        onDismiss = onDismiss,
+        backgroundContent = {
+            if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .clip(CardShape)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .padding(horizontal = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    Icon(Clock, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text("Do later", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+    ) {
+        content()
     }
 }

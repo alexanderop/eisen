@@ -32,9 +32,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -76,8 +80,20 @@ fun RestTimerBar(modifier: Modifier = Modifier) {
         enter = slideInVertically { -it / 3 } + fadeIn(),
         exit = slideOutVertically { -it / 3 } + fadeOut(),
     ) {
-        shown.value?.let { RestBand(it) }
+        shown.value?.let { rest ->
+            // Each rest gets a fresh swipe state, so a new rest does not start swiped away.
+            key(rest.startedAt) { SwipeToDismiss { RestBand(rest) } }
+        }
     }
+}
+
+/** Swiping the band sideways dismisses the rest, like its close button. */
+@Composable
+private fun SwipeToDismiss(content: @Composable () -> Unit) {
+    val state = rememberSwipeToDismissBoxState(positionalThreshold = { distance -> distance * 0.4f })
+    // The same callback every time, so the box calls it once.
+    val onDismiss = remember { { _: SwipeToDismissBoxValue -> Rest.stop() } }
+    SwipeToDismissBox(state = state, backgroundContent = {}, onDismiss = onDismiss) { content() }
 }
 
 @Composable

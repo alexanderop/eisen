@@ -17,12 +17,15 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -37,6 +40,7 @@ import io.github.alexanderop.eisen.ui.home.HomeScreen
 import io.github.alexanderop.eisen.ui.progress.ProgressScreen
 import io.github.alexanderop.eisen.ui.settings.SettingsScreen
 import io.github.alexanderop.eisen.ui.workout.WorkoutScreen
+import io.github.alexanderop.eisen.ui.workout.WorkoutSessionHost
 import io.github.alexanderop.eisen.ui.workouts.WorkoutsScreen
 import io.github.alexanderop.eisen.widget.WorkoutLaunch
 
@@ -78,6 +82,9 @@ private fun App() {
         }
     }
     val showWorkout = workoutOpen && Store.state.active != null
+    // Above both branches: the discard question and its Undo snackbar outlive the workout screen.
+    val snackbar = remember { SnackbarHostState() }
+    WorkoutSessionHost(snackbar, onDiscarded = { workoutOpen = false }, onRestored = { workoutOpen = true })
 
     if (showWorkout) {
         // The back gesture closes the workout, not the app. The workout itself keeps running.
@@ -92,6 +99,7 @@ private fun App() {
     val screens = rememberSaveableStateHolder()
     Scaffold(
         containerColor = EisenColors.Background,
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar(containerColor = EisenColors.Card) {
                 for (item in Tab.entries) {

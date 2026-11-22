@@ -1,11 +1,5 @@
 package io.github.alexanderop.eisen.ui.workout
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,8 +23,12 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -45,30 +43,34 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import io.github.alexanderop.eisen.data.Store
+import io.github.alexanderop.eisen.domain.Effect
 import io.github.alexanderop.eisen.domain.ExerciseLog
-import io.github.alexanderop.eisen.domain.Outcome
-import io.github.alexanderop.eisen.domain.isComplete
+import io.github.alexanderop.eisen.domain.FinishReason
+import io.github.alexanderop.eisen.domain.OrderedExercise
+import io.github.alexanderop.eisen.domain.Session
+import io.github.alexanderop.eisen.domain.WorkoutEvent
+import io.github.alexanderop.eisen.domain.canDefer
 import io.github.alexanderop.eisen.domain.isPlateLoaded
-import io.github.alexanderop.eisen.domain.outcome
-import io.github.alexanderop.eisen.rest.Rest
+import io.github.alexanderop.eisen.domain.order
 import io.github.alexanderop.eisen.ui.EisenColors
-import io.github.alexanderop.eisen.ui.Haptic
+import io.github.alexanderop.eisen.ui.Icons
+import io.github.alexanderop.eisen.ui.ReorderableItem
+import io.github.alexanderop.eisen.ui.longPressToReorder
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.picker.ExercisePickerSheet
-import io.github.alexanderop.eisen.ui.rememberHaptics
+import io.github.alexanderop.eisen.ui.rememberLazyReorderState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -83,41 +85,40 @@ private data class Entry(val exerciseIndex: Int, val setIndex: Int, val reps: In
  * first one's machine is taken needs no sorting by hand.
  * The exercise tapped last stays where it is for a moment: the tap after a full set is
  * how missed reps are entered, and the card must not jump away under the thumb.
+ *
+ * A manual order wins over all of this: once the lifter dragged a card (or used Move up/down),
+ * the open exercises keep that order until the workout ends and the one worked on no longer
+ * rises. Finished ones still sink. The rule itself lives in `order` in `domain/WorkoutMachine.kt`.
  */
 private const val SETTLE_MS = 2500L
 
-private fun isStarted(log: ExerciseLog) = log.sets.any { it != null }
-
-private fun isDone(log: ExerciseLog) = log.sets.all { it != null }
-
-/** Exercises worked on recently first, in the order of [current], then the untouched ones, then the finished ones. */
-private fun order(exercises: List<ExerciseLog>, settling: String?, current: List<String>): List<ExerciseItem> {
-    val items = exercises.mapIndexed { index, log -> ExerciseItem(log, index, done = log.id != settling && isDone(log)) }
-    val open = items.filterNot { it.done }
-    val (ranked, rest) = open.partition { it.log.id in current }
-    return ranked.sortedBy { current.indexOf(it.log.id) } + rest + items.filter { it.done }
-}
-
 private val ChevronLeft = pathIcon("ChevronLeft", "m15 18-6-6 6-6")
+private val MoreVertical = pathIcon(
+    "MoreVertical",
+    "M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    "M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    "M12 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    filled = true,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutScreen(onClose: () -> Unit) {
-    val workout = Store.state.active ?: return
-    val settings = Store.state.settings
-    val haptics = rememberHaptics()
-    val startRest = rememberRestStarter()
+    val session = Store.session
+    // Confirmations show on top of the running workout. A discarded one is closed by the host.
+    if (session !is Session.WithRun || session is Session.Discarded) return
+    val run = session.run
+    val workout = run.workout
+    val effects = rememberWorkoutEffects()
 
     var mode by rememberSaveable { mutableStateOf(Mode.WORKOUT) }
     var editing by rememberSaveable { mutableStateOf<Int?>(null) }
-    var confirming by rememberSaveable { mutableStateOf(false) }
     var picking by rememberSaveable { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var entry by remember { mutableStateOf<Entry?>(null) }
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var settling by remember { mutableStateOf<String?>(null) }
     var settleCount by remember { mutableIntStateOf(0) }
-    // Exercises with sets logged, most recently worked on first.
-    var current by remember { mutableStateOf(workout.exercises.filter { isStarted(it) && !isDone(it) }.map { it.id }) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -128,15 +129,18 @@ fun WorkoutScreen(onClose: () -> Unit) {
         onDispose { view.keepScreenOn = false }
     }
 
-    fun settle() {
+    fun send(event: WorkoutEvent): List<Effect> =
+        effects.send(event) { ask -> entry = Entry(ask.exercise, ask.set, ask.reps) }
+
+    fun firstOpen(): String? = (Store.session as? Session.WithRun)?.run?.let { order(it, null).firstOrNull()?.log?.id }
+
+    /** Lets the exercise tapped last take its place. [scrollUp] follows it when it rose to the top. */
+    fun settle(scrollUp: Boolean = true) {
         val id = settling ?: return
         settling = null
-        val exercises = Store.state.active?.exercises ?: return
-        val log = exercises.firstOrNull { it.id == id }
-        val rises = log != null && isStarted(log) && !isDone(log)
-        val wasFirst = order(exercises, null, current).firstOrNull()?.log?.id == id
-        current = (if (rises) listOf(id) else emptyList()) + current.filter { it != id }
-        if (rises && !wasFirst) {
+        val before = firstOpen()
+        send(WorkoutEvent.Rise(id))
+        if (scrollUp && firstOpen() == id && before != id) {
             scope.launch {
                 // Waits for the list to show the new order before it scrolls.
                 withFrameNanos { }
@@ -157,63 +161,56 @@ fun WorkoutScreen(onClose: () -> Unit) {
         settleCount++
     }
 
-    val ordered = order(workout.exercises, settling, current)
+    val ordered = order(run, settling)
     val doneCount = ordered.count { it.done }
-    val openCount = ordered.size - doneCount
-    val nothingLogged = workout.exercises.all { outcome(it) == Outcome.SKIPPED }
+    val openIds = ordered.filterNot { it.done }.map { it.log.id }
 
     fun onTap(exerciseIndex: Int, setIndex: Int) {
-        val log = Store.state.active?.exercises?.getOrNull(exerciseIndex) ?: return
-        val target = log.targetReps
-        if (target == null) {
-            entry = Entry(exerciseIndex, setIndex, log.sets[setIndex] ?: Store.suggestedReps(log.id, setIndex))
-            return
-        }
-        val reps = Store.tapSet(exerciseIndex, setIndex)
-        touch(log.id)
-        // Read again after the tap: outcome and completeness depend on the set just logged.
-        val active = Store.state.active ?: return
-        val updated = active.exercises[exerciseIndex]
-        if (reps != null && reps < target) haptics.perform(Haptic.WARNING)
-        else haptics.perform(if (outcome(updated) == Outcome.SUCCESS) Haptic.SUCCESS else Haptic.TAP)
-        if (reps == null || isComplete(active)) {
-            Rest.stop()
-            return
-        }
-        val done = reps == target
-        startRest(
-            if (done) settings.restDone else settings.restMissed,
-            if (done) "All reps done." else "Missed reps. Rest longer.",
-        )
+        val log = workout.exercises.getOrNull(exerciseIndex) ?: return
+        send(WorkoutEvent.TapSet(exerciseIndex, setIndex))
+        // A max-reps set opens the entry instead; the card moves once the count is saved.
+        if (log.targetReps != null) touch(log.id)
     }
 
     fun saveEntry(reps: Int?) {
         val current = entry ?: return
-        Store.logReps(current.exerciseIndex, current.setIndex, reps)
-        val active = Store.state.active ?: return
-        touch(active.exercises[current.exerciseIndex].id)
+        val id = workout.exercises.getOrNull(current.exerciseIndex)?.id
+        send(WorkoutEvent.LogReps(current.exerciseIndex, current.setIndex, reps))
+        if (id != null) touch(id)
         entry = null
-        haptics.perform(Haptic.TAP)
-        if (reps == null || isComplete(active)) Rest.stop()
-        else startRest(settings.restDone, "Max set logged.")
     }
 
-    fun finish() {
-        haptics.perform(Haptic.DONE)
-        Rest.stop()
-        Store.finishWorkout()
-        onClose()
+    fun finishWith(event: WorkoutEvent) {
+        if (send(event).any { it is Effect.Saved }) onClose()
     }
 
-    fun discard() {
-        Rest.stop()
-        Store.discardWorkout()
-        onClose()
+    fun defer(index: Int) {
+        send(WorkoutEvent.Defer(index))
+        editing = null
     }
 
-    fun onFinish() {
-        if (isComplete(workout)) finish() else confirming = true
+    /** Moves an open exercise one place up (-1) or down (1), for TalkBack. */
+    fun moveBy(id: String, step: Int) {
+        settle(scrollUp = false)
+        val current = (Store.session as? Session.WithRun)?.run ?: return
+        val from = order(current, null).filterNot { it.done }.indexOfFirst { it.log.id == id }
+        if (from != -1) send(WorkoutEvent.Move(from, from + step))
     }
+
+    fun actionsFor(row: OrderedExercise, position: Int): List<CustomAccessibilityAction> = buildList {
+        if (row.done) return@buildList
+        if (position > 0) add(CustomAccessibilityAction("Move up") { moveBy(row.log.id, -1); true })
+        if (position < openIds.size - 1) add(CustomAccessibilityAction("Move down") { moveBy(row.log.id, 1); true })
+        if (canDefer(ordered, row)) add(CustomAccessibilityAction("Do later") { defer(row.index); true })
+    }
+
+    val reorder = rememberLazyReorderState(
+        listState,
+        keys = openIds,
+        onMove = { from, to -> send(WorkoutEvent.Move(from, to)) },
+        // Commits the card that is about to move, so the order under the finger holds still.
+        onDragStart = { settle(scrollUp = false) },
+    )
 
     Column(Modifier.fillMaxSize().background(EisenColors.Background)) {
         CenterAlignedTopAppBar(
@@ -225,8 +222,28 @@ fun WorkoutScreen(onClose: () -> Unit) {
                 }
             },
             actions = {
-                TextButton(onClick = ::onFinish) {
+                TextButton(onClick = { finishWith(WorkoutEvent.RequestFinish) }) {
                     Text("Finish", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(MoreVertical, contentDescription = "More options", modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        containerColor = EisenColors.Muted,
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Discard workout", fontWeight = FontWeight.SemiBold) },
+                            onClick = {
+                                menuOpen = false
+                                send(WorkoutEvent.RequestDiscard)
+                            },
+                            leadingIcon = { Icon(Icons.Trash, contentDescription = null) },
+                            colors = MenuDefaults.itemColors(textColor = EisenColors.Destructive, leadingIconColor = EisenColors.Destructive),
+                        )
+                    }
                 }
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = EisenColors.Background),
@@ -259,16 +276,24 @@ fun WorkoutScreen(onClose: () -> Unit) {
                             }
                         }
                         item(key = row.log.id) {
-                            ExerciseCard(
-                                item = row,
-                                first = position == 0,
-                                expanded = row.log.id in expanded,
-                                lastTime = lastTime(row.log.id),
-                                onToggle = { expanded = if (row.log.id in expanded) expanded - row.log.id else expanded + row.log.id },
-                                onEdit = { editing = row.index },
-                                onTap = { set -> onTap(row.index, set) },
-                                modifier = Modifier.animateItem(),
-                            )
+                            ReorderableItem(reorder, key = row.log.id, shape = CardShape) {
+                                DeferSwipe(
+                                    enabled = canDefer(ordered, row) && !reorder.isDragging,
+                                    onDefer = { defer(row.index) },
+                                ) {
+                                    ExerciseCard(
+                                        item = row,
+                                        first = position == 0,
+                                        expanded = row.log.id in expanded,
+                                        lastTime = lastTime(row.log.id),
+                                        onToggle = { expanded = if (row.log.id in expanded) expanded - row.log.id else expanded + row.log.id },
+                                        onEdit = { editing = row.index },
+                                        onTap = { set -> onTap(row.index, set) },
+                                        modifier = Modifier.longPressToReorder(reorder, row.log.id, enabled = !row.done && openIds.size > 1),
+                                        actions = actionsFor(row, position),
+                                    )
+                                }
+                            }
                         }
                     }
                     item(key = "add") {
@@ -276,7 +301,7 @@ fun WorkoutScreen(onClose: () -> Unit) {
                     }
                     if (doneCount == ordered.size) {
                         item(key = "finish") {
-                            PrimaryButton("Finish workout", Modifier.animateItem(), onClick = ::onFinish)
+                            PrimaryButton("Finish workout", Modifier.animateItem(), onClick = { finishWith(WorkoutEvent.RequestFinish) })
                         }
                     }
                     item(key = "hint") {
@@ -294,7 +319,7 @@ fun WorkoutScreen(onClose: () -> Unit) {
         ExercisePickerSheet(
             exclude = workout.exercises.map { it.id }.toSet(),
             onPick = {
-                Store.addActiveExercise(it)
+                send(WorkoutEvent.AddExercise(it))
                 picking = false
             },
             onDismiss = { picking = false },
@@ -302,20 +327,16 @@ fun WorkoutScreen(onClose: () -> Unit) {
     }
 
     val editIndex = editing
-    val edited = editIndex?.let { workout.exercises.getOrNull(it) }
+    val edited = editIndex?.let { index -> ordered.firstOrNull { it.index == index } }
     if (editIndex != null && edited != null) {
         EditExerciseSheet(
-            index = editIndex,
-            log = edited,
-            canDefer = openCount > 1 && !isDone(edited),
-            onDefer = {
-                current = current - edited.id
-                Store.deferActiveExercise(editIndex)
-                editing = null
-            },
+            log = edited.log,
+            onWeightChange = { send(WorkoutEvent.SetWeight(editIndex, it)) },
+            canDefer = canDefer(ordered, edited),
+            onDefer = { defer(editIndex) },
             canRemove = workout.exercises.size > 1,
             onRemove = {
-                Store.removeActiveExercise(editIndex)
+                send(WorkoutEvent.RemoveExercise(editIndex))
                 editing = null
             },
             onDismiss = { editing = null },
@@ -333,9 +354,10 @@ fun WorkoutScreen(onClose: () -> Unit) {
         )
     }
 
-    if (confirming) {
+    if (session is Session.ConfirmingFinish) {
+        val nothingLogged = session.reason == FinishReason.NOTHING_LOGGED
         AlertDialog(
-            onDismissRequest = { confirming = false },
+            onDismissRequest = { send(WorkoutEvent.Cancel) },
             containerColor = EisenColors.Card,
             title = { Text(if (nothingLogged) "Nothing logged" else "Finish early?") },
             text = {
@@ -346,14 +368,13 @@ fun WorkoutScreen(onClose: () -> Unit) {
                 )
             },
             confirmButton = {
-                if (nothingLogged) {
-                    TextButton(onClick = ::discard) { Text("Discard workout", color = EisenColors.Destructive, fontWeight = FontWeight.Bold) }
-                } else {
-                    TextButton(onClick = ::finish) { Text("Finish workout", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { finishWith(WorkoutEvent.Confirm) }) {
+                    if (nothingLogged) Text("Discard workout", color = EisenColors.Destructive, fontWeight = FontWeight.Bold)
+                    else Text("Finish workout", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirming = false }) { Text("Keep going", color = EisenColors.Foreground) }
+                TextButton(onClick = { send(WorkoutEvent.Cancel) }) { Text("Keep going", color = EisenColors.Foreground) }
             },
         )
     }
@@ -395,37 +416,3 @@ private fun LazyListScope.warmupItems(logs: List<ExerciseLog>) {
         item(key = "warmup-${log.id}") { WarmupCard(log) }
     }
 }
-
-/**
- * Starts a rest. The first time, Android 13 and newer asks to allow notifications, so the rest
- * counts down on the lock screen. The rest starts whatever the answer is.
- */
-@Composable
-private fun rememberRestStarter(): (Int, String) -> Unit {
-    val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val current = Rest.state ?: return@rememberLauncherForActivityResult
-        // The rest started before the answer came, so it has no notification yet. Re-arming it
-        // with nothing added shows one. Skipped for short or ending rests, whose cues it would change.
-        if (granted && current.endsAt - current.startedAt >= 20_000 && current.endsAt - System.currentTimeMillis() > 11_000) {
-            Rest.extend(0)
-        }
-    }
-    return remember(context, launcher) {
-        { seconds, note ->
-            if (shouldAskForNotifications(context)) {
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(ASKED_KEY, true).apply()
-                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            Rest.start(seconds, note)
-        }
-    }
-}
-
-private const val PREFS = "workout_screen"
-private const val ASKED_KEY = "askedNotifications"
-
-private fun shouldAskForNotifications(context: Context): Boolean =
-    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
-        !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ASKED_KEY, false)

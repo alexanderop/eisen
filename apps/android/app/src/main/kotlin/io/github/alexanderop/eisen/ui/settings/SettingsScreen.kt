@@ -73,6 +73,8 @@ import io.github.alexanderop.eisen.domain.Exercise
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.incrementStep
 import io.github.alexanderop.eisen.domain.stepFor
+import io.github.alexanderop.eisen.domain.typedIncrementSnap
+import io.github.alexanderop.eisen.domain.typedWeightSnap
 import io.github.alexanderop.eisen.domain.unitDefaults
 import io.github.alexanderop.eisen.health.HealthConnectRows
 import io.github.alexanderop.eisen.rest.Cues
@@ -159,6 +161,16 @@ private const val RELEASES_URL = "https://github.com/alexanderop/eisen/releases"
 private const val NOT_A_BACKUP = "That file is not an Eisen backup. Nothing was changed."
 
 private val UNITS = listOf(WeightUnit.KG to "Kilograms", WeightUnit.LB to "Pounds")
+
+/** Bars come in odd weights (a 33lb women's bar, a 7kg technique bar), so a typed one is kept finer than the plates. */
+private const val BAR_SNAP = 0.5
+
+/** A rest is typed in seconds, because a number keyboard has no ":". */
+private const val REST_TYPED_IN = " sec"
+private const val REST_SNAP = 5
+
+/** An hour. Only there so a slip of the thumb (9000 instead of 90) does not set a rest of hours. */
+private const val MAX_REST = 3600
 
 /** What the open sheet changes. A working weight is `exercise:<id>`, so it fits in saved state. */
 private object Editing {
@@ -377,6 +389,8 @@ fun SettingsScreen() {
                 min = 0.0,
                 label = "bar weight",
                 format = { fmt(it) },
+                snap = BAR_SNAP,
+                large = true,
             )
         }
         target == Editing.REST_DONE -> NumberSheet(
@@ -389,8 +403,12 @@ fun SettingsScreen() {
                 onValueChange = { seconds -> Store.updateSettings { it.copy(restDone = seconds) } },
                 step = 15,
                 min = 15,
+                max = MAX_REST,
                 label = "rest after a full set",
                 format = ::formatClock,
+                snap = REST_SNAP,
+                large = true,
+                typedSuffix = REST_TYPED_IN,
             )
         }
         target == Editing.REST_MISSED -> NumberSheet(
@@ -403,8 +421,12 @@ fun SettingsScreen() {
                 onValueChange = { seconds -> Store.updateSettings { it.copy(restMissed = seconds) } },
                 step = 30,
                 min = 30,
+                max = MAX_REST,
                 label = "rest after missed reps",
                 format = ::formatClock,
+                snap = REST_SNAP,
+                large = true,
+                typedSuffix = REST_TYPED_IN,
             )
         }
         target != null && target.startsWith(Editing.EXERCISE) -> {
@@ -616,6 +638,8 @@ private fun WorkingWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: ()
                 min = step,
                 label = "${exercise.name} weight",
                 format = { fmt(it) },
+                snap = typedWeightSnap(exercise.equipment, unit),
+                large = true,
             )
         }
         Hint("The weight your next workout starts with. Changing it clears missed attempts.")
@@ -629,6 +653,7 @@ private fun WorkingWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: ()
                 min = increment,
                 label = "weight added after a full workout",
                 format = { "+${fmt(it)}" },
+                snap = typedIncrementSnap(unit),
             )
         }
         DoneButton(close)

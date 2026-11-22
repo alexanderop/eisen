@@ -45,22 +45,22 @@ import io.github.alexanderop.eisen.domain.ChangeKind
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Outcome
 import io.github.alexanderop.eisen.domain.Workout
+import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.durationMinutes
 import io.github.alexanderop.eisen.domain.outcome
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.totalReps
-import io.github.alexanderop.eisen.rest.Rest
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.fmt
 import io.github.alexanderop.eisen.ui.formatDate
 import io.github.alexanderop.eisen.ui.formatShortDate
 import io.github.alexanderop.eisen.ui.picker.ButtonHeight
-import io.github.alexanderop.eisen.ui.picker.ConfirmButton
 import io.github.alexanderop.eisen.ui.picker.EisenCard
 import io.github.alexanderop.eisen.ui.picker.Eyebrow
 import io.github.alexanderop.eisen.ui.picker.PillBadge
 import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
+import io.github.alexanderop.eisen.ui.workout.rememberWorkoutEffects
 
 private const val WEEK_MS = 7L * 24 * 60 * 60 * 1000
 
@@ -297,17 +297,16 @@ private fun NextCard(onOpenWorkout: () -> Unit) {
                 Button(onClick = onOpenWorkout, modifier = button, shape = MaterialTheme.shapes.medium) {
                     Text("Resume workout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
-                ConfirmButton(
-                    label = "Discard workout",
-                    confirmLabel = "Tap again to discard",
-                    onConfirm = {
-                        Rest.stop()
-                        Store.discardWorkout()
-                    },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    ghost = true,
-                    height = 44.dp,
-                )
+                // The same question and Undo as the workout screen's menu, see WorkoutSessionHost.
+                val effects = rememberWorkoutEffects()
+                TextButton(
+                    onClick = { effects.send(WorkoutEvent.RequestDiscard) },
+                    modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = EisenColors.Destructive),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                ) {
+                    Text("Discard workout", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                }
             } else {
                 // A workout whose exercises were all deleted cannot start. The button stays put, like the PWA.
                 Button(

@@ -37,18 +37,25 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -69,6 +76,7 @@ import kotlinx.coroutines.launch
 private val SearchIcon = pathIcon("Search", "m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 1 0 0-16z")
 
 private const val ALL = "All"
+private const val NAME_LENGTH = 40
 
 /** The lifter's own exercises come first, then the catalog groups. */
 private val ORDER = listOf(CUSTOM_GROUP) + GROUPS
@@ -127,7 +135,7 @@ fun ExercisePickerSheet(exclude: Set<String>, onPick: (String) -> Unit, onDismis
             if (creating) {
                 CreateForm(
                     name = name,
-                    onName = { name = it.take(40) },
+                    onName = { name = it.take(NAME_LENGTH) },
                     equipment = equipment,
                     onEquipment = { equipment = it },
                     onCreate = {
@@ -168,6 +176,8 @@ private fun PickList(exclude: Set<String>, query: String, onQuery: (String) -> U
             exercise.name.lowercase().contains(needle)
     }
     val sections = ORDER.map { group -> Section(group, available.filter { it.group == group }) }.filter { it.items.isNotEmpty() }
+    // Lives inside the sheet, so it reaches the keyboard of the sheet's own window.
+    val focus = LocalFocusManager.current
 
     OutlinedTextField(
         value = query,
@@ -182,7 +192,10 @@ private fun PickList(exclude: Set<String>, query: String, onQuery: (String) -> U
         },
         singleLine = true,
         shape = MaterialTheme.shapes.small,
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Search),
+        // A search is not a sentence: no capitals, and no autocorrect turning a typed "ohp" into "oh".
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, imeAction = ImeAction.Search),
+        // The list already filters while typing, so the search key just puts the keyboard away.
+        keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
     )
     LazyRow(
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
@@ -233,7 +246,15 @@ private fun PickList(exclude: Set<String>, query: String, onQuery: (String) -> U
                 )
             }
             items(section.items, key = { it.id }) { exercise ->
-                PickRow(exercise, added = exercise.id in exclude, onPick = { onPick(exercise.id) })
+                PickRow(
+                    exercise,
+                    added = exercise.id in exclude,
+                    onPick = {
+                        // The keyboard would otherwise stay up while the sheet slides away.
+                        focus.clearFocus()
+                        onPick(exercise.id)
+                    },
+                )
             }
         }
         if (sections.isEmpty()) {
@@ -295,21 +316,33 @@ private fun CreateForm(
     onBack: () -> Unit,
 ) {
     val canCreate = name.trim().isNotEmpty()
+    val focus = LocalFocusManager.current
+    val nameFocus = remember { FocusRequester() }
+    // The form is opened to type a name: the keyboard comes up, the cursor after a name taken from the search.
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(name, TextRange(name.length))) }
+    LaunchedEffect(Unit) { nameFocus.requestFocus() }
     // A plain scrolling column: the form is short, and it must stay reachable above the keyboard.
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         OutlinedTextField(
-            value = name,
-            onValueChange = onName,
-            modifier = Modifier.fillMaxWidth(),
+            value = field,
+            onValueChange = { next ->
+                val text = next.text.take(NAME_LENGTH)
+                field = if (text == next.text) next else TextFieldValue(text, TextRange(text.length))
+                onName(text)
+            },
+            modifier = Modifier.fillMaxWidth().focusRequester(nameFocus),
             label = { Text("Name") },
             placeholder = { Text("Cable Lateral Raise") },
             singleLine = true,
             shape = MaterialTheme.shapes.small,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { if (canCreate) onCreate() }),
+            keyboardActions = KeyboardActions(onDone = {
+                focus.clearFocus()
+                if (canCreate) onCreate()
+            }),
         )
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Eyebrow("Type")
@@ -339,7 +372,10 @@ private fun CreateForm(
         }
         Spacer(Modifier.size(0.dp))
         Button(
-            onClick = onCreate,
+            onClick = {
+                focus.clearFocus()
+                onCreate()
+            },
             enabled = canCreate,
             modifier = Modifier.fillMaxWidth().height(ButtonHeight),
             shape = MaterialTheme.shapes.medium,

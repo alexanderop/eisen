@@ -7,30 +7,31 @@ import androidx.compose.runtime.setValue
 import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.CATALOG
 import io.github.alexanderop.eisen.domain.Change
+import io.github.alexanderop.eisen.domain.Effect
+import io.github.alexanderop.eisen.domain.Env
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Exercise
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.ExerciseProgress
-import io.github.alexanderop.eisen.domain.Outcome
 import io.github.alexanderop.eisen.domain.Routine
+import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Settings
 import io.github.alexanderop.eisen.domain.Slot
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.Workout
-import io.github.alexanderop.eisen.domain.applyProgression
-import io.github.alexanderop.eisen.domain.catalogExercise
+import io.github.alexanderop.eisen.domain.WorkoutEvent
+import io.github.alexanderop.eisen.domain.active
 import io.github.alexanderop.eisen.domain.convertProgress
-import io.github.alexanderop.eisen.domain.createLog
-import io.github.alexanderop.eisen.domain.createWorkout
 import io.github.alexanderop.eisen.domain.customExercise
 import io.github.alexanderop.eisen.domain.decodeState
 import io.github.alexanderop.eisen.domain.defaultSlot
+import io.github.alexanderop.eisen.domain.editProgress
 import io.github.alexanderop.eisen.domain.encodeState
+import io.github.alexanderop.eisen.domain.ensureProgress
+import io.github.alexanderop.eisen.domain.findExercise
 import io.github.alexanderop.eisen.domain.freshState
-import io.github.alexanderop.eisen.domain.nextReps
-import io.github.alexanderop.eisen.domain.nextRoutineId
-import io.github.alexanderop.eisen.domain.outcome
 import io.github.alexanderop.eisen.domain.startProgress
+import io.github.alexanderop.eisen.domain.transition
 import io.github.alexanderop.eisen.domain.unitDefaults
 import java.io.File
 import java.util.UUID
@@ -39,11 +40,27 @@ import java.util.concurrent.Executors
 private val NO_PROGRESS = ExerciseProgress(weight = 0.0, fails = 0, increment = 0.0)
 
 /**
+ * The list with the item at [from] taken out and put back at [to]. The same list when an index
+ * is outside it, so a stale index from a drag or an old screen changes nothing.
+ */
+internal fun <T> List<T>.moved(from: Int, to: Int): List<T> {
+    if (from !in indices || to !in indices || from == to) return this
+    return toMutableList().apply { add(to, removeAt(from)) }
+}
+
+/**
  * Everything the app knows, as one immutable value. Screens read [state] and call the functions
  * here to change it. Every change is written to a file in the app's private storage.
  */
 object Store {
     var state: AppState by mutableStateOf(freshState())
+        private set
+
+    /**
+     * The running workout and the question asked about it, if any. See `domain/WorkoutMachine.kt`.
+     * It is the one source of the workout: [state]'s `active` is always the session's saved workout.
+     */
+    var session: Session by mutableStateOf(Session.Idle)
         private set
 
     /** Warmup sets ticked off in the running workout, as `exerciseId:setIndex`. Not saved. */
@@ -72,10 +89,37 @@ object Store {
         file = target
         // Unreadable storage: start fresh instead of blocking the app.
         state = runCatching { decodeState(target.readText()) }.getOrNull() ?: freshState()
+        session = Session.restore(state)
+    }
+
+    /**
+     * The only way to change the running workout. Keeps what the machine decided and handles the
+     * effects that belong to the data. Returns every effect, so the screen can run the rest
+     * (rest timer, haptics, the reps entry) with `ui/workout/WorkoutEffects.kt`.
+     */
+    fun send(event: WorkoutEvent): List<Effect> {
+        val result = transition(session, state, event, Env(System.currentTimeMillis(), ::newId))
+        session = result.session
+        update { result.state }
+        for (effect in result.effects) {
+            when (effect) {
+                is Effect.Started -> {
+                    lastChanges = null
+                    warmupDone = emptySet()
+                }
+                is Effect.Saved -> {
+                    lastChanges = effect.changes
+                    for (listener in finishListeners) listener(effect.workout)
+                }
+                else -> Unit
+            }
+        }
+        return result.effects
     }
 
     private fun update(change: (AppState) -> AppState) {
-        val next = change(state)
+        // The workout belongs to the session. Nothing else may put a different one on disk.
+        val next = change(state).copy(active = session.active)
         if (next == state) return
         state = next
         for (listener in changeListeners) listener(next)
@@ -95,7 +139,7 @@ object Store {
     /** The built-in exercises followed by the lifter's own. */
     val exercises: List<Exercise> get() = CATALOG + state.customExercises
 
-    fun findExercise(id: String): Exercise? = catalogExercise(id) ?: state.customExercises.firstOrNull { it.id == id }
+    fun findExercise(id: String): Exercise? = state.findExercise(id)
 
     /** The working weight of an exercise, or its starting weight when it was never used. */
     fun progressOf(id: String): ExerciseProgress {
@@ -105,27 +149,6 @@ object Store {
         return startProgress(exercise, state.settings.unit)
     }
 
-    /** The state with a working weight for the exercise. Unchanged when it has or needs none. */
-    private fun AppState.withProgress(id: String): AppState {
-        if (id in progress) return this
-        val exercise = findExercise(id)
-        if (exercise == null || exercise.equipment == Equipment.BODYWEIGHT) return this
-        return copy(progress = progress + (id to startProgress(exercise, settings.unit)))
-    }
-
-    private fun AppState.editProgress(id: String, change: (ExerciseProgress) -> ExerciseProgress): AppState {
-        val ready = withProgress(id)
-        val entry = ready.progress[id] ?: return this
-        return ready.copy(progress = ready.progress + (id to change(entry)))
-    }
-
-    private fun AppState.editActive(change: (Workout) -> Workout): AppState =
-        active?.let { copy(active = change(it)) } ?: this
-
-    private fun Workout.editLog(index: Int, change: (ExerciseLog) -> ExerciseLog): Workout =
-        if (index !in exercises.indices) this
-        else copy(exercises = exercises.mapIndexed { at, log -> if (at == index) change(log) else log })
-
     private fun <T> List<T>.replaced(index: Int, value: T): List<T> = mapIndexed { at, item -> if (at == index) value else item }
 
     val nextRoutine: Routine get() = state.routines.firstOrNull { it.id == state.nextRoutineId } ?: state.routines[0]
@@ -134,112 +157,19 @@ object Store {
         if (state.active == null) update { it.copy(nextRoutineId = id) }
     }
 
-    /** False when the workout has no exercise left to do. */
+    /** Starts the routine offered next, for the widget and the shortcuts. False when it has no exercise left to do. */
     fun startWorkout(): Boolean {
-        if (state.active != null) return true
-        val routine = nextRoutine
-        val ready = routine.slots.fold(state) { current, slot -> current.withProgress(slot.exerciseId) }
-        val workout = createWorkout(routine, ::findExercise, ready.progress, ready.settings.unit, System.currentTimeMillis(), newId())
-        if (workout.exercises.isEmpty()) return false
-        lastChanges = null
-        warmupDone = emptySet()
-        update { ready.copy(active = workout) }
-        return true
+        send(WorkoutEvent.Start)
+        return state.active != null
     }
 
-    /** Adds an exercise to the running workout only. The workout it was started from stays as it is. */
-    fun addActiveExercise(id: String) {
-        val workout = state.active ?: return
-        val exercise = findExercise(id) ?: return
-        if (workout.exercises.any { it.id == id }) return
-        update { current ->
-            val ready = current.withProgress(id)
-            ready.editActive { it.copy(exercises = it.exercises + createLog(exercise, defaultSlot(exercise), ready.progress, ready.settings.unit)) }
-        }
+    /** A running workout follows the new weight. */
+    fun setProgressWeight(id: String, weight: Double) {
+        send(WorkoutEvent.SetWorkingWeight(id, weight))
     }
 
-    /** The last exercise stays: a workout without exercises has nothing to finish. */
-    fun removeActiveExercise(exerciseIndex: Int) = update { current ->
-        current.editActive { workout ->
-            if (workout.exercises.size > 1) workout.copy(exercises = workout.exercises.filterIndexed { index, _ -> index != exerciseIndex })
-            else workout
-        }
-    }
-
-    /** Moves an exercise behind the others, for when its machine or rack is taken. */
-    fun deferActiveExercise(exerciseIndex: Int) = update { current ->
-        current.editActive { workout ->
-            val log = workout.exercises.getOrNull(exerciseIndex) ?: return@editActive workout
-            workout.copy(exercises = workout.exercises.filterIndexed { index, _ -> index != exerciseIndex } + log)
-        }
-    }
-
-    /** One tap on a set. Returns what the set shows now, or null when it was cleared or cannot be tapped. */
-    fun tapSet(exerciseIndex: Int, setIndex: Int): Int? {
-        val log = state.active?.exercises?.getOrNull(exerciseIndex) ?: return null
-        val target = log.targetReps ?: return null
-        if (setIndex !in log.sets.indices) return null
-        val reps = nextReps(log.sets[setIndex], target)
-        logReps(exerciseIndex, setIndex, reps)
-        return reps
-    }
-
-    fun setActiveWeight(exerciseIndex: Int, weight: Double) {
-        val log = state.active?.exercises?.getOrNull(exerciseIndex) ?: return
-        if (log.equipment == Equipment.BODYWEIGHT) return
-        update { current ->
-            current.editProgress(log.id) { it.copy(weight = weight) }
-                .editActive { workout -> workout.editLog(exerciseIndex) { it.copy(weight = weight) } }
-        }
-    }
-
-    /** Logs a set. For a max-reps set the lifter enters the count instead of tapping it down. */
-    fun logReps(exerciseIndex: Int, setIndex: Int, reps: Int?) = update { current ->
-        current.editActive { workout ->
-            workout.editLog(exerciseIndex) { log ->
-                if (setIndex in log.sets.indices) log.copy(sets = log.sets.replaced(setIndex, reps)) else log
-            }
-        }
-    }
-
-    /** Starting point for a max-reps entry: what this set got last time. */
-    fun suggestedReps(id: String, setIndex: Int): Int {
-        for (workout in state.history) {
-            workout.exercises.firstOrNull { it.id == id }?.sets?.getOrNull(setIndex)?.let { return it }
-        }
-        return 8
-    }
-
-    fun setProgressWeight(id: String, weight: Double) = update { current ->
-        current.editProgress(id) { it.copy(weight = weight, fails = 0) }.editActive { workout ->
-            workout.copy(exercises = workout.exercises.map { if (it.id == id && it.equipment != Equipment.BODYWEIGHT) it.copy(weight = weight) else it })
-        }
-    }
-
+    /** Discarding a workout puts an increment changed during it back, see `WorkoutMachine.kt`. */
     fun setIncrement(id: String, increment: Double) = update { current -> current.editProgress(id) { it.copy(increment = increment) } }
-
-    fun discardWorkout() = update { it.copy(active = null) }
-
-    fun finishWorkout() {
-        val workout = state.active ?: return
-        if (workout.exercises.all { outcome(it) == Outcome.SKIPPED }) {
-            update { it.copy(active = null) }
-            return
-        }
-        val result = applyProgression(state.progress, workout, state.settings.bar)
-        val following = nextRoutineId(state.routines, workout.routineId, nextRoutine.id)
-        val finished = workout.copy(finishedAt = System.currentTimeMillis())
-        update {
-            it.copy(
-                progress = result.progress,
-                history = listOf(finished) + it.history,
-                nextRoutineId = following,
-                active = null,
-            )
-        }
-        lastChanges = result.changes
-        for (listener in finishListeners) listener(finished)
-    }
 
     /** Corrects what a finished workout logged. Working weights stay as they are. */
     fun updateWorkout(id: String, exercises: List<ExerciseLog>) = update { current ->
@@ -247,6 +177,13 @@ object Store {
     }
 
     fun deleteWorkout(id: String) = update { current -> current.copy(history = current.history.filter { it.id != id }) }
+
+    /** Undo of a delete: puts the workout back at [index]. Nothing happens when it is still there. */
+    fun restoreWorkout(workout: Workout, index: Int) = update { current ->
+        if (current.history.any { it.id == workout.id }) return@update current
+        val history = current.history.toMutableList().apply { add(index.coerceIn(0, size), workout) }
+        current.copy(history = history)
+    }
 
     private fun AppState.editRoutine(id: String, change: (Routine) -> Routine): AppState =
         copy(routines = routines.map { if (it.id == id) change(it) else it })
@@ -262,6 +199,9 @@ object Store {
 
     fun renameRoutine(id: String, name: String) = update { current -> current.editRoutine(id) { it.copy(name = name) } }
 
+    /** Changes the rotation order. The next workout is kept by id, so it stays the same workout. */
+    fun moveRoutine(from: Int, to: Int) = update { it.copy(routines = it.routines.moved(from, to)) }
+
     /** The last workout stays: the home screen always needs one to offer. */
     fun removeRoutine(id: String) = update { current ->
         if (current.routines.size <= 1) return@update current
@@ -272,7 +212,7 @@ object Store {
     fun addSlot(routineId: String, exerciseId: String) {
         val exercise = findExercise(exerciseId) ?: return
         update { current ->
-            current.withProgress(exerciseId).editRoutine(routineId) { routine ->
+            current.ensureProgress(exerciseId).editRoutine(routineId) { routine ->
                 if (routine.slots.any { it.exerciseId == exerciseId }) routine else routine.copy(slots = routine.slots + defaultSlot(exercise))
             }
         }
@@ -285,18 +225,23 @@ object Store {
     }
 
     /** Moves a slot one place up (-1) or down (1). */
-    fun moveSlot(routineId: String, index: Int, direction: Int) = update { current ->
-        current.editRoutine(routineId) { routine ->
-            val target = index + direction
-            if (index !in routine.slots.indices || target !in routine.slots.indices) return@editRoutine routine
-            val slots = routine.slots.toMutableList()
-            slots.add(target, slots.removeAt(index))
-            routine.copy(slots = slots)
-        }
+    fun moveSlot(routineId: String, index: Int, direction: Int) = moveSlotTo(routineId, index, index + direction)
+
+    /** Moves a slot from [from] to [to], any distance, as one change. For drag and drop. */
+    fun moveSlotTo(routineId: String, from: Int, to: Int) = update { current ->
+        current.editRoutine(routineId) { routine -> routine.copy(slots = routine.slots.moved(from, to)) }
     }
 
     fun removeSlot(routineId: String, index: Int) = update { current ->
         current.editRoutine(routineId) { routine -> routine.copy(slots = routine.slots.filterIndexed { at, _ -> at != index }) }
+    }
+
+    /** Undo of a remove: puts the slot back at [index] with its sets and reps. Nothing happens when the exercise is in the workout again. */
+    fun insertSlot(routineId: String, index: Int, slot: Slot) = update { current ->
+        current.ensureProgress(slot.exerciseId).editRoutine(routineId) { routine ->
+            if (routine.slots.any { it.exerciseId == slot.exerciseId }) return@editRoutine routine
+            routine.copy(slots = routine.slots.toMutableList().apply { add(index.coerceIn(0, size), slot) })
+        }
     }
 
     /** The existing exercise when the name is taken. Null when the name is empty. */
@@ -320,10 +265,13 @@ object Store {
 
     fun updateSettings(change: (Settings) -> Settings) = update { it.copy(settings = change(it.settings)) }
 
-    /** Converts the working weights. Blocked during a workout so its log stays in one unit. */
+    /**
+     * Converts the working weights. Blocked during a workout so its log stays in one unit, and
+     * while a discarded workout can still be undone, for the same reason.
+     */
     fun setUnit(unit: WeightUnit) = update { current ->
         val from = current.settings.unit
-        if (current.active != null || unit == from) return@update current
+        if (session is Session.WithRun || unit == from) return@update current
         current.copy(
             progress = current.progress.mapValues { (id, entry) ->
                 convertProgress(entry, findExercise(id)?.equipment ?: Equipment.BARBELL, from, unit)
@@ -338,12 +286,15 @@ object Store {
     /** False when the text is not a backup of this app or of the PWA. */
     fun importData(json: String): Boolean {
         val parsed = decodeState(json) ?: return false
+        // The backup's workout replaces the running one, and a discarded one can no longer come back.
+        session = Session.restore(parsed)
         update { parsed }
         lastChanges = null
         return true
     }
 
     fun resetAll() {
+        session = Session.Idle
         update { freshState(it.settings.unit) }
         lastChanges = null
     }

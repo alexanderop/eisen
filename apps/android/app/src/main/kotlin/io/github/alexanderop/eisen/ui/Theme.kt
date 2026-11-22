@@ -56,6 +56,10 @@ private val Scheme = darkColorScheme(
     onError = Color(0xFF2B0A0A),
     errorContainer = Color(0xFF4A1A1A),
     onErrorContainer = Color(0xFFFFDAD6),
+    // Snackbars: a raised dark surface with a lime action, not the default pale one.
+    inverseSurface = EisenColors.Border,
+    inverseOnSurface = EisenColors.Foreground,
+    inversePrimary = EisenColors.Primary,
     scrim = Color.Black,
 )
 

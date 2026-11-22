@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.ui.history
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,8 +36,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,10 +54,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +79,7 @@ import io.github.alexanderop.eisen.domain.durationMinutes
 import io.github.alexanderop.eisen.domain.nextReps
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.stepFor
+import io.github.alexanderop.eisen.domain.typedWeightSnap
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
@@ -76,6 +92,7 @@ import io.github.alexanderop.eisen.ui.formatDate
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
 import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 private val ShareIcon = pathIcon(
@@ -109,6 +126,23 @@ fun HistoryScreen() {
     var draft by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(null) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
     var sharing by rememberSaveable { mutableStateOf<String?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val haptics = rememberHaptics()
+
+    // A swipe deletes at once. The snackbar offers the way back instead of a dialog in the way.
+    fun deleteWithUndo(workout: Workout) {
+        val index = Store.state.history.indexOfFirst { it.id == workout.id }
+        if (index == -1) return
+        Store.deleteWorkout(workout.id)
+        haptics.perform(Haptic.TAP)
+        scope.launch {
+            // A second delete replaces the first snackbar, so only the newest one can be undone.
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar("Workout deleted", actionLabel = "Undo", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) Store.restoreWorkout(workout, index)
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -137,14 +171,24 @@ fun HistoryScreen() {
                 }
             }
             itemsIndexed(history, key = { _, workout -> workout.id }) { position, workout ->
-                WorkoutCard(
-                    workout = workout,
-                    records = records.getOrElse(position) { emptySet() },
-                    onShare = { sharing = workout.id },
-                    onEdit = { draft = workout },
-                    onDelete = { deleting = workout.id },
-                )
+                SwipeToDelete(workout.name, onDelete = { deleteWithUndo(workout) }, modifier = Modifier.animateItem()) {
+                    WorkoutCard(
+                        workout = workout,
+                        records = records.getOrElse(position) { emptySet() },
+                        onShare = { sharing = workout.id },
+                        onEdit = { draft = workout },
+                        onDelete = { deleting = workout.id },
+                    )
+                }
             }
+        }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(horizontal = 8.dp)) { data ->
+            Snackbar(
+                data,
+                containerColor = EisenColors.Border,
+                contentColor = EisenColors.Foreground,
+                actionColor = EisenColors.Primary,
+            )
         }
     }
 
@@ -184,11 +228,53 @@ fun HistoryScreen() {
     }
 }
 
+private val CardShape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+private val OnDestructive = Color(0xFF2B0A0A)
+
+/**
+ * Swiping a card to the left deletes the workout. It takes 40% of the width or a fling, so a
+ * sloppy vertical scroll does not delete anything. TalkBack gets the same as an action.
+ */
+@Composable
+private fun SwipeToDelete(name: String, onDelete: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val haptics = rememberHaptics()
+    // Not saved: a workout brought back by Undo must come back as a card, not as a swiped-away one.
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold = { it * 0.4f }) }
+    // A tick when the swipe passes the point where letting go deletes, and again when it goes back.
+    LaunchedEffect(state) {
+        snapshotFlow { state.targetValue }.drop(1).collect { haptics.perform(Haptic.STEP) }
+    }
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            // Only while swiping: at rest the red would show at the card's round corners.
+            if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                Row(
+                    Modifier.fillMaxSize().clip(CardShape).background(EisenColors.Destructive).padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Trash, contentDescription = null, tint = OnDestructive)
+                    Text("Delete", color = OnDestructive, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+        },
+        modifier = modifier.semantics {
+            customActions = listOf(CustomAccessibilityAction("Delete $name") { onDelete(); true })
+        },
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        onDismiss = { onDelete() },
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun EisenCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+        shape = CardShape,
         colors = CardDefaults.cardColors(containerColor = EisenColors.Card, contentColor = EisenColors.Foreground),
         border = BorderStroke(1.dp, EisenColors.Border),
     ) {
@@ -331,6 +417,7 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
                                 min = step,
                                 label = "${log.name} weight",
                                 format = { fmt(it, draft.unit) },
+                                snap = typedWeightSnap(log.equipment, draft.unit),
                             )
                         }
                     }
