@@ -32,6 +32,9 @@ import io.github.alexanderop.eisen.domain.elm.Msg
 import io.github.alexanderop.eisen.domain.elm.Notifications
 import io.github.alexanderop.eisen.domain.elm.Model
 import io.github.alexanderop.eisen.domain.elm.callsText
+import io.github.alexanderop.eisen.domain.elm.Drill
+import io.github.alexanderop.eisen.domain.elm.drillOf
+import io.github.alexanderop.eisen.domain.isAgain
 import io.github.alexanderop.eisen.domain.elm.comboGroups
 import io.github.alexanderop.eisen.domain.elm.combosText
 import io.github.alexanderop.eisen.domain.elm.pickText
@@ -251,9 +254,14 @@ class BoxingUpdateTest {
         // The plain timers carry none.
         assertNull(stepOf().send(Msg.Timer.Open(TimerMode.TABATA)).send(Msg.Timer.Start).model.timerRun!!.seed)
         // Each call is felt, when the haptics are on.
-        assertEquals(comboCount(timerCues(short, DEFAULT_TIMER_CALLS, 77)), schedule.vibrations.count { it.pattern == TIMER_CALL_VIBRATION })
+        assertEquals(timerCues(short, DEFAULT_TIMER_CALLS, 77).count { soundCombo(it.sound) != null || isAgain(it.sound) }, schedule.vibrations.count { it.pattern == TIMER_CALL_VIBRATION })
         // Its clock ticks on the half second, when the combinations are called, so the screen shows each as it is said.
-        assertEquals(setOf<Sub>(Sub.TimerClock(STARTED_AT, 500)), subscriptions(run.model))
+        assertTrue(Sub.TimerClock(STARTED_AT, 500) in subscriptions(run.model))
+        // An "Again!" between the half seconds gets a tick of its own, at the moment it is said.
+        val drilled = timerConfig(short.copy(boxing = short.boxing!!.copy(rounds = listOf(BoxingRound(BoxingTheme.THREE, 6, 0), BoxingRound(BoxingTheme.THREE, 6, 0)))))
+        val drill = update(Msg.Timer.Start, setup().send(Msg.Timer.Edit(drilled), now = STARTED_AT).model, Env(STARTED_AT, newSeed = { 3 }) { "b9" }).first
+        val again = timerCues(drilled, DEFAULT_TIMER_CALLS, 3).first { isAgain(it.sound) }
+        assertTrue(Sub.TimerCue(STARTED_AT + again.at) in subscriptions(drill))
     }
 
     @Test fun `a restored run calls the same combinations, and Again draws new ones`() {
@@ -366,6 +374,13 @@ class BoxingUpdateTest {
         assertEquals("No calls", themeExample(BoxingTheme.FREESTYLE, BoxingStyle.NAMES))
         assertEquals("About 28 calls this round, one every 6s or so", callsText(28, 180))
         assertEquals("One call this round", callsText(1, 30))
+        // Long combinations are thrown two or three times: the line says so.
+        assertEquals(Drill.ALL, drillOf(BoxingRound(BoxingTheme.THREE, 6, 0)))
+        assertEquals(Drill.LONG, drillOf(BoxingRound(BoxingTheme.MIX, 6, 0)))
+        assertEquals(Drill.NONE, drillOf(BoxingRound(BoxingTheme.TWO, 6, 0)))
+        assertEquals(Drill.NONE, drillOf(BoxingRound(BoxingTheme.FREESTYLE, 6, 0)))
+        assertEquals("About 18 combinations this round, each thrown 2 or 3 times", callsText(18, 180, Drill.ALL))
+        assertEquals("About 25 combinations this round, long ones thrown 2 or 3 times", callsText(25, 180, Drill.LONG))
         assertEquals("166 combinations called", combosText(166))
         val three = plan.rounds[2]
         assertEquals("Combinations: all 7", pickText(three))

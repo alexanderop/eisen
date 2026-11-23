@@ -110,6 +110,7 @@ import io.github.alexanderop.eisen.domain.elm.boxingCallsSummary
 import io.github.alexanderop.eisen.domain.elm.callsText
 import io.github.alexanderop.eisen.domain.elm.comboGroups
 import io.github.alexanderop.eisen.domain.elm.comboTotal
+import io.github.alexanderop.eisen.domain.elm.drillOf
 import io.github.alexanderop.eisen.domain.elm.defaultPresetName
 import io.github.alexanderop.eisen.domain.elm.pickText
 import io.github.alexanderop.eisen.domain.elm.planTotal
@@ -579,7 +580,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                             }
                         }
                         Text(
-                            callsText(roundCalls(config, calls, index), config.work),
+                            callsText(roundCalls(config, calls, index), config.work, drillOf(round)),
                             Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                             fontSize = 14.sp,
                             color = EisenColors.MutedForeground,

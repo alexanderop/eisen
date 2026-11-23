@@ -6,6 +6,7 @@ import {
   boxingView,
   comboCount,
   copiedToAll,
+  isAgain,
   soundCombo,
   withRound,
   type BoxingRound,
@@ -18,6 +19,7 @@ import {
   combosCalled,
   combosText,
   copyConfig,
+  drillOf,
   isTemplate,
   pickOf,
   pickText,
@@ -35,7 +37,7 @@ import {
   withStyle,
   withTemplate,
 } from './boxingScreens'
-import { DEFAULT_TIMER_CALLS, DEFAULT_TIMERS, timerConfig, timerView, type TimerConfig } from './timer'
+import { DEFAULT_TIMER_CALLS, DEFAULT_TIMERS, timerConfig, type TimerConfig } from './timer'
 import { restoredRun } from './timerScreens'
 
 const round = (theme: BoxingRound['theme'], every = 5, split = 0): BoxingRound => ({ theme, every, split, pick: [] })
@@ -223,7 +225,7 @@ describe('boxing run', () => {
   it('counts the combinations called up to where the run ended', () => {
     const config = DEFAULT_TIMERS.boxing
     const cues = boxingCues(config, DEFAULT_TIMER_CALLS, 1)
-    expect(combosCalled(cues, Infinity)).toBe(166)
+    expect(combosCalled(cues, Infinity)).toBe(139)
     expect(combosCalled(cues, 10_000 + 5000)).toBe(0)
     const firstRound = combosCalled(cues, 10_000 + 180_000)
     expect(firstRound).toBe(roundCalls(config, 0, DEFAULT_TIMER_CALLS))
@@ -231,19 +233,37 @@ describe('boxing run', () => {
     expect(combosText(1)).toBe('One combination called')
   })
 
-  it('fills the bar from the call shown to the next one, and to the end of the round after the last', () => {
+  it('fills the bar to the next thing to throw: a combination or an "Again!", and the end of the round after the last', () => {
     const config = DEFAULT_TIMERS.boxing
     const cues = boxingCues(config, DEFAULT_TIMER_CALLS, 1)
-    const combos = cues.filter((cue) => cue.sound.startsWith('box-') && cue.sound.endsWith('-n'))
+    const combos = cues.filter((cue) => soundCombo(cue.sound))
+    // Round one: jabs, too short to be drilled.
     const start = 10_000
     const end = start + 180_000
     expect(callSpan(cues, start + 3000, start, end)).toBeNull()
     const at = combos[1].at + 100
-    expect(callSpan(cues, at, start, end)).toEqual({ from: combos[1].at, to: combos[2].at })
+    expect(callSpan(cues, at, start, end)).toEqual({ from: combos[1].at, to: combos[2].at, call: combos[1].at })
     // What the bar times is the combination on screen.
-    expect(boxingView(config, cues, at).combo?.id).toBe(combos[1].sound.slice(4, -2))
+    expect(boxingView(config, cues, at).combo?.id).toBe(soundCombo(combos[1].sound)?.id)
     const last = combos.filter((cue) => cue.at < end).at(-1)!
-    expect(callSpan(cues, last.at + 10, start, end)).toEqual({ from: last.at, to: end })
-    expect(timerView(config, last.at + 10).phase).toBe('work')
+    expect(callSpan(cues, last.at + 10, start, end)).toEqual({ from: last.at, to: end, call: last.at })
+    // Round three: 3-punch combinations, each thrown again before the next is called.
+    const third = start + 2 * 240_000
+    const call = combos.find((cue) => cue.at >= third)!
+    const again = cues.find((cue) => cue.at > call.at && isAgain(cue.sound))!
+    const after = cues.find((cue) => cue.at > again.at && (isAgain(cue.sound) || soundCombo(cue.sound)))!
+    expect(callSpan(cues, call.at + 100, third, third + 180_000)).toEqual({ from: call.at, to: again.at, call: call.at })
+    expect(callSpan(cues, again.at + 100, third, third + 180_000)).toEqual({ from: again.at, to: after.at, call: call.at })
+  })
+
+  it('says how many combinations a round calls, and that long ones are drilled', () => {
+    expect(drillOf(round('three'))).toBe('all')
+    expect(drillOf(round('mix'))).toBe('long')
+    expect(drillOf(round('jab'))).toBe('none')
+    expect(drillOf(round('freestyle'))).toBe('none')
+    expect(drillOf({ ...round('mix'), pick: ['jab', 'jab-cross'] })).toBe('none')
+    expect(callsText(18, 180, 'all')).toBe('About 18 combinations this round, each thrown 2 or 3 times')
+    expect(callsText(22, 180, 'long')).toBe('About 22 combinations this round, long ones thrown 2 or 3 times')
+    expect(callsText(28, 180)).toBe('About 28 calls this round, one every 6s or so')
   })
 })

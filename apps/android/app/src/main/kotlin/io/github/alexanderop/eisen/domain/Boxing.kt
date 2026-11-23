@@ -229,6 +229,8 @@ val BOXING_LINES: Map<String, String> = linkedMapOf(
     "box-theme-freestyle" to "Freestyle.",
     "box-speed" to "Speed!",
     "box-power" to "Power!",
+    "box-again" to "Again!",
+    "box-one-more" to "One more!",
 )
 
 private val COMBO_SOUND = Regex("^box-(.+)-[nd]$")
@@ -269,8 +271,20 @@ private const val LAST_CALL = 4 * SECOND
 /** Room one spoken line needs before the next one starts. */
 private const val VOICE_GAP = 2500L
 
-/** After a combination is said, the lifter gets this long to start throwing before the next call. */
+/** After a short combination is said, the lifter gets this long to throw it before the next call. */
 private const val AFTER_CALL = 600L
+
+/** From this many pieces on a combination is drilled: thrown two or three times before the next one. */
+const val DRILL_FROM = 3
+
+/** How long "Again!" takes to say. */
+private const val AGAIN_LENGTH = 1000L
+
+/** Milliseconds one go at a combination of this many pieces takes: half a second a punch and a breath. */
+fun throwTime(pieces: Int): Long = pieces * 500L + 500
+
+/** True for the coach's "Again!" and "One more!": the combination called last is thrown once more. */
+fun isAgain(sound: String): Boolean = sound == "box-again" || sound == "box-one-more"
 
 /**
  * How long the coach takes to say a line, in milliseconds: an upper estimate from its parts and
@@ -399,7 +413,23 @@ fun boxingCues(config: TimerConfig, calls: TimerCalls, seed: Int): List<TimerCue
                 cues += TimerCue(at, comboSound(combo, plan.style))
                 // JavaScript's `Math.round`: halves go up.
                 val pace = Math.floor(round.every * (if (focusAt(round, into) == BoxingFocus.SPEED) SPEED_FACTOR else 1.0) * 2 + 0.5).toLong() * 500
-                into += maxOf(Math.ceil((length + AFTER_CALL) / 500.0).toLong() * 500, pace)
+                val pieces = parts(combo)
+                // A long combination is drilled: said once, thrown, then "Again!" once or twice.
+                var free = at + length + if (pieces >= DRILL_FROM) throwTime(pieces) else AFTER_CALL
+                if (pieces >= DRILL_FROM) {
+                    val goes = if (random() < 1.0 / 3) 3 else 2
+                    for (go in 2..goes) {
+                        var again = free
+                        while (true) {
+                            val clash = spoken.firstOrNull { it > again - VOICE_GAP && it < again + AGAIN_LENGTH + 500 } ?: break
+                            again = clash + VOICE_GAP
+                        }
+                        if (again - start > work - LAST_CALL) break
+                        cues += TimerCue(again, if (go == 3) "box-one-more" else "box-again")
+                        free = again + AGAIN_LENGTH + throwTime(pieces)
+                    }
+                }
+                into += maxOf(Math.ceil((free - at) / 500.0).toLong() * 500, pace)
             }
         }
 
@@ -410,16 +440,17 @@ fun boxingCues(config: TimerConfig, calls: TimerCalls, seed: Int): List<TimerCue
     return cues.sortedBy { it.at }
 }
 
-/** How many combinations a run calls. */
+/** How many combinations a run calls. A combination that is drilled counts once. */
 fun comboCount(cues: List<TimerCue>): Int = cues.count { soundCombo(it.sound) != null }
 
 /**
  * What a boxing run shows at a moment. [round]: the plan of the round the timer is in, or of the one
  * coming up during the lead-in and a rest. [focus]: null without a split, during the lead-in and
  * during a rest. [combo]: the combination called last in this round, null before the first call and
- * outside a round.
+ * outside a round. [go]: which go at that combination this is, 1 for the first, 0 without a
+ * combination. [goes]: how many goes the coach asks for, 1 for a short combination, 2 or 3 for one that is drilled.
  */
-data class BoxingView(val round: BoxingRound, val focus: BoxingFocus?, val combo: BoxingCombo?)
+data class BoxingView(val round: BoxingRound, val focus: BoxingFocus?, val combo: BoxingCombo?, val go: Int = 0, val goes: Int = 0)
 
 /**
  * Where a boxing run stands [active] milliseconds after Start, pauses not counted.
@@ -431,14 +462,26 @@ fun boxingView(config: TimerConfig, cues: List<TimerCue>, active: Long): BoxingV
     // During a rest the round counted is the one just boxed: show the one that comes next.
     val index = if (view.phase == TimerPhase.REST) view.round else view.round - 1
     val round = plan.rounds[minOf(index, plan.rounds.size - 1)]
-    if (view.phase != TimerPhase.WORK) return BoxingView(round, null, null)
+    if (view.phase != TimerPhase.WORK) return BoxingView(round, null, null, 0, 0)
     val start = active - view.phaseElapsed
+    val end = start + (view.phaseTotal ?: 0)
     var combo: BoxingCombo? = null
+    var go = 0
+    var goes = 0
     for (cue in cues) {
-        if (cue.at > active) break
-        if (cue.at >= start) combo = soundCombo(cue.sound) ?: combo
+        if (cue.at < start || cue.at >= end) continue
+        val called = soundCombo(cue.sound)
+        if (called != null) {
+            if (cue.at > active) break
+            combo = called
+            go = 1
+            goes = 1
+        } else if (isAgain(cue.sound) && combo != null) {
+            goes += 1
+            if (cue.at <= active) go += 1
+        }
     }
-    return BoxingView(round, focusAt(round, view.phaseElapsed), combo)
+    return BoxingView(round, focusAt(round, view.phaseElapsed), combo, go, goes)
 }
 
 /** "Jab only · Fast", "Mix · Steady · speed and power 30s", "3-punch combos · Fast · 2 picked", "Freestyle". */

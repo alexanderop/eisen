@@ -40,7 +40,7 @@ const left = computed(() => 1 - view.value.progress)
 
 const focus = computed(() => (phase.value === 'work' ? punch.value.focus : null))
 
-/** From the call shown to the next one, for the thin bar that fills until then. */
+/** From the last thing to throw, a call or "Again!", to the next one, for the thin bar that fills until then. */
 const span = computed(() => {
   if (!punch.value.combo || phase.value !== 'work') return null
   const start = timerActive.value - view.value.phaseElapsed
@@ -70,7 +70,7 @@ const shown = computed(() => {
   }
   const numbers = style.value === 'numbers'
   return {
-    key: `call-${span.value?.from ?? 0}`,
+    key: `call-${span.value?.call ?? 0}`,
     label: '',
     // A line breaks after a dot or a dash, never before one.
     big: numbers ? combo.numbers.replaceAll(' – ', '\u00a0– ') : combo.names.replaceAll(' · ', '\u00a0· '),
@@ -135,12 +135,18 @@ watch(
 onMounted(fit)
 useResizeObserver(box, fit)
 
-/** A new call flashes the area in the round's colour, pops the text and buzzes once. */
+/** A drilled combination: which go of how many, for the pips under it. Nothing for a single go. */
+const goes = computed(() => (shown.value.call && punch.value.goes > 1 ? { go: punch.value.go, of: punch.value.goes } : null))
+
+/**
+ * A new call, or "Again!" for the one on screen, flashes the area in the round's colour and buzzes
+ * once. Only a new call brings new text, which pops in.
+ */
 const flash = ref(0)
 watch(
-  () => shown.value.key,
-  (key, before) => {
-    if (!key.startsWith('call-') || key === before || paused.value) return
+  () => span.value?.from,
+  (from, before) => {
+    if (from === undefined || from === before || paused.value) return
     flash.value += 1
     haptic('call')
   },
@@ -184,6 +190,12 @@ watch(
       >
         {{ shown.big }}
       </p>
+    </div>
+    <div v-if="goes" class="goes fade" :aria-label="`Go ${goes.go} of ${goes.of}`">
+      <span class="pips" aria-hidden="true">
+        <span v-for="pip in goes.of" :key="pip" class="pip" :class="{ done: pip <= goes.go }" />
+      </span>
+      <span class="goes-text" aria-hidden="true">{{ goes.go }} of {{ goes.of }}</span>
     </div>
     <p v-if="shown.small" class="small fade">{{ shown.small }}</p>
     <span v-if="span" class="next fade" aria-hidden="true">
@@ -387,6 +399,38 @@ watch(
 
 .big.pop {
   animation: pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+
+/* The goes of a drilled combination, read from three metres: done and now filled, still to come hollow. */
+.goes {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.pips {
+  display: flex;
+  gap: 10px;
+}
+
+.pip {
+  width: clamp(22px, 4dvh, 32px);
+  aspect-ratio: 1;
+  border: 4px solid var(--round);
+  border-radius: 50%;
+}
+
+.pip.done {
+  background: var(--round);
+}
+
+.goes-text {
+  font-size: clamp(22px, 4dvh, 32px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
 }
 
 .small {

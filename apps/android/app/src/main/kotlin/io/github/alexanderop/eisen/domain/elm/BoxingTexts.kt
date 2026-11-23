@@ -1,6 +1,8 @@
 package io.github.alexanderop.eisen.domain.elm
 
 import io.github.alexanderop.eisen.domain.BOXING_COMBOS
+import io.github.alexanderop.eisen.domain.DRILL_FROM
+import io.github.alexanderop.eisen.domain.roundCombos
 import io.github.alexanderop.eisen.domain.BOXING_THEMES
 import io.github.alexanderop.eisen.domain.BoxingCombo
 import io.github.alexanderop.eisen.domain.BoxingRound
@@ -62,11 +64,31 @@ fun comboGroups(theme: BoxingTheme): List<Pair<BoxingTheme, List<BoxingCombo>>> 
 /** What the numbers mean, in one line. */
 const val NUMBERS_KEY = "1 jab · 2 cross · 3 hook · 5 and 6 uppercut · B to the body"
 
-/** "About 28 calls this round, one every 6s or so", "One call this round", "No calls this round". */
-fun callsText(count: Int, work: Int): String = when (count) {
-    0 -> "No calls this round"
-    1 -> "One call this round"
-    else -> "About $count calls this round, one every ${Math.floor(work.toDouble() / count + 0.5).toInt()}s or so"
+/** Which of a round's combinations the coach drills, "Again!" after the first go: all of them, only the long ones, or none. */
+enum class Drill { ALL, LONG, NONE }
+
+fun drillOf(round: BoxingRound): Drill {
+    val pool = if (round.theme == BoxingTheme.FREESTYLE) emptyList() else roundCombos(round)
+    val long = pool.count { it.say.split(",").size >= DRILL_FROM }
+    return when (long) {
+        0 -> Drill.NONE
+        pool.size -> Drill.ALL
+        else -> Drill.LONG
+    }
+}
+
+/**
+ * "About 28 calls this round, one every 6s or so", and with a drill "About 18 combinations this
+ * round, each thrown 2 or 3 times" or "..., long ones thrown 2 or 3 times".
+ */
+fun callsText(count: Int, work: Int, drill: Drill = Drill.NONE): String {
+    if (count == 0) return "No calls this round"
+    if (drill != Drill.NONE) {
+        val combos = if (count == 1) "One combination this round" else "About $count combinations this round"
+        return "$combos, ${if (drill == Drill.ALL) "each" else "long ones"} thrown 2 or 3 times"
+    }
+    if (count == 1) return "One call this round"
+    return "About $count calls this round, one every ${Math.floor(work.toDouble() / count + 0.5).toInt()}s or so"
 }
 
 /** "166 combinations called", "One combination called". */

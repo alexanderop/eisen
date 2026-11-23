@@ -5,6 +5,9 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -149,7 +152,7 @@ internal fun BoxingRunScreen(state: TimerState.Running, now: Long, dispatch: (Ms
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (view.phase) {
-                        TimerPhase.WORK -> CallArea(box.combo, theme, style, window?.from, window?.until, active, now, run.startedAt + run.paused, paused, compact)
+                        TimerPhase.WORK -> CallArea(box.combo, box.go, box.goes, theme, style, window?.from, window?.until, active, now, run.startedAt + run.paused, paused, compact)
                         TimerPhase.DONE -> Unit
                         else -> UpNextArea(if (view.phase == TimerPhase.REST) view.round + 1 else 1, box.round, compact)
                     }
@@ -305,13 +308,16 @@ private fun reducedMotion(): Boolean {
 
 /**
  * The combination called last, as large as fits: the chosen style big, the other small under it. A
- * new call lights the whole area up in the round's colour for a moment and the text pops; a thin bar
- * at the bottom fills until the next call. Before the first call the theme waits there; a freestyle
+ * new call, and the coach's "Again!", light the whole area up in the round's colour for a moment and
+ * the text pops; a drilled combination shows its goes as pips under it. A thin bar at the bottom fills
+ * until the next call. Before the first call the theme waits there; a freestyle
  * round says it is the lifter's pace.
  */
 @Composable
 private fun CallArea(
     combo: BoxingCombo?,
+    go: Int,
+    goes: Int,
     theme: BoxingTheme,
     style: BoxingStyle,
     from: Long?,
@@ -393,6 +399,10 @@ private fun CallArea(
                 letterSpacing = if (numbers) 0.04.em else (-0.01).em,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
+            if (combo != null && goes > 1) {
+                Goes(go, goes, if (flash) EisenColors.OnPrimary else tint, compact)
+                Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+            }
             Text(
                 small,
                 color = if (flash) EisenColors.OnPrimary.copy(alpha = 0.8f) else EisenColors.MutedForeground,
@@ -407,6 +417,30 @@ private fun CallArea(
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(6.dp).background(EisenColors.Muted))
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(bar.value).height(6.dp).background(if (flash) EisenColors.OnPrimary else tint))
         }
+    }
+}
+
+/** A drilled combination's goes: a pip each, filled for those done and the one now, and "2 of 3" beside them. */
+@Composable
+private fun Goes(go: Int, goes: Int, color: Color, compact: Boolean) {
+    val pip = if (compact) 24.dp else 30.dp
+    Row(
+        Modifier.semantics(mergeDescendants = true) { contentDescription = "Go $go of $goes" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
+    ) {
+        for (at in 1..goes) {
+            val done = at <= go
+            Box(
+                Modifier
+                    .size(pip)
+                    .clip(CircleShape)
+                    .background(if (done) color else Color.Transparent)
+                    .border(3.dp, color, CircleShape),
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        Text("$go of $goes", color = color, fontSize = if (compact) 24.sp else 30.sp, fontWeight = FontWeight.Black, style = TextStyle(fontFeatureSettings = "tnum"))
     }
 }
 

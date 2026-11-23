@@ -190,6 +190,14 @@ object Eisen {
         is Sub.RestClock -> everySecond(sub.endsAt, Msg.Rest.Tick)
         is Sub.HoldClock -> everySecond(sub.startsAt, Msg.Hold.Tick)
         is Sub.TimerClock -> everySecond(sub.anchor, Msg.Timer.Tick, sub.every)
+        is Sub.TimerCue -> once(sub.at, Msg.Timer.Tick)
+    }
+
+    /** Sends [msg] once at [at] on the wall clock, a few milliseconds late. Returns what stops it. */
+    private fun once(at: Long, msg: Msg): () -> Unit {
+        val tick = Runnable { dispatch(msg) }
+        main.postDelayed(tick, maxOf(0, at - System.currentTimeMillis()) + 5)
+        return { main.removeCallbacks(tick) }
     }
 
     /** Sends [msg] each time a whole second (or [every] milliseconds) counted from [anchor] passes. Returns what stops it. */

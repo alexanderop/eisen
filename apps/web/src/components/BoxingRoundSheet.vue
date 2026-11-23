@@ -20,6 +20,7 @@ import {
   callsText,
   checkedOf,
   comboGroups,
+  drillOf,
   pickOf,
   pickText,
   planOf,
@@ -85,7 +86,7 @@ const split = computed({
 })
 
 const calls = computed(() =>
-  callsText(roundCalls(config.value, index.value, state.settings.timerCalls), config.value.work),
+  callsText(roundCalls(config.value, index.value, state.settings.timerCalls), config.value.work, drillOf(round.value)),
 )
 
 /** "Listen" goes through the round's combinations in order, so each tap is the next one. */

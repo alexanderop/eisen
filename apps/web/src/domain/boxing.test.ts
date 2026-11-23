@@ -7,6 +7,9 @@ import {
   boxingPlan,
   boxingRecordings,
   boxingView,
+  DRILL_FROM,
+  isAgain,
+  throwTime,
   comboCount,
   comboSound,
   copiedToAll,
@@ -64,8 +67,8 @@ describe('boxing', () => {
     )
     expect(new Set(BOXING_COMBOS.map((combo) => combo.id)).size).toBe(43)
     const recordings = boxingRecordings()
-    // 43 combinations twice, nine themes, speed and power.
-    expect(Object.keys(recordings)).toHaveLength(97)
+    // 43 combinations twice, nine themes, speed and power, again and one more.
+    expect(Object.keys(recordings)).toHaveLength(99)
     expect(recordings['box-jab-cross-hook-n']).toBe('Jab, cross, hook.')
     expect(recordings['box-jab-cross-hook-d']).toBe('One, two, three.')
     expect(recordings['box-theme-four']).toBe('Long combos.')
@@ -158,7 +161,7 @@ describe('boxing', () => {
         }
       }
     }
-    expect(comboCount(boxingCues(DEFAULT_TIMERS.boxing, DEFAULT_TIMER_CALLS, 1))).toBe(166)
+    expect(comboCount(boxingCues(DEFAULT_TIMERS.boxing, DEFAULT_TIMER_CALLS, 1))).toBe(139)
   })
 
   it('says the time left after "Speed" or "Power" when both fall on the same moment', () => {
@@ -192,9 +195,9 @@ describe('boxing', () => {
       boxing: { style: 'names', rounds: [round('four', 3)] },
     })
     expect(spoken(fast, 5)).toBe(
-      '0:get-ready 10.7:round-1 12.4:box-theme-four 16:box-jab-jab-cross-hook-n ' +
-        '21.5:box-jab-cross-uppercut-cross-n 27:box-jab-jab-cross-hook-n 32.5:box-cross-hook-cross-hook-n ' +
-        '40:ten-seconds 42.5:box-jab-uppercut-hook-cross-n 50.7:complete',
+      '0:get-ready 10.7:round-1 12.4:box-theme-four 16:box-jab-jab-cross-hook-n 23.3:box-again ' +
+        '26.8:box-one-more 30.5:box-jab-cross-uppercut-cross-n 37.8:box-again 40:ten-seconds ' +
+        '42.5:box-cross-hook-cross-hook-n 50.7:complete',
     )
     for (const seed of [1, 2, 3]) {
       const calls = boxingCues({ ...fast, work: 180 }, QUIET, seed).filter((cue) => soundCombo(cue.sound))
@@ -227,13 +230,13 @@ describe('boxing', () => {
     const config = short()
     const cues = boxingCues(config, DEFAULT_TIMER_CALLS, 1)
     // The lead-in shows what round one will be.
-    expect(boxingView(config, cues, 3000)).toEqual({ round: round('jab'), focus: null, combo: null })
+    expect(boxingView(config, cues, 3000)).toEqual({ round: round('jab'), focus: null, combo: null, go: 0, goes: 0 })
     // Before the first call of a round there is nothing to throw yet.
     expect(boxingView(config, cues, 14000).combo).toBeNull()
     expect(boxingView(config, cues, 17000).combo?.id).toBe('double-jab')
     expect(boxingView(config, cues, 23000).combo?.id).toBe('jab-jab-body')
     // The rest shows the round that comes next.
-    expect(boxingView(config, cues, 45000)).toEqual({ round: round('two', 5, 15), focus: null, combo: null })
+    expect(boxingView(config, cues, 45000)).toEqual({ round: round('two', 5, 15), focus: null, combo: null, go: 0, goes: 0 })
     expect(boxingView(config, cues, 58000)).toMatchObject({ focus: 'speed' })
     expect(boxingView(config, cues, 58000).combo?.id).toBe('cross-hook')
     expect(boxingView(config, cues, 66000).focus).toBe('power')
@@ -271,15 +274,18 @@ describe('boxing', () => {
     const cleaned = boxingPlan({ rounds: [{ ...round('jab'), pick: ['jab', 'jab-cross-hook', 'nope'] }] }, 1)
     expect(cleaned.rounds[0].pick).toEqual(['jab'])
     const config = timerConfig({ mode: 'boxing', work: 30, rest: 10, rounds: 1, boxing: { style: 'names', rounds: [picked] } })
-    expect(spoken(config, 3, QUIET)).toBe(
-      '16:box-jab-jab-cross-n 20.5:box-jab-cross-hook-n 25:box-jab-jab-cross-n 29.5:box-jab-cross-hook-n 34:box-jab-jab-cross-n',
-    )
+    const called = boxingCues(config, QUIET, 3)
+      .map((cue) => cue.sound)
+      .filter((sound) => soundCombo(sound))
+    expect(new Set(called)).toEqual(new Set(['box-jab-jab-cross-n', 'box-jab-cross-hook-n']))
     // One picked combination is called again and again.
     const one = timerConfig({
       ...config,
       boxing: { style: 'names', rounds: [{ ...round('three'), pick: ['jab-cross-hook'] }] },
     })
-    expect(new Set(boxingCues(one, QUIET, 1).map((cue) => cue.sound))).toEqual(new Set(['box-jab-cross-hook-n']))
+    expect(new Set(boxingCues(one, QUIET, 1).map((cue) => cue.sound))).toEqual(
+      new Set(['box-jab-cross-hook-n', 'box-again', 'box-one-more']),
+    )
   })
 
   it('keeps calling through speed and power, with the short combinations in speed', () => {
@@ -294,6 +300,43 @@ describe('boxing', () => {
     expect([plain(0), plain(15), plain(30)]).toEqual([33, 31, 35])
     expect(speedCombos(themeCombos('four')).every((combo) => combo.say.split(',').length <= 5)).toBe(true)
     expect(speedCombos(themeCombos('mix')).map((combo) => combo.say.split(',').length).every((count) => count <= 2)).toBe(true)
+  })
+
+  it('drills a long combination: says it once, then calls for it again once or twice', () => {
+    expect(DRILL_FROM).toBe(3)
+    expect(throwTime(3)).toBe(2000)
+    expect(throwTime(4)).toBe(2500)
+    const config = timerConfig({
+      mode: 'boxing',
+      work: 60,
+      rest: 10,
+      rounds: 1,
+      boxing: { style: 'names', rounds: [{ ...round('three'), pick: ['jab-cross-hook', 'jab-jab-cross'] }] },
+    })
+    const cues = boxingCues(config, QUIET, 3)
+    expect(cues.map((cue) => `${cue.at / 1000}:${cue.sound}`).join(' ')).toBe(
+      '16:box-jab-jab-cross-n 21.7:box-again 25:box-jab-cross-hook-n 30.7:box-again ' +
+        '34:box-jab-jab-cross-n 39.7:box-again 42.7:box-one-more 46:box-jab-cross-hook-n 51.7:box-again ' +
+        '55:box-jab-jab-cross-n 60.7:box-again 64:box-jab-cross-hook-n',
+    )
+    expect(isAgain('box-again')).toBe(true)
+    expect(isAgain('box-one-more')).toBe(true)
+    expect(isAgain('box-jab-n')).toBe(false)
+    // "Again" is not another combination.
+    expect(comboCount(cues)).toBe(6)
+    // The screen counts the goes: one of two, then two of two.
+    expect(boxingView(config, cues, 15000)).toMatchObject({ combo: null, go: 0, goes: 0 })
+    expect(boxingView(config, cues, 17000)).toMatchObject({ go: 1, goes: 2 })
+    expect(boxingView(config, cues, 23000)).toMatchObject({ go: 2, goes: 2 })
+    expect(boxingView(config, cues, 35000)).toMatchObject({ go: 1, goes: 3 })
+    expect(boxingView(config, cues, 43000)).toMatchObject({ go: 3, goes: 3 })
+    // Short combinations are thrown once and move on.
+    const jabs = boxingCues(short(), QUIET, 1)
+    expect(jabs.some((cue) => isAgain(cue.sound))).toBe(false)
+    expect(boxingView(short(), boxingCues(short(), DEFAULT_TIMER_CALLS, 1), 17000)).toMatchObject({ go: 1, goes: 1 })
+    // A three-minute round of three-punch combinations: 18 of them instead of a call every few seconds.
+    const long = timerConfig({ mode: 'boxing', work: 180, rest: 10, rounds: 1, boxing: { style: 'names', rounds: [round('three')] } })
+    expect(comboCount(boxingCues(long, QUIET, 1))).toBe(18)
   })
 
   it('moves, copies and removes rounds', () => {

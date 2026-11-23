@@ -25,6 +25,9 @@ import io.github.alexanderop.eisen.domain.copiedToAll
 import io.github.alexanderop.eisen.domain.focusAt
 import io.github.alexanderop.eisen.domain.roundSummary
 import io.github.alexanderop.eisen.domain.sayLength
+import io.github.alexanderop.eisen.domain.DRILL_FROM
+import io.github.alexanderop.eisen.domain.isAgain
+import io.github.alexanderop.eisen.domain.throwTime
 import io.github.alexanderop.eisen.domain.seededRandom
 import io.github.alexanderop.eisen.domain.soundCombo
 import io.github.alexanderop.eisen.domain.themeCombos
@@ -76,8 +79,8 @@ class BoxingTest {
         )
         assertEquals(43, BOXING_COMBOS.map { it.id }.toSet().size)
         val recordings = boxingRecordings()
-        // 43 combinations twice, nine themes, speed and power.
-        assertEquals(97, recordings.size)
+        // 43 combinations twice, nine themes, speed and power, again and one more.
+        assertEquals(99, recordings.size)
         assertEquals("Jab, cross, hook.", recordings["box-jab-cross-hook-n"])
         assertEquals("One, two, three.", recordings["box-jab-cross-hook-d"])
         assertEquals("Long combos.", recordings["box-theme-four"])
@@ -177,7 +180,7 @@ class BoxingTest {
                 }
             }
         }
-        assertEquals(166, comboCount(boxingCues(default, DEFAULT_TIMER_CALLS, 1)))
+        assertEquals(139, comboCount(boxingCues(default, DEFAULT_TIMER_CALLS, 1)))
     }
 
     @Test fun `says the time left after Speed or Power when both fall on the same moment`() {
@@ -205,9 +208,9 @@ class BoxingTest {
         // Asked for a call every 3 seconds, long combinations still get their time.
         val fast = timerConfig(TimerConfig(TimerMode.BOXING, 40, 10, 1, BoxingPlan(listOf(round(BoxingTheme.FOUR, 3)), BoxingStyle.NAMES)))
         assertEquals(
-            "0:get-ready 10.7:round-1 12.4:box-theme-four 16:box-jab-jab-cross-hook-n " +
-                "21.5:box-jab-cross-uppercut-cross-n 27:box-jab-jab-cross-hook-n 32.5:box-cross-hook-cross-hook-n " +
-                "40:ten-seconds 42.5:box-jab-uppercut-hook-cross-n 50.7:complete",
+            "0:get-ready 10.7:round-1 12.4:box-theme-four 16:box-jab-jab-cross-hook-n 23.3:box-again " +
+                "26.8:box-one-more 30.5:box-jab-cross-uppercut-cross-n 37.8:box-again 40:ten-seconds " +
+                "42.5:box-cross-hook-cross-hook-n 50.7:complete",
             spoken(fast, 5),
         )
         for (seed in listOf(1, 2, 3)) {
@@ -276,13 +279,46 @@ class BoxingTest {
         val cleaned = boxingPlan(BoxingPlan(listOf(round(BoxingTheme.JAB).copy(pick = listOf("jab", "jab-cross-hook", "nope"))), BoxingStyle.NAMES), 1)
         assertEquals(listOf("jab"), cleaned.rounds[0].pick)
         val config = timerConfig(TimerConfig(TimerMode.BOXING, 30, 10, 1, BoxingPlan(listOf(picked), BoxingStyle.NAMES)))
-        assertEquals(
-            "16:box-jab-jab-cross-n 20.5:box-jab-cross-hook-n 25:box-jab-jab-cross-n 29.5:box-jab-cross-hook-n 34:box-jab-jab-cross-n",
-            spoken(config, 3, quiet),
-        )
+        val called = boxingCues(config, quiet, 3).map { it.sound }.filter { soundCombo(it) != null }
+        assertEquals(setOf("box-jab-jab-cross-n", "box-jab-cross-hook-n"), called.toSet())
         // One picked combination is called again and again.
         val one = config.copy(boxing = BoxingPlan(listOf(round(BoxingTheme.THREE).copy(pick = listOf("jab-cross-hook"))), BoxingStyle.NAMES))
-        assertEquals(setOf("box-jab-cross-hook-n"), boxingCues(one, quiet, 1).map { it.sound }.toSet())
+        assertEquals(setOf("box-jab-cross-hook-n", "box-again", "box-one-more"), boxingCues(one, quiet, 1).map { it.sound }.toSet())
+    }
+
+    @Test fun `drills a long combination - says it once, then calls for it again once or twice`() {
+        assertEquals(3, DRILL_FROM)
+        assertEquals(2000L, throwTime(3))
+        assertEquals(2500L, throwTime(4))
+        val config = timerConfig(
+            TimerConfig(TimerMode.BOXING, 60, 10, 1, BoxingPlan(listOf(round(BoxingTheme.THREE).copy(pick = listOf("jab-cross-hook", "jab-jab-cross"))), BoxingStyle.NAMES)),
+        )
+        val cues = boxingCues(config, quiet, 3)
+        assertEquals(
+            "16:box-jab-jab-cross-n 21.7:box-again 25:box-jab-cross-hook-n 30.7:box-again " +
+                "34:box-jab-jab-cross-n 39.7:box-again 42.7:box-one-more 46:box-jab-cross-hook-n 51.7:box-again " +
+                "55:box-jab-jab-cross-n 60.7:box-again 64:box-jab-cross-hook-n",
+            cues.joinToString(" ") { "${seconds(it.at)}:${it.sound}" },
+        )
+        assertTrue(isAgain("box-again"))
+        assertTrue(isAgain("box-one-more"))
+        assertFalse(isAgain("box-jab-n"))
+        // "Again" is not another combination.
+        assertEquals(6, comboCount(cues))
+        // The screen counts the goes: one of two, then two of two.
+        fun goes(active: Long) = boxingView(config, cues, active).let { Triple(it.combo?.id, it.go, it.goes) }
+        assertEquals(Triple(null, 0, 0), goes(15_000))
+        assertEquals(1 to 2, goes(17_000).let { it.second to it.third })
+        assertEquals(2 to 2, goes(23_000).let { it.second to it.third })
+        assertEquals(1 to 3, goes(35_000).let { it.second to it.third })
+        assertEquals(3 to 3, goes(43_000).let { it.second to it.third })
+        // Short combinations are thrown once and move on.
+        assertFalse(boxingCues(short(), quiet, 1).any { isAgain(it.sound) })
+        val view = boxingView(short(), boxingCues(short(), DEFAULT_TIMER_CALLS, 1), 17_000)
+        assertEquals(1 to 1, view.go to view.goes)
+        // A three-minute round of three-punch combinations: 18 of them instead of a call every few seconds.
+        val long = timerConfig(TimerConfig(TimerMode.BOXING, 180, 10, 1, BoxingPlan(listOf(round(BoxingTheme.THREE)), BoxingStyle.NAMES)))
+        assertEquals(18, comboCount(boxingCues(long, quiet, 1)))
     }
 
     @Test fun `keeps calling through speed and power, with the short combinations in speed`() {

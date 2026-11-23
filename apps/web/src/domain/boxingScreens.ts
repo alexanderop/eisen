@@ -4,8 +4,11 @@ import {
   boxingCues,
   boxingPlan,
   comboCount,
+  DRILL_FROM,
   duplicatedRound,
+  isAgain,
   movedRound,
+  roundCombos,
   roundSummary,
   soundCombo,
   templatePlan,
@@ -184,9 +187,27 @@ export function roundCalls(config: TimerConfig, index: number, calls: TimerCalls
   return comboCount(cues.filter((cue) => cue.at >= start && cue.at <= end))
 }
 
-/** "About 28 calls this round, one every 6s or so", "One call this round", "No calls this round". */
-export function callsText(count: number, work: number): string {
+/**
+ * Which of a round's combinations the coach drills, "Again!" after the first go: all of them,
+ * only the long ones, or none.
+ */
+export function drillOf(round: BoxingRound): 'all' | 'long' | 'none' {
+  const pool = round.theme === 'freestyle' ? [] : roundCombos(round)
+  const long = pool.filter((combo) => combo.say.split(',').length >= DRILL_FROM).length
+  if (long === 0) return 'none'
+  return long === pool.length ? 'all' : 'long'
+}
+
+/**
+ * "About 28 calls this round, one every 6s or so", and with a drill "About 18 combinations this
+ * round, each thrown 2 or 3 times" or "..., long ones thrown 2 or 3 times".
+ */
+export function callsText(count: number, work: number, drill: 'all' | 'long' | 'none' = 'none'): string {
   if (count === 0) return 'No calls this round'
+  if (drill !== 'none') {
+    const combos = count === 1 ? 'One combination this round' : `About ${count} combinations this round`
+    return `${combos}, ${drill === 'all' ? 'each' : 'long ones'} thrown 2 or 3 times`
+  }
   if (count === 1) return 'One call this round'
   return `About ${count} calls this round, one every ${Math.round(work / count)}s or so`
 }
@@ -230,22 +251,31 @@ export function upNext(roundNumber: number): string {
 }
 
 /**
- * The span from the combination called last to the next one, in milliseconds after Start, for the
- * bar that fills until the next call. The next one is the end of the round when none comes.
- * Null before the first call of the round.
+ * For the bar that fills until the coach says the next thing to throw: from the last combination or
+ * "Again!" to the next one, in milliseconds after Start, or to the end of the round when none
+ * comes. `call` is when the combination on screen was called. Null before the first call of the round.
  */
-export function callSpan(cues: TimerCue[], active: number, roundStart: number, roundEnd: number): { from: number; to: number } | null {
+export function callSpan(
+  cues: TimerCue[],
+  active: number,
+  roundStart: number,
+  roundEnd: number,
+): { from: number; to: number; call: number } | null {
   let from: number | null = null
+  let call: number | null = null
   let to = roundEnd
   for (const cue of cues) {
-    if (cue.at < roundStart || !soundCombo(cue.sound)) continue
-    if (cue.at <= active) from = cue.at
-    else {
-      to = Math.min(to, cue.at)
+    const combo = soundCombo(cue.sound) !== undefined
+    if (cue.at < roundStart || cue.at >= roundEnd || !(combo || isAgain(cue.sound))) continue
+    if (cue.at <= active) {
+      from = cue.at
+      if (combo) call = cue.at
+    } else {
+      to = cue.at
       break
     }
   }
-  return from === null ? null : { from, to }
+  return from === null || call === null ? null : { from, to, call }
 }
 
 /** Combinations a run called up to `active` milliseconds after Start. */

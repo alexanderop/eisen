@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.domain.elm
 
 import io.github.alexanderop.eisen.domain.TimerMode
+import io.github.alexanderop.eisen.domain.isAgain
 
 /**
  * A source outside the app that sends Msgs while the model asks for it. The runtime compares the
@@ -21,6 +22,12 @@ sealed interface Sub {
      * run ticks every half second: its combinations are called on the half second, and the screen shows each as it is said.
      */
     data class TimerClock(val anchor: Long, val every: Long = 1000) : Sub
+
+    /**
+     * Sends [Msg.Timer.Tick] once at [at] on the wall clock: the coach's next "Again!" of a boxing run,
+     * which can fall between the half seconds, so the screen counts the go as it is said.
+     */
+    data class TimerCue(val at: Long) : Sub
 }
 
 /**
@@ -34,5 +41,15 @@ fun subscriptions(model: Model): Set<Sub> = buildSet {
     if (rest != null && model.visible) add(Sub.RestClock(rest.endsAt))
     model.hold?.let { add(Sub.HoldClock(it.startsAt)) }
     val run = (model.timer as? TimerState.Running)?.run
-    if (run != null && run.pausedAt == null) add(Sub.TimerClock(run.startedAt + run.paused, if (run.config.mode == TimerMode.BOXING) 500 else 1000))
+    if (run != null && run.pausedAt == null) {
+        add(Sub.TimerClock(run.startedAt + run.paused, if (run.config.mode == TimerMode.BOXING) 500 else 1000))
+        nextAgain(run, model.now)?.let { add(Sub.TimerCue(it)) }
+    }
+}
+
+/** When the next "Again!" or "One more!" of a boxing [run] is said, on the wall clock, after [now]. */
+private fun nextAgain(run: io.github.alexanderop.eisen.domain.TimerRun, now: Long): Long? {
+    if (run.config.mode != TimerMode.BOXING) return null
+    val zero = run.startedAt + run.paused
+    return runCues(run).firstOrNull { isAgain(it.sound) && zero + it.at > now }?.let { zero + it.at }
 }

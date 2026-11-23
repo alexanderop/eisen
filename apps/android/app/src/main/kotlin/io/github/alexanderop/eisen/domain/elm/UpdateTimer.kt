@@ -63,6 +63,7 @@ import io.github.alexanderop.eisen.domain.boxingView
 import io.github.alexanderop.eisen.domain.comboCount
 import io.github.alexanderop.eisen.domain.comboSound
 import io.github.alexanderop.eisen.domain.soundCombo
+import io.github.alexanderop.eisen.domain.isAgain
 import io.github.alexanderop.eisen.domain.copiedToAll
 import io.github.alexanderop.eisen.domain.themeCombos
 import io.github.alexanderop.eisen.domain.withRound
@@ -583,8 +584,9 @@ fun combosCalled(run: TimerRun, at: Long): Int? {
 fun runCues(run: TimerRun): List<TimerCue> = timerCues(run.config, run.calls, run.seed ?: 1)
 
 /**
- * The combination on a boxing run's screen at [active]: called at [from], and the next call (or the end
- * of the round) at [until], for the bar that fills until then. Null before the first call of a round and outside one.
+ * The combination on a boxing run's screen at [active]: called, or called for again ("Again!"), at
+ * [from], and the next of those (or the end of the round) at [until], for the bar that fills until
+ * then. Null before the first call of a round and outside one.
  */
 data class CallWindow(val from: Long, val until: Long)
 
@@ -594,7 +596,7 @@ fun callWindow(config: TimerConfig, cues: List<TimerCue>, active: Long): CallWin
     if (view.phase != TimerPhase.WORK || left == null) return null
     val start = active - view.phaseElapsed
     val end = active + left
-    val calls = cues.filter { it.at in start until end && soundCombo(it.sound) != null }
+    val calls = cues.filter { it.at in start until end && (soundCombo(it.sound) != null || isAgain(it.sound)) }
     val from = calls.lastOrNull { it.at <= active }?.at ?: return null
     return CallWindow(from, calls.firstOrNull { it.at > active }?.at ?: end)
 }
@@ -661,7 +663,11 @@ internal fun schedule(model: Model, run: TimerRun, now: Long): Cmd.ScheduleTimer
     }
     val sounds = (runCues(run) + restCues).filter { it.at >= active }.sortedBy { it.at }.map { TimerSound(zero + it.at, it.sound) }
     // A boxing call is felt too, so a glance is not needed to know a new one came.
-    val called = if (run.config.mode == TimerMode.BOXING) runCues(run).filter { soundCombo(it.sound) != null }.map { it.at to TIMER_CALL_VIBRATION } else emptyList()
+    val called = if (run.config.mode == TimerMode.BOXING) {
+        runCues(run).filter { soundCombo(it.sound) != null || isAgain(it.sound) }.map { it.at to TIMER_CALL_VIBRATION }
+    } else {
+        emptyList()
+    }
     val changes = phaseChanges(run.config) + listOfNotNull(restEnd?.let { it to TIMER_WORK_VIBRATION }) + called
     val vibrations = if (!model.state.settings.haptics) emptyList()
     else changes.filter { it.first >= active }.sortedBy { it.first }.map { (at, pattern) -> TimerVibration(zero + at, pattern) }

@@ -271,6 +271,8 @@ export const BOXING_LINES: Record<string, string> = {
   'box-theme-freestyle': 'Freestyle.',
   'box-speed': 'Speed!',
   'box-power': 'Power!',
+  'box-again': 'Again!',
+  'box-one-more': 'One more!',
 }
 
 const COMBO_SOUND = /^box-(.+)-[nd]$/
@@ -308,8 +310,22 @@ const FIRST_CALL = 6 * SECOND
 const LAST_CALL = 4 * SECOND
 /** Room one spoken line needs before the next one starts. */
 const VOICE_GAP = 2500
-/** After a combination is said, the lifter gets this long to start throwing before the next call. */
+/** After a short combination is said, the lifter gets this long to throw it before the next call. */
 const AFTER_CALL = 600
+/** From this many pieces on a combination is drilled: thrown two or three times before the next one. */
+export const DRILL_FROM = 3
+/** How long "Again!" takes to say. */
+const AGAIN_LENGTH = 1000
+
+/** Milliseconds one go at a combination of this many pieces takes: half a second a punch and a breath. */
+export function throwTime(pieces: number): number {
+  return pieces * 500 + 500
+}
+
+/** True for the coach's "Again!" and "One more!": the combination called last is thrown once more. */
+export function isAgain(sound: string): boolean {
+  return sound === 'box-again' || sound === 'box-one-more'
+}
 
 /**
  * How long the coach takes to say a line, in milliseconds: an upper estimate from its parts and
@@ -437,7 +453,24 @@ export function boxingCues(config: TimerConfig, calls: TimerCalls, seed: number)
         previous = combo.id
         cues.push({ at, sound: comboSound(combo, plan.style) })
         const pace = Math.round(round.every * (focusAt(round, into) === 'speed' ? SPEED_FACTOR : 1) * 2) * 500
-        into += Math.max(Math.ceil((length + AFTER_CALL) / 500) * 500, pace)
+        const pieces = parts(combo)
+        // A long combination is drilled: said once, thrown, then "Again!" once or twice.
+        let free = at + length + (pieces >= DRILL_FROM ? throwTime(pieces) : AFTER_CALL)
+        if (pieces >= DRILL_FROM) {
+          const goes = random() < 1 / 3 ? 3 : 2
+          for (let go = 2; go <= goes; go += 1) {
+            let again = free
+            for (;;) {
+              const clash = spoken.find((other) => other > again - VOICE_GAP && other < again + AGAIN_LENGTH + 500)
+              if (clash === undefined) break
+              again = clash + VOICE_GAP
+            }
+            if (again - start > work - LAST_CALL) break
+            cues.push({ at: again, sound: go === 3 ? 'box-one-more' : 'box-again' })
+            free = again + AGAIN_LENGTH + throwTime(pieces)
+          }
+        }
+        into += Math.max(Math.ceil((free - at) / 500) * 500, pace)
       }
     }
 
@@ -447,7 +480,7 @@ export function boxingCues(config: TimerConfig, calls: TimerCalls, seed: number)
   return cues.sort((a, b) => a.at - b.at)
 }
 
-/** How many combinations a run calls. */
+/** How many combinations a run calls. A combination that is drilled counts once. */
 export function comboCount(cues: TimerCue[]): number {
   return cues.filter((cue) => soundCombo(cue.sound) !== undefined).length
 }
@@ -460,6 +493,10 @@ export interface BoxingView {
   focus: BoxingFocus | null
   /** The combination called last in this round. Null before the first call and outside a round. */
   combo: BoxingCombo | null
+  /** Which go at that combination this is, 1 for the first. 0 without a combination. */
+  go: number
+  /** How many goes the coach asks for: 1 for a short combination, 2 or 3 for one that is drilled. */
+  goes: number
 }
 
 /**
@@ -473,14 +510,26 @@ export function boxingView(config: TimerConfig, cues: TimerCue[], active: number
   // During a rest the round counted is the one just boxed: show the one that comes next.
   const index = view.phase === 'rest' ? view.round : view.round - 1
   const round = plan.rounds[Math.min(index, plan.rounds.length - 1)]
-  if (!working) return { round, focus: null, combo: null }
+  if (!working) return { round, focus: null, combo: null, go: 0, goes: 0 }
   const start = active - view.phaseElapsed
+  const end = start + (view.phaseTotal ?? 0)
   let combo: BoxingCombo | null = null
+  let go = 0
+  let goes = 0
   for (const cue of cues) {
-    if (cue.at > active) break
-    if (cue.at >= start) combo = soundCombo(cue.sound) ?? combo
+    if (cue.at < start || cue.at >= end) continue
+    const called = soundCombo(cue.sound)
+    if (called) {
+      if (cue.at > active) break
+      combo = called
+      go = 1
+      goes = 1
+    } else if (isAgain(cue.sound) && combo) {
+      goes += 1
+      if (cue.at <= active) go += 1
+    }
   }
-  return { round, focus: focusAt(round, view.phaseElapsed), combo }
+  return { round, focus: focusAt(round, view.phaseElapsed), combo, go, goes }
 }
 
 /** "Jab only · Fast", "Mix · Steady · speed and power 30s", "3-punch combos · Fast · 2 picked", "Freestyle". */
