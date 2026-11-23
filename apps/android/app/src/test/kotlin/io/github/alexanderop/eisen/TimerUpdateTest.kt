@@ -94,7 +94,7 @@ class TimerUpdateTest {
         val run = step.timed
         assertEquals(TimerRun("t1", "Tabata", short, DEFAULT_TIMER_CALLS, startedAt = STARTED_AT), run)
         assertTrue(Cmd.SaveTimer(run) in step.cmds)
-        assertTrue(Cmd.ShowTimer(timerNotice(run, STARTED_AT)) in step.cmds)
+        assertTrue(Cmd.ShowTimer(timerNotice(run, STARTED_AT, freshState())) in step.cmds)
         val schedule = step.schedule
         assertEquals(timerCues(short, DEFAULT_TIMER_CALLS).map { TimerSound(STARTED_AT + it.at, it.sound) }, schedule.sounds)
         // Work, rest, work, rest, work, the end: each felt.
@@ -111,8 +111,8 @@ class TimerUpdateTest {
         )
         assertEquals(STARTED_AT + 90_000 + TIMER_TAIL_MILLIS, schedule.awakeUntil)
         assertEquals(setOf<Sub>(Sub.TimerClock(STARTED_AT)), subscriptions(step.model))
-        assertEquals("Get ready", timerNotice(run, STARTED_AT).text)
-        assertEquals("Rest · Round 1 of 3", timerNotice(run, STARTED_AT + 35_000).text)
+        assertEquals("Get ready", timerNotice(run, STARTED_AT, freshState()).text)
+        assertEquals("Rest · Round 1 of 3", timerNotice(run, STARTED_AT + 35_000, freshState()).text)
     }
 
     @Test fun `without haptics a run does not vibrate`() {
@@ -142,7 +142,7 @@ class TimerUpdateTest {
         assertEquals(STARTED_AT + 35_000, paused.timed.pausedAt)
         assertEquals(Cmd.ScheduleTimer(emptyList(), emptyList(), null), paused.schedule)
         assertTrue(subscriptions(paused.model).isEmpty())
-        assertTrue(timerNotice(paused.timed, STARTED_AT + 50_000).paused)
+        assertTrue(timerNotice(paused.timed, STARTED_AT + 50_000, freshState()).paused)
         assertIgnored(paused, Msg.Timer.Pause)
         assertIgnored(paused, Msg.Timer.Tap)
 
@@ -211,7 +211,7 @@ class TimerUpdateTest {
 
     @Test fun `a run that ends by itself is filed as completed and lets its last words play`() {
         val ticking = started().send(Msg.Timer.Tick, now = STARTED_AT + 35_005)
-        assertEquals(listOf(Cmd.ShowTimer(timerNotice(ticking.timed, STARTED_AT + 35_005))), ticking.cmds)
+        assertEquals(listOf(Cmd.ShowTimer(timerNotice(ticking.timed, STARTED_AT + 35_005, freshState()))), ticking.cmds)
         // The same phase a second later: nothing to tell the notification.
         assertTrue(ticking.send(Msg.Timer.Tick, now = STARTED_AT + 36_005).cmds.isEmpty())
 
@@ -263,7 +263,7 @@ class TimerUpdateTest {
         assertEquals(TimerState.Running(run), going.timer)
         val sounds = cmds.filterIsInstance<Cmd.ScheduleTimer>().single().sounds
         assertEquals(timerCues(short, DEFAULT_TIMER_CALLS).filter { it.at >= 50_000 }.map { TimerSound(STARTED_AT + it.at, it.sound) }, sounds)
-        assertTrue(Cmd.ShowTimer(timerNotice(run, STARTED_AT + 50_000)) in cmds)
+        assertTrue(Cmd.ShowTimer(timerNotice(run, STARTED_AT + 50_000, freshState())) in cmds)
 
         val (over, filed) = init(flags.copy(now = STARTED_AT + 600_000, healthEnabled = true))
         val session = TimerSession("t1", "Tabata", short, STARTED_AT, STARTED_AT + 90_000, seconds = 80, rounds = 3, completed = true)
@@ -442,12 +442,12 @@ class TimerUpdateTest {
     // The saved state
 
     @Test fun `version 6 gets the timers with their defaults, and version 7 keeps them`() {
-        val v6 = encodeState(freshState()).replace("\"version\":$STATE_VERSION", "\"version\":6")
+        val v6 = encodeState(freshState()).replace("\"version\":$STATE_VERSION", "\"version\":6").replace(",\"wods\":[]", "")
             .replace(Regex(",\"timerCalls\":\\{[^}]*\\}"), "")
             .replace(Regex(",\"timerPresets\":\\[\\],\"timerSessions\":\\[\\],\"timerConfigs\":\\{.*\\}\\}\\}$"), "}")
         assertFalse(v6.contains("timer"))
         val migrated = decodeState(v6)!!
-        assertEquals(7, migrated.version)
+        assertEquals(STATE_VERSION, migrated.version)
         assertEquals(freshState(), migrated)
 
         val session = TimerSession("t1", "Finisher", short, 1_000, 92_000, 80, 3, true)

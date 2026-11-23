@@ -157,7 +157,7 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
     val timer = model.timer
     if (timer != null) {
         ShowOverLockScreen()
-        TimerOverlay(timer, model.now, dispatch)
+        TimerOverlay(timer, model.state, model.now, dispatch)
         return
     }
 

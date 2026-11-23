@@ -69,6 +69,16 @@ import io.github.alexanderop.eisen.domain.elm.timerRun
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import io.github.alexanderop.eisen.domain.SCHEMES
+import io.github.alexanderop.eisen.domain.WOD_LIBRARY
+import io.github.alexanderop.eisen.domain.WodItem
+import io.github.alexanderop.eisen.domain.WodUnit
+import io.github.alexanderop.eisen.domain.findWod
+import io.github.alexanderop.eisen.domain.isLibraryWod
+import io.github.alexanderop.eisen.domain.wod
+import io.github.alexanderop.eisen.domain.elm.TimerPage
+import io.github.alexanderop.eisen.domain.elm.WodFilter
+import io.github.alexanderop.eisen.domain.elm.keptDraft
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -760,11 +770,16 @@ class UpdateTest {
         var timed = 0
         var filed = 0
         var ranOut = 0
+        var wodsSaved = 0
+        var wodRuns = 0
+        var wodsFiled = 0
+        var drafted = 0
+        var undone = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
-        // The timer's Msgs and the ratings dilute the walk, so it takes more seeds to reach everything as often as before.
-        for (seed in 1L..160L) {
+        // The timer's and the WODs' Msgs and the ratings dilute the walk, so it takes more seeds to reach everything as often as before.
+        for (seed in 1L..320L) {
             val random = java.util.Random(seed)
             var step = stepOf(withHolds)
             var now = STARTED_AT
@@ -884,15 +899,57 @@ class UpdateTest {
                         val session = after.state.timerSessions.first()
                         assertNotNull(where, ended)
                         assertEquals(where, ended!!.id, session.id)
-                        assertEquals(where, TimerState.Finished(session), after.model.timer)
+                        assertEquals(where, session, (after.model.timer as? TimerState.Finished)?.session)
                         assertTrue(where, session.seconds in 0..(timerSeconds(session.config) ?: MAX_OPEN_TIMER_SECONDS))
                         assertTrue(where, session.finishedAt >= session.startedAt && session.rounds >= 0)
                         if (!countsRoundsByTap(session.config.mode)) assertTrue(where, session.rounds <= session.config.rounds)
                         filed++
-                        if (session.completed && msg != Msg.Timer.Finish) ranOut++
+                        if (session.completed && msg != Msg.Timer.Finish && msg != Msg.Timer.Tap) ranOut++
                     } else {
-                        assertTrue(where, msg is Msg.Timer.DeleteSession)
+                        assertTrue(where, msg is Msg.Timer.DeleteSession || msg == Msg.Timer.UndoFinish)
                     }
+                }
+                // The lifter's WODs: ids of their own, never a benchmark's, each in its limits; the draft too, but for its name.
+                val own = after.state.wods.map { it.id }
+                assertEquals(where, own.size, own.toSet().size)
+                assertTrue(where, own.none(::isLibraryWod))
+                for (saved in after.state.wods) assertEquals(where, wod(saved), saved)
+                after.model.wods.draft?.let { draft ->
+                    assertEquals(where, wod(draft.wod).copy(name = draft.wod.name), draft.wod)
+                    if (step.model.wods.draft == null) drafted++
+                }
+                after.model.wods.detail?.let { assertNotNull(where, findWod(after.state.wods, it)) }
+                // The draft file is written exactly when what it keeps changed, with that.
+                val keptAfter = keptDraft(after.model.wods)
+                assertEquals(where, if (keptAfter != keptDraft(step.model.wods)) listOf(Cmd.SaveDraft(keptAfter)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SaveDraft>())
+                // A finished WOD run is complete only with every step tapped off; Undo brings back the run its last tap ended.
+                val ended = (step.model.timer as? TimerState.Finished)?.undo
+                if (msg == Msg.Timer.UndoFinish && ended != null) {
+                    undone++
+                    assertEquals(where, ended.taps - 1, after.model.timerRun!!.taps)
+                    assertTrue(where, after.state.timerSessions.none { it.id == ended.id })
+                }
+                if (msg == Msg.Wods.Save && after.state != step.state) wodsSaved++
+                // A run carries a WOD exactly when it was started from one, and leaves the setups of the modes alone.
+                if (run != null && run.id != step.model.timerRun?.id) {
+                    val expected = when {
+                        msg is Msg.Wods.Start -> findWod(step.state.wods, msg.id)
+                        msg == Msg.Timer.Again -> (step.model.timer as? TimerState.Finished)?.wod?.let { findWod(step.state.wods, it.id) ?: it }
+                        msg == Msg.Timer.UndoFinish -> (step.model.timer as? TimerState.Finished)?.undo?.wod
+                        else -> null
+                    }
+                    assertEquals(where, expected, run.wod)
+                    if (run.wod != null) {
+                        wodRuns++
+                        assertEquals(where, step.state.timerConfigs, after.state.timerConfigs)
+                    }
+                }
+                // A filed run of a WOD is filed under its id, and its result shows the WOD.
+                if (after.state.timerSessions.size > step.state.timerSessions.size && msg is Msg.Timer && msg != Msg.Timer.UndoDeleteSession) {
+                    val session = after.state.timerSessions.first()
+                    assertEquals(where, step.model.timerRun?.wod?.id, session.wodId)
+                    assertEquals(where, step.model.timerRun?.wod, (after.model.timer as TimerState.Finished).wod)
+                    if (session.wodId != null) wodsFiled++
                 }
                 if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
                 if (after.model != step.model) changed++
@@ -909,6 +966,11 @@ class UpdateTest {
         assertTrue("only $timed timers started", timed >= 30)
         assertTrue("only $filed timers were filed", filed >= 15)
         assertTrue("only $ranOut timers ran out by themselves", ranOut >= 3)
+        assertTrue("only $drafted builders opened", drafted >= 50)
+        assertTrue("only $wodsSaved WODs were saved", wodsSaved >= 20)
+        assertTrue("only $wodRuns WODs started", wodRuns >= 20)
+        assertTrue("only $wodsFiled runs of WODs were filed", wodsFiled >= 5)
+        assertTrue("only $undone finished runs were undone", undone >= 3)
     }
 
     /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */
@@ -954,8 +1016,39 @@ class UpdateTest {
                     Msg.Timer.KeepGoing, Msg.Timer.SaveAndEnd, Msg.Timer.Discard, Msg.Timer.Finish, Msg.Timer.Tap, Msg.Timer.Tap,
                     Msg.Timer.Untap, Msg.Timer.CorrectRounds(1), Msg.Timer.CorrectRounds(-1),
                     Msg.Timer.Done, Msg.Timer.Again, Msg.Nav.Back, Msg.Timer.Release(model.timerRun?.id ?: "gone"),
+                    Msg.Timer.UndoFinish, Msg.Timer.Tap,
                 ),
             )
+        }
+        // The builder's own Msgs come most of the time while it is open, as they would from the lifter.
+        val draft = model.wods.draft
+        val wodIds = WOD_LIBRARY.map { it.id }.take(4) + state.wods.map { it.id } + "gone"
+        val ownId = state.wods.getOrNull(index(state.wods.size))?.id ?: "gone"
+        if (draft != null && model.timer == null && random.nextInt(3) > 0) {
+            val items = draft.wod.items
+            val at = index(items.size)
+            val item = items.getOrNull(at) ?: WodItem(exerciseId, 5, WodUnit.REPS, 0.0)
+            return pick(
+                listOf(
+                    { Msg.Wods.Rename(pick(listOf("", "  ", "Burner", "z".repeat(60)))) },
+                    { Msg.Wods.SetMode(pick(TimerMode.entries)) },
+                    { Msg.Wods.SetTimer(TimerConfig(if (random.nextInt(4) > 0) draft.wod.timer.mode else pick(TimerMode.entries), random.nextInt(900) - 10, random.nextInt(60), random.nextInt(70) - 2)) },
+                    { Msg.Wods.SetRounds(random.nextInt(70) - 2) },
+                    { Msg.Wods.SetScheme(pick(SCHEMES + listOf(emptyList(), listOf(0, 5, 2000), List(14) { it }))) },
+                    { Msg.Wods.AddItem(exerciseId) },
+                    { Msg.Wods.AddItems(listOf(exerciseId, pick(WOD_LIBRARY).items.first().exerciseId, "nope")) },
+                    { Msg.Wods.UpdateItem(at, item.copy(amount = random.nextInt(12_000) - 5, unit = pick(WodUnit.entries), load = random.nextInt(1200) * 0.5 - 20)) },
+                    { Msg.Wods.MoveItem(index(items.size), index(items.size)) },
+                    { Msg.Wods.RemoveItem(at, item.exerciseId) },
+                    { Msg.Wods.Save },
+                    { Msg.Wods.Save },
+                    { Msg.Wods.Leave },
+                    { Msg.Wods.KeepEditing },
+                    { Msg.Wods.Discard },
+                    { Msg.Nav.Back },
+                    { Msg.Exercises.AddCustom(pick(listOf("Sled Push", "burpee")), pick(Equipment.entries), AddTarget.Wod) },
+                ),
+            )()
         }
         // While a hold timer is open, its own Msgs come half the time, as they would from the lifter and the clock.
         if (model.hold != null && random.nextBoolean()) return pick(listOf(Msg.Hold.SkipLeadIn, Msg.Hold.Stop, Msg.Hold.Cancel, Msg.Hold.Tick, Msg.Hold.Tick))
@@ -1083,6 +1176,21 @@ class UpdateTest {
             { Msg.Timer.UndoDeleteSession },
             { Msg.Timer.Tick },
             { Msg.Nav.ShowHistory(pick(HistoryView.entries)) },
+            { Msg.Nav.ShowTimerPage(pick(TimerPage.entries)) },
+            { Msg.Wods.Filter(pick(WodFilter.entries)) },
+            { Msg.Wods.Open(pick(wodIds)) },
+            { Msg.Wods.Close },
+            { Msg.Wods.Start(pick(wodIds)) },
+            { Msg.Wods.Start(pick(wodIds)) },
+            { Msg.Wods.Start(pick(wodIds)) },
+            { Msg.Wods.New },
+            { Msg.Wods.New },
+            { Msg.Wods.Edit(ownId) },
+            { Msg.Wods.Copy(pick(wodIds)) },
+            { Msg.Wods.Delete(ownId) },
+            { Msg.Wods.UndoDelete },
+            { Msg.Wods.ContinueDraft },
+            { Msg.Wods.DiscardDraft },
             { Msg.App.LaunchWorkout(if (random.nextBoolean()) null else routineId, random.nextInt(4) == 0, random.nextInt(4) == 0) },
         )
         return pick(choices)()

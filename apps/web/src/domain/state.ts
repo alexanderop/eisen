@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_TIMER_CALLS,
   DEFAULT_TIMERS,
+  TIMER_MODES,
   type TimerCalls,
   type TimerConfig,
   type TimerMode,
@@ -17,6 +18,7 @@ import {
   type TimerSession,
 } from './timer'
 import type { Unit } from './units'
+import { isLibraryWod, wod, type Wod } from './wod'
 
 export interface Settings {
   unit: Unit
@@ -43,7 +45,7 @@ export interface Settings {
 }
 
 export interface AppState {
-  version: 7
+  version: 8
   settings: Settings
   /**
    * Working weight per exercise id. A bodyweight exercise has an entry only while weight is
@@ -63,6 +65,8 @@ export interface AppState {
   timerSessions: TimerSession[]
   /** The last config started per mode, so each mode opens the way the lifter left it. */
   timerConfigs: Record<TimerMode, TimerConfig>
+  /** The lifter's own WODs, in the order they are shown. The benchmarks are code, not state. */
+  wods: Wod[]
 }
 
 const ORIGINAL_IDS = ['hackSquat', 'bench', 'row', 'ohp', 'deadlift'] as const
@@ -79,7 +83,7 @@ function catalogProgress(ids: readonly string[], unit: Unit): Progress {
 export function freshState(unit: Unit = 'kg'): AppState {
   const routines = defaultRoutines()
   return {
-    version: 7,
+    version: 8,
     settings: {
       unit,
       bar: UNIT_DEFAULTS[unit].bar,
@@ -101,6 +105,7 @@ export function freshState(unit: Unit = 'kg'): AppState {
     timerPresets: [],
     timerSessions: [],
     timerConfigs: structuredClone(DEFAULT_TIMERS),
+    wods: [],
   }
 }
 
@@ -227,6 +232,11 @@ export function migrate(value: unknown): unknown {
     }
   }
 
+  // Version 8 added the lifter's own WODs.
+  if (data.version === 7) {
+    data = { ...data, version: 8, wods: [] }
+  }
+
   return data
 }
 
@@ -245,11 +255,12 @@ function fiveDeadliftSets(routine: unknown): unknown {
 export function isAppState(value: unknown): value is AppState {
   return (
     isObject(value) &&
-    value.version === 7 &&
+    value.version === 8 &&
     Array.isArray(value.history) &&
     Array.isArray(value.timerPresets) &&
     Array.isArray(value.timerSessions) &&
     isObject(value.timerConfigs) &&
+    Array.isArray(value.wods) &&
     Array.isArray(value.routines) &&
     value.routines.length > 0 &&
     Array.isArray(value.customExercises) &&
@@ -257,4 +268,52 @@ export function isAppState(value: unknown): value is AppState {
     isObject(value.settings.timerCalls) &&
     isObject(value.progress)
   )
+}
+
+function isWodItem(value: unknown): boolean {
+  return isObject(value) && typeof value.exerciseId === 'string' && typeof value.amount === 'number'
+}
+
+/**
+ * The WODs of a stored state or a backup, each brought into its limits. Entries that cannot be
+ * read are left out, and so is a second one with the same id or one that takes a benchmark's id.
+ */
+export function cleanWods(list: unknown[]): Wod[] {
+  const wods: Wod[] = []
+  for (const entry of list) {
+    if (
+      !isObject(entry) ||
+      typeof entry.id !== 'string' ||
+      typeof entry.name !== 'string' ||
+      !isObject(entry.timer) ||
+      !TIMER_MODES.includes(entry.timer.mode as TimerMode) ||
+      !Array.isArray(entry.items) ||
+      isLibraryWod(entry.id) ||
+      wods.some((other) => other.id === entry.id)
+    ) {
+      continue
+    }
+    const timer = entry.timer
+    wods.push(
+      wod({
+        id: entry.id,
+        name: entry.name,
+        timer: {
+          mode: timer.mode as TimerMode,
+          work: Number(timer.work) || 0,
+          rest: Number(timer.rest) || 0,
+          rounds: Number(timer.rounds) || 1,
+        },
+        rounds: typeof entry.rounds === 'number' ? entry.rounds : 1,
+        scheme: Array.isArray(entry.scheme) ? entry.scheme.filter((reps) => typeof reps === 'number') : [],
+        items: (entry.items.filter(isWodItem) as Json[]).map((item) => ({
+          exerciseId: item.exerciseId as string,
+          amount: item.amount as number,
+          unit: item.unit as Wod['items'][number]['unit'],
+          load: typeof item.load === 'number' ? item.load : 0,
+        })),
+      }),
+    )
+  }
+  return wods
 }

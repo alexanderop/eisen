@@ -76,6 +76,12 @@ sealed interface Cmd {
     /** Stops the interval timer's service, its sounds and its notification. */
     data object HideTimer : Cmd
 
+    /** Keeps the builder's draft in a file of its own, so it survives the end of the process. Null deletes it. */
+    data class SaveDraft(val draft: WodDraft?) : Cmd
+
+    /** Keeps the page of the Timer tab in an Android preference, see [Navigation.timerPage]. */
+    data class SaveTimerPage(val page: TimerPage) : Cmd
+
     /** Plays one sound of the timers now, the way a run would. */
     data class PlayTimerSound(val sound: String) : Cmd
 
@@ -88,7 +94,10 @@ data class TimerSound(val at: Long, val sound: String)
 
 data class TimerVibration(val at: Long, val pattern: List<Long>)
 
-/** The ongoing notification of an interval timer. [base] is the chronometer's time, null while paused. */
+/**
+ * The ongoing notification of an interval timer. [base] is the chronometer's time, null while paused.
+ * [lines]: what to do in this round of a WOD, one per line when the notification is expanded.
+ */
 data class TimerNotice(
     val title: String,
     val text: String,
@@ -97,6 +106,7 @@ data class TimerNotice(
     val paused: Boolean,
     val toggleLabel: String,
     val endLabel: String,
+    val lines: List<String> = emptyList(),
 )
 
 /** A cue of an interval timer that comes this late (the phone was asleep) is skipped. */

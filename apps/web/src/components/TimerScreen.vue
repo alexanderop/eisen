@@ -4,7 +4,7 @@
  * The phone lies on the floor two metres away: the colour says the phase, the digits the time,
  * and there is one obvious button.
  */
-import { Minus, Pause, Play, Plus, Volume2 } from '@lucide/vue'
+import { Check, Minus, Pause, Play, Plus, Undo2, Volume2 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { holdText } from '../domain/program'
 import {
@@ -16,7 +16,10 @@ import {
   type TimerConfig,
 } from '../domain/timer'
 import { nextText } from '../domain/timerScreens'
+import { bestText, findWod, isWodRecord, wodBest, wodFormat } from '../domain/wod'
+import { roundCard, roundHeading, wodButton } from '../domain/wodScreens'
 import { formatClock } from '../rest'
+import { findExercise, state } from '../store'
 import {
   adjustResultRounds,
   dismissResult,
@@ -25,9 +28,11 @@ import {
   pauseTimer,
   resumeTimer,
   startTimer,
+  startWod,
   tapRound,
   timer,
   timerNow,
+  undoFinish,
   untapRound,
   wakeSound,
 } from '../timer'
@@ -46,7 +51,17 @@ const view = computed(() => timerNow.value)
 const config = computed(() => run.value?.config)
 const paused = computed(() => run.value?.pausedAt != null)
 const ready = computed(() => view.value?.phase === 'ready')
+/** The WOD being done, if this run is one. */
+const workout = computed(() => run.value?.wod ?? null)
 const tapped = computed(() => (config.value ? countsRoundsByTap(config.value.mode) : false))
+/**
+ * A For Time WOD has one big button that always moves on: a round, an item, or the whole WOD.
+ * The tap on the last stops the clock, so it has no "Hold to finish".
+ */
+const stepped = computed(() => workout.value?.timer.mode === 'forTime')
+const button = computed(() =>
+  workout.value && run.value ? wodButton(workout.value, run.value.taps, findExercise, state.settings.unit) : null,
+)
 const forTime = computed(() => config.value?.mode === 'forTime')
 /** After a reload the browser keeps the timer silent until the screen is tapped once. */
 const needsTap = computed(() => timer.restored && !timer.sound)
@@ -60,7 +75,7 @@ const PHASE_WORDS = { ready: 'Get ready', work: 'Work', rest: 'Rest', done: 'Don
 
 const roundLine = computed(() => {
   const current = view.value
-  if (!current || current.rounds === null) return ''
+  if (!current || current.rounds === null || workout.value) return ''
   return `Round ${current.round} of ${current.rounds}`
 })
 
@@ -105,6 +120,47 @@ const totalLine = computed(() => {
 })
 
 const next = computed(() => (config.value && view.value ? nextText(config.value, view.value) : ''))
+
+/** Lines past the four in sight. Ticked off to near the end, the list has scrolled to its last. */
+const moreBelow = computed(() => {
+  const current = lines.value.findIndex((line) => line.state === 'current')
+  return lines.value.length > 4 && (current === -1 || current < lines.value.length - 3)
+})
+
+const linesList = ref<HTMLElement>()
+/** The item to do now stays in view as the list is ticked off. */
+watch(
+  () => run.value?.taps,
+  async () => {
+    await nextTick()
+    const list = linesList.value
+    const current = list?.querySelector<HTMLElement>('.current')
+    if (!list || !current) return
+    // The last one done stays in sight above it, so the list reads as a list.
+    const before = current.previousElementSibling as HTMLElement | null
+    list.scrollTop = before ? before.offsetTop : 0
+  },
+  { immediate: true },
+)
+
+/** The round card of a WOD: what to do now, in place of the "Next" line. */
+const heading = computed(() =>
+  workout.value && run.value && view.value ? roundHeading(workout.value, run.value.taps, view.value) : '',
+)
+const lines = computed(() =>
+  workout.value && run.value && view.value
+    ? roundCard(workout.value, run.value.taps, view.value, findExercise, state.settings.unit)
+    : [],
+)
+/** In a WOD the time left sits under the phase. A For Time has its cap in the ring already. */
+const wodTotal = computed(() => workout.value !== null && !forTime.value && totalLine.value !== '')
+/** What the ring has to leave room for: the card shows up to four lines and scrolls the rest. */
+const cardSpace = computed(() => ({
+  '--shown': Math.min(4, Math.max(1, lines.value.length)),
+  '--current': lines.value.some((line) => line.state === 'current') ? 1 : 0,
+  '--heading': heading.value ? 1 : 0,
+  '--total': wodTotal.value ? 1 : 0,
+}))
 
 function onEnd() {
   if (!run.value) return
@@ -171,7 +227,16 @@ onBeforeUnmount(() => {
 
 const result = computed(() => timer.result)
 const outcome = computed(() => (result.value ? timerOutcome(result.value) : 'completed'))
-const resultTapped = computed(() => (result.value ? countsRoundsByTap(result.value.config.mode) : false))
+const resultWod = computed(() => timer.resultWod)
+/** A WOD For Time is about its time: that is the big number, and its rounds are not corrected. */
+const resultForTime = computed(() => resultWod.value !== null && result.value?.config.mode === 'forTime')
+const resultTapped = computed(() =>
+  result.value && !resultForTime.value ? countsRoundsByTap(result.value.config.mode) : false,
+)
+/** Every other run in the history: the result is the newest, so they all came before it. */
+const others = computed(() => state.timerSessions.filter((session) => session.id !== result.value?.id))
+const record = computed(() => (result.value ? isWodRecord(others.value, result.value) : false))
+const bestBefore = computed(() => (result.value?.wodId ? wodBest(others.value, result.value.wodId) : null))
 
 /** "Tabata · 8 × 20s / 10s", or the numbers alone when the name already is the mode. */
 function describe(name: string, timerConfig: TimerConfig): string {
@@ -190,7 +255,9 @@ function onDone() {
 
 function onAgain() {
   const last = result.value
-  if (last) startTimer(last.config, last.name)
+  const done = resultWod.value
+  if (done) startWod(findWod(state.wods, done.id) ?? done)
+  else if (last) startTimer(last.config, last.name)
 }
 
 /** The back button or gesture: the same as "End" on the run, "Done" on the result. */
@@ -214,7 +281,7 @@ defineExpose({ back })
   <div
     v-if="run && view"
     class="timer"
-    :class="[stage, { compact: tapped, 'for-time': forTime }]"
+    :class="[stage, { compact: tapped || stepped, 'for-time': forTime, wod: workout }]"
     role="dialog"
     aria-modal="true"
     :aria-label="`${run.name} timer`"
@@ -230,10 +297,11 @@ defineExpose({ back })
       Tap for sound
     </button>
 
-    <section class="centre">
+    <section class="centre" :style="workout ? cardSpace : undefined">
       <div class="phase-block">
         <p class="phase">{{ paused ? 'Paused' : PHASE_WORDS[view.phase] }}</p>
         <p v-if="roundLine" class="round">{{ roundLine }}</p>
+        <p v-else-if="wodTotal" class="total">{{ totalLine }}</p>
       </div>
       <div class="dial">
         <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -248,16 +316,41 @@ defineExpose({ back })
             :stroke-dashoffset="CIRCUMFERENCE * (1 - ring)"
           />
         </svg>
-        <span class="time" :class="{ lead: ready }" role="timer">{{ clock }}</span>
+        <span class="time" :class="{ lead: ready, long: clock.length > 4 }" role="timer">{{ clock }}</span>
         <span v-if="capLine" class="below">{{ capLine }}</span>
       </div>
-      <div class="info">
+      <div v-if="workout" class="round-card">
+        <p v-if="heading" class="round-heading">{{ heading }}</p>
+        <ul ref="linesList" class="round-lines" :class="{ more: moreBelow }" aria-live="polite">
+          <li v-for="(line, index) in lines" :key="index" :class="line.state">
+            <Check v-if="line.state === 'done'" class="tick" :size="18" :stroke-width="3" aria-label="Done:" />
+            {{ line.text }}
+          </li>
+        </ul>
+      </div>
+      <div v-else class="info">
         <p v-if="totalLine" class="total">{{ totalLine }}</p>
         <p v-if="next" class="next">{{ next }}</p>
       </div>
     </section>
 
-    <div v-if="tapped" class="tap-area">
+    <div v-if="stepped && button" class="tap-area steps">
+      <button class="back-step" :disabled="run.taps === 0 || ready" aria-label="Back one step" @click="untapRound">
+        <Undo2 :size="22" aria-hidden="true" />
+        Back
+      </button>
+      <button
+        class="tap"
+        :disabled="paused || ready"
+        :aria-label="`${button.big}: ${button.small}`"
+        @click="tapRound"
+      >
+        <span class="tap-big">{{ button.big }}</span>
+        <span class="tap-small">{{ button.small }}</span>
+      </button>
+    </div>
+
+    <div v-else-if="tapped" class="tap-area">
       <button
         class="tap"
         :disabled="paused || ready"
@@ -265,7 +358,7 @@ defineExpose({ back })
         @click="tapRound"
       >
         <span class="count">{{ run.taps }}</span>
-        <span class="count-label">{{ run.taps === 1 ? 'round' : 'rounds' }}</span>
+        <span class="count-label">{{ workout ? 'rounds done' : run.taps === 1 ? 'round' : 'rounds' }}</span>
         <span class="tap-hint">+1 · tap</span>
       </button>
       <button
@@ -280,7 +373,7 @@ defineExpose({ back })
 
     <div class="controls">
       <button
-        v-if="forTime"
+        v-if="forTime && !workout"
         class="hold"
         :class="{ holding }"
         :disabled="ready"
@@ -302,7 +395,7 @@ defineExpose({ back })
 
     <div v-if="confirming" class="confirm" @click.self="onEndChoice('keep')">
       <div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="end-title">
-        <h3 id="end-title">End timer?</h3>
+        <h3 id="end-title">{{ workout ? 'End WOD?' : 'End timer?' }}</h3>
         <p class="muted">Save it to your history as stopped early, or throw it away.</p>
         <Button ref="keepGoing" class="w-full" @click="onEndChoice('keep')">Keep going</Button>
         <Button variant="secondary" class="w-full" @click="onEndChoice('save')">Save and end</Button>
@@ -322,11 +415,14 @@ defineExpose({ back })
   >
     <header class="result-head">
       <h2>{{ result.name }}</h2>
-      <p class="muted">{{ describe(result.name, result.config) }}</p>
+      <p class="muted">{{ resultWod ? wodFormat(resultWod) : describe(result.name, result.config) }}</p>
     </header>
 
     <section class="summary">
-      <p class="status">{{ OUTCOME_LABELS[outcome] }}</p>
+      <div class="chips">
+        <p class="status">{{ OUTCOME_LABELS[outcome] }}</p>
+        <p v-if="record" class="status record">New record</p>
+      </div>
       <template v-if="resultTapped">
         <div class="rounds-edit">
           <button
@@ -343,14 +439,21 @@ defineExpose({ back })
           </button>
         </div>
         <p class="caption">{{ result.rounds === 1 ? 'round' : 'rounds' }}</p>
+        <p v-if="bestBefore" class="best">Previous best {{ bestText(bestBefore) }}</p>
         <p class="second">{{ formatClock(result.seconds) }}</p>
       </template>
       <template v-else>
         <p class="big">{{ formatClock(result.seconds) }}</p>
         <p class="caption">total time</p>
-        <p class="second">{{ roundsText(result.rounds) }}</p>
+        <p v-if="bestBefore" class="best">Previous best {{ bestText(bestBefore) }}</p>
+        <p v-if="!resultForTime" class="second">{{ roundsText(result.rounds) }}</p>
+        <p v-else-if="resultWod && resultWod.rounds > 1" class="second">
+          {{ Math.min(result.rounds, resultWod.rounds) }} of {{ resultWod.rounds }} rounds
+        </p>
       </template>
     </section>
+
+    <Button v-if="timer.undo" variant="ghost" size="md" class="undo" @click="undoFinish">Not finished? Undo</Button>
 
     <div class="controls two">
       <Button variant="secondary" class="w-full big-button" @click="onAgain">Again</Button>
@@ -372,6 +475,7 @@ defineExpose({ back })
   padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 16px);
   overflow: hidden;
   --stage: var(--primary);
+  --phase: clamp(26px, 5dvh, 40px);
   /* The phase colour glows behind the ring, so it reads from across the room. */
   background:
     radial-gradient(110% 55% at 50% 38%, color-mix(in srgb, var(--stage) 16%, transparent), transparent 72%),
@@ -443,7 +547,7 @@ header {
 
 .phase {
   color: var(--stage);
-  font-size: clamp(26px, 5dvh, 40px);
+  font-size: var(--phase);
   line-height: 1;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -680,13 +784,190 @@ header {
     font-size: clamp(56px, 11dvh, 120px);
   }
 
-  .phase {
-    font-size: 26px;
+  .timer {
+    --phase: 26px;
   }
 
   .info {
     min-height: 0;
     font-size: var(--fs-base);
+  }
+}
+
+/*
+ * A WOD: the round card under the ring says what to do, in type that reads from the floor.
+ * The ring takes what height is left once the card has its lines, and the clock stays the
+ * biggest thing on screen: the button and the paddings give way first.
+ */
+.timer.wod .centre {
+  container-type: size;
+  --line: clamp(20px, 3.2dvh, 30px);
+  --room: calc(
+    var(--phase) + var(--total) * 26px + var(--heading) * 24px + var(--shown) * 1.22 * var(--line) +
+      var(--current) * 6.5px + 24px + 2 * clamp(6px, 1.6dvh, 16px)
+  );
+}
+
+.timer.wod .dial {
+  width: min(78vw, 360px, calc(100cqh - var(--room)));
+}
+
+/* Four digits get a bigger size than five, which must still clear the ring. */
+.timer.wod .time:not(.lead, .long) {
+  font-size: 34cqi;
+}
+
+.timer.wod .time.long {
+  font-size: 28cqi;
+}
+
+.timer.wod .below {
+  font-size: max(14px, 6.5cqi);
+}
+
+.round-card {
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+}
+
+.round-heading {
+  color: var(--stage);
+  font-size: var(--fs-base-plus);
+  line-height: 1.25;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.round-lines {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(4 * 1.2 * var(--line) + var(--current) * 6.5px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: var(--line);
+  line-height: 1.2;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  scroll-behavior: smooth;
+}
+
+.round-lines li {
+  padding: 0 4px;
+}
+
+/* Ticked off in a single round: done ones step back, the one to do now stands out. */
+.round-lines .done {
+  color: var(--muted-foreground);
+  font-weight: 700;
+}
+
+.tick {
+  display: inline;
+  vertical-align: -2px;
+  color: var(--stage);
+}
+
+.round-lines .current {
+  margin: 2px 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--stage) 18%, transparent);
+  font-size: max(22px, calc(var(--line) * 1.1));
+}
+
+/* More lines below the four in sight: the last one fades out, so the card reads as one that scrolls. */
+.round-lines.more {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1em), transparent);
+}
+
+.timer.wod .tap {
+  height: clamp(96px, 17dvh, 200px);
+}
+
+.timer.wod .count {
+  font-size: clamp(44px, 8.5dvh, 88px);
+}
+
+/* The For Time button: what the tap does, big, and what it is for, small. Nothing overlaps. */
+.steps {
+  display: flex;
+  gap: 10px;
+}
+
+.steps .tap {
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+  padding: 8px 16px;
+}
+
+.tap-big {
+  font-size: clamp(28px, 5dvh, 44px);
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.tap-small {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-base-plus);
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.back-step {
+  flex: none;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 20px;
+  background: var(--secondary);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+}
+
+@media (max-height: 700px) {
+  .timer.wod {
+    gap: 10px;
+  }
+
+  .timer.wod .tap {
+    height: clamp(72px, 11.5dvh, 200px);
+  }
+
+  .timer.wod .count {
+    font-size: clamp(40px, 7dvh, 88px);
+  }
+
+  .timer.wod .tap-hint {
+    display: none;
+  }
+
+  .timer.wod .tap-area {
+    margin-bottom: 4px;
+  }
+
+  .timer.wod .big-button {
+    height: 50px;
   }
 }
 
@@ -756,8 +1037,15 @@ header {
   text-align: center;
 }
 
-.status {
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
   margin-bottom: 8px;
+}
+
+.status {
   padding: 6px 14px;
   border-radius: var(--r-full);
   background: color-mix(in srgb, var(--stage) 18%, transparent);
@@ -766,6 +1054,24 @@ header {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.record {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* The best before this run, to measure it by. */
+.undo {
+  align-self: center;
+}
+
+.best {
+  margin-top: 6px;
+  color: var(--muted-foreground);
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .big {

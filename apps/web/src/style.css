@@ -199,6 +199,24 @@
   color: var(--muted-foreground);
 }
 
+/* The main action of a page, pinned above the tab bar however long the page is. */
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--tabs-height) + env(safe-area-inset-bottom));
+  z-index: 5;
+  width: 100%;
+  max-width: 480px;
+  transform: translateX(-50%);
+  padding: 16px 16px 12px;
+  background: linear-gradient(to bottom, transparent, var(--background) 16px);
+}
+
+/* Room under the last thing on the page, so the docked action never covers it. */
+.page:has(> .dock) {
+  padding-bottom: calc(var(--tabs-height) + env(safe-area-inset-bottom) + 96px);
+}
+
 .row {
   display: flex;
   align-items: center;

@@ -55,9 +55,11 @@ data class AppState(
     val timerSessions: List<TimerSession> = emptyList(),
     /** The config each mode was last started with, so it opens the way the lifter left it. */
     val timerConfigs: Map<TimerMode, TimerConfig> = DEFAULT_TIMERS,
+    /** The lifter's own WODs, in the order the Timer tab shows them. The benchmarks are code, see [WOD_LIBRARY]. */
+    val wods: List<Wod> = emptyList(),
 )
 
-const val STATE_VERSION = 7
+const val STATE_VERSION = 8
 
 private val ORIGINAL_IDS = listOf("hackSquat", "bench", "row", "ohp", "deadlift")
 
@@ -84,6 +86,7 @@ fun freshState(unit: WeightUnit = WeightUnit.KG): AppState {
         timerPresets = emptyList(),
         timerSessions = emptyList(),
         timerConfigs = DEFAULT_TIMERS,
+        wods = emptyList(),
     )
 }
 
@@ -100,10 +103,16 @@ fun encodeState(state: AppState, pretty: Boolean = false): String =
 /** Reads a stored state or a backup of any version. Null when it is not one. */
 fun decodeState(json: String): AppState? = try {
     val migrated = migrate(StateJson.parseToJsonElement(json))
-    if (isAppState(migrated)) StateJson.decodeFromJsonElement<AppState>(migrated) else null
+    if (isAppState(migrated)) StateJson.decodeFromJsonElement<AppState>(migrated).let { it.copy(wods = ownWods(it.wods)) } else null
 } catch (_: Exception) {
     null
 }
+
+/**
+ * The lifter's WODs from a file, brought into their limits. A hand-edited one with the id of a
+ * benchmark or of an earlier one would hide that one, so it is left out.
+ */
+private fun ownWods(wods: List<Wod>): List<Wod> = wods.map(::wod).filterNot { isLibraryWod(it.id) }.distinctBy { it.id }
 
 private fun JsonElement?.obj(): JsonObject? = this as? JsonObject
 private fun JsonElement?.arr(): JsonArray? = this as? JsonArray
@@ -230,6 +239,11 @@ fun migrate(value: JsonElement): JsonElement {
         data["settings"].obj()?.let { settings ->
             data = data.with("settings" to settings.with("timerCalls" to StateJson.encodeToJsonElement(DEFAULT_TIMER_CALLS)))
         }
+    }
+
+    // Version 8 added the lifter's own WODs.
+    if (data["version"].int() == 7) {
+        data = data.with("version" to JsonPrimitive(8), "wods" to JsonArray(emptyList()))
     }
 
     return data

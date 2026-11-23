@@ -25,14 +25,15 @@ class TimedTest {
         assertEquals(listOf("0s", "5s", "45s", "59s", "1:00", "1:05", "1:30", "10:00", "60:00"), listOf(0, 5, 45, 59, 60, 65, 90, 600, 3600).map(::holdText))
     }
 
-    @Test fun `the catalog ends each group with its holds`() {
+    @Test fun `the catalog ends each group's lifts with its holds`() {
         val timed = CATALOG.filter { it.timed }
         assertEquals(
             listOf("wallSit", "gluteBridgeHold", "deadHang", "supermanHold", "farmersCarry", "plank", "sidePlank", "hollowHold", "lSit"),
             timed.map { it.id },
         )
+        // The movements of the WODs come after the holds, in the order the PWA lists them.
         for (group in GROUPS) {
-            val inGroup = CATALOG.filter { it.group == group }
+            val inGroup = CATALOG.filter { it.group == group }.let { it.take(it.indexOfLast { exercise -> exercise.timed } + 1) }
             assertEquals(group, inGroup.sortedBy { it.timed }, inGroup)
         }
         assertEquals(Exercise("farmersCarry", "Farmer's Carry", "Arms", Equipment.WEIGHT, 20.0, 2.0, "farmers-carry", timed = true), catalogExercise("farmersCarry"))

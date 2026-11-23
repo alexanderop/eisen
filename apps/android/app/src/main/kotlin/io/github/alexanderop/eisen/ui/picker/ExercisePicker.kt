@@ -1,6 +1,13 @@
 package io.github.alexanderop.eisen.ui.picker
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.runtime.MutableState
+import androidx.compose.ui.draw.clip
+import io.github.alexanderop.eisen.domain.elm.matchRank
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -78,6 +85,9 @@ import io.github.alexanderop.eisen.ui.rememberFullSheetState
 private val SearchIcon = pathIcon("Search", "m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 1 0 0-16z")
 
 private const val ALL = "All"
+
+/** The first chip of the builder's picker: what WODs are made of. */
+const val WOD_FILTER = "WOD"
 private const val NAME_LENGTH = 40
 
 /** The lifter's own exercises come first, then the catalog groups. */
@@ -96,6 +106,10 @@ private class Section(val group: String, val items: List<Exercise>)
  * [onCreate] gets a name that is not blank, the kind and whether it is held for time; the caller
  * creates the exercise (or finds the one with that name) and adds it where the picker was opened. [onDelete] removes one of the lifter's own.
  * The sheet closes itself before [onPick] and [onCreate] are called.
+ *
+ * [multi]: the builder's way of picking: a tap ticks a row, and "Add 3" hands the ticked ones to
+ * [onPickMany] in the order they were ticked. [wodIds] adds the "WOD" chip, which shows only those.
+ * [query] and [filter] may be kept by the caller, so the search and the chip stay while it is open.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,12 +120,21 @@ fun ExercisePickerSheet(
     onDismiss: () -> Unit,
     onCreate: (name: String, equipment: Equipment, timed: Boolean) -> Unit,
     onDelete: (id: String) -> Unit,
+    multi: Boolean = false,
+    onPickMany: (List<String>) -> Unit = {},
+    wodIds: Set<String>? = null,
+    query: MutableState<String>? = null,
+    filter: MutableState<String>? = null,
 ) {
     // Full height right away: the list is long and the search field needs room above the keyboard.
     val sheetState = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     var creating by rememberSaveable { mutableStateOf(false) }
-    var query by rememberSaveable { mutableStateOf("") }
+    val ownQuery = rememberSaveable { mutableStateOf("") }
+    val searched = query ?: ownQuery
+    val ownFilter = rememberSaveable { mutableStateOf(if (wodIds != null) WOD_FILTER else ALL) }
+    val chip = filter ?: ownFilter
+    var picked by rememberSaveable { mutableStateOf(listOf<String>()) }
     var name by rememberSaveable { mutableStateOf("") }
     var equipment by rememberSaveable { mutableStateOf(Equipment.BARBELL) }
     var timed by rememberSaveable { mutableStateOf(false) }
@@ -133,7 +156,11 @@ fun ExercisePickerSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (creating) "New exercise" else "Add exercise",
+                    when {
+                        creating -> "New exercise"
+                        multi -> "Add movements"
+                        else -> "Add exercise"
+                    },
                     modifier = Modifier.weight(1f).semantics { heading() },
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -166,44 +193,74 @@ fun ExercisePickerSheet(
                 PickList(
                     exercises = exercises,
                     exclude = exclude,
-                    query = query,
-                    onQuery = { query = it },
-                    onPick = { id -> close { onPick(id) } },
+                    query = searched.value,
+                    onQuery = { searched.value = it },
+                    filter = chip.value,
+                    onFilter = { chip.value = it },
+                    wodIds = wodIds,
+                    picked = if (multi) picked else null,
+                    onPick = { id ->
+                        if (multi) picked = if (id in picked) picked - id else picked + id
+                        else close { onPick(id) }
+                    },
                     onDelete = onDelete,
                     onCreate = {
-                        name = query.trim()
+                        name = searched.value.trim()
                         creating = true
                     },
                 )
+                if (multi) {
+                    val chosen = picked
+                    Button(
+                        onClick = { close { onPickMany(chosen) } },
+                        enabled = chosen.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).height(56.dp),
+                        shape = MaterialTheme.shapes.medium,
+                    ) {
+                        Text(if (chosen.isEmpty()) "Tap movements to add" else "Add ${chosen.size}", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PickList(
+private fun ColumnScope.PickList(
     exercises: List<Exercise>,
     exclude: Set<String>,
     query: String,
     onQuery: (String) -> Unit,
+    filter: String,
+    onFilter: (String) -> Unit,
+    wodIds: Set<String>?,
+    picked: List<String>?,
     onPick: (String) -> Unit,
     onDelete: (String) -> Unit,
     onCreate: () -> Unit,
 ) {
-    var filter by rememberSaveable { mutableStateOf(ALL) }
     val hasCustom = exercises.any { it.group == CUSTOM_GROUP }
-    val filters = (listOf(ALL) + ORDER).filter { it != CUSTOM_GROUP || hasCustom }
+    val filters = listOfNotNull(WOD_FILTER.takeIf { wodIds != null }) + (listOf(ALL) + ORDER).filter { it != CUSTOM_GROUP || hasCustom }
     // Deleting the last own exercise removes the "Yours" chip. Fall back to all instead of an empty list.
     val active = if (filter in filters) filter else ALL
 
-    val needle = query.trim().lowercase()
     // The lifter's own exercises stay listed even when already added, so they can be deleted here.
     val available = exercises.filter { exercise ->
         (exercise.group == CUSTOM_GROUP || exercise.id !in exclude) &&
-            (active == ALL || exercise.group == active) &&
-            exercise.name.lowercase().contains(needle)
+            when (active) {
+                ALL -> true
+                WOD_FILTER -> exercise.id in wodIds.orEmpty()
+                else -> exercise.group == active
+            } &&
+            matchRank(exercise.name, query) != null
     }
-    val sections = ORDER.map { group -> Section(group, available.filter { it.group == group }) }.filter { it.items.isNotEmpty() }
+    // While searching, hits that start a word come first, whatever their group: "run" finds Run before Cable Crunch.
+    val searching = query.isNotBlank()
+    val sections = if (searching) {
+        listOf(Section("", available.sortedBy { matchRank(it.name, query) })).filter { it.items.isNotEmpty() }
+    } else {
+        ORDER.map { group -> Section(group, available.filter { it.group == group }) }.filter { it.items.isNotEmpty() }
+    }
     // Lives inside the sheet, so it reaches the keyboard of the sheet's own window.
     val focus = LocalFocusManager.current
 
@@ -233,7 +290,7 @@ private fun PickList(
         items(filters, key = { it }) { group ->
             FilterChip(
                 selected = active == group,
-                onClick = { filter = group },
+                onClick = { onFilter(group) },
                 label = { Text(filterLabel(group), fontWeight = FontWeight.SemiBold) },
                 modifier = Modifier.height(40.dp),
                 shape = CircleShape,
@@ -248,7 +305,7 @@ private fun PickList(
         }
     }
     LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().weight(1f),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
     ) {
         item(key = "create") {
@@ -269,7 +326,7 @@ private fun PickList(
         for (section in sections) {
             item(key = "head-${section.group}") {
                 Eyebrow(
-                    groupTitle(section.group),
+                    if (searching) "Matches" else groupTitle(section.group),
                     Modifier.padding(top = 20.dp, bottom = 4.dp).semantics { heading() },
                 )
             }
@@ -277,6 +334,7 @@ private fun PickList(
                 PickRow(
                     exercise,
                     added = exercise.id in exclude,
+                    ticked = picked?.let { exercise.id in it },
                     onPick = {
                         // The keyboard would otherwise stay up while the sheet slides away.
                         focus.clearFocus()
@@ -300,14 +358,17 @@ private fun PickList(
 }
 
 @Composable
-private fun PickRow(exercise: Exercise, added: Boolean, onPick: () -> Unit, onDelete: () -> Unit) {
+private fun PickRow(exercise: Exercise, added: Boolean, ticked: Boolean?, onPick: () -> Unit, onDelete: () -> Unit) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(
                 Modifier
                     .weight(1f)
                     .heightIn(min = 60.dp)
-                    .clickable(enabled = !added, role = Role.Button, onClickLabel = "Add ${exercise.name}", onClick = onPick)
+                    .then(
+                        if (ticked != null) Modifier.toggleable(value = ticked, role = Role.Checkbox, onValueChange = { onPick() })
+                        else Modifier.clickable(enabled = !added, role = Role.Button, onClickLabel = "Add ${exercise.name}", onClick = onPick),
+                    )
                     .alpha(if (added) 0.5f else 1f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -324,6 +385,18 @@ private fun PickRow(exercise: Exercise, added: Boolean, onPick: () -> Unit, onDe
                     fontSize = 13.sp,
                     modifier = Modifier.padding(end = 4.dp),
                 )
+                if (ticked != null) {
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(if (ticked) EisenColors.Primary else EisenColors.Muted)
+                            .border(1.5.dp, if (ticked) EisenColors.Primary else EisenColors.Border, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (ticked) Icon(Icons.Check, contentDescription = null, tint = EisenColors.OnPrimary, modifier = Modifier.size(18.dp))
+                    }
+                }
             }
             if (exercise.group == CUSTOM_GROUP) {
                 ConfirmButton(

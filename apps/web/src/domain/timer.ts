@@ -1,4 +1,5 @@
 import { holdText } from './program'
+import type { Wod } from './wod'
 
 /**
  * Interval timers next to the strength workouts.
@@ -337,6 +338,8 @@ export interface TimerSession {
   rounds: number
   /** False when the lifter stopped it before the end. A For Time the lifter finished is complete. */
   completed: boolean
+  /** The WOD this was a run of. Left out for a plain timer. */
+  wodId?: string
 }
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
@@ -352,6 +355,8 @@ export interface TimerRun {
   paused: number
   /** Rounds the lifter tapped, in AMRAP and For Time. */
   taps: number
+  /** The WOD being done, copied in so the run still reads right when the WOD is edited or deleted. */
+  wod?: Wod
 }
 
 /** Milliseconds the run has been going, pauses not counted. */
@@ -365,13 +370,28 @@ export function isTimerOver(run: TimerRun, now: number): boolean {
 }
 
 /**
+ * Taps a For Time WOD takes from start to finish: one per round, or with a single round one per
+ * item, ticked off in order. Null where the clock ends the run or the lifter counts freely.
+ */
+export function wodSteps(workout: Wod): number | null {
+  if (workout.timer.mode !== 'forTime') return null
+  return workout.rounds > 1 ? workout.rounds : workout.items.length
+}
+
+/**
  * The history entry of a run that ends at `now`. `finished` is true when the timer ran out or the
  * lifter finished a For Time, false when it was stopped early. Null when it ends in the lead-in:
- * nothing was done yet.
+ * nothing was done yet. A For Time WOD is only complete with every step tapped off: a clock stopped
+ * after one of three rounds is not a time to beat.
  */
 export function timerSession(run: TimerRun, now: number, finished: boolean): TimerSession | null {
   const view = timerView(run.config, activeTime(run, now))
   if (view.phase === 'ready') return null
+  const steps = run.wod ? wodSteps(run.wod) : null
+  const allDone = steps === null || run.taps >= steps
+  // With a single round the taps count items, not rounds.
+  const single = steps !== null && run.wod?.rounds === 1
+  const tapped = countsRoundsByTap(run.config.mode) ? run.taps : view.roundsDone
   return {
     id: run.id,
     name: run.name,
@@ -379,8 +399,9 @@ export function timerSession(run: TimerRun, now: number, finished: boolean): Tim
     startedAt: run.startedAt,
     finishedAt: now,
     seconds: Math.round(view.elapsed / SECOND),
-    rounds: countsRoundsByTap(run.config.mode) ? run.taps : view.roundsDone,
-    completed: finished,
+    rounds: single ? (allDone ? 1 : 0) : tapped,
+    completed: finished && allDone,
+    ...(run.wod ? { wodId: run.wod.id } : {}),
   }
 }
 

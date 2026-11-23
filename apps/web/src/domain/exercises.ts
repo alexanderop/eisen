@@ -20,7 +20,7 @@ export function kindLabel(exercise: Pick<Exercise, 'id' | 'equipment'>): string 
 
 export const EQUIPMENT: Equipment[] = ['barbell', 'machine', 'weight', 'bodyweight']
 
-export const GROUPS = ['Legs', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core'] as const
+export const GROUPS = ['Legs', 'Chest', 'Back', 'Shoulders', 'Arms', 'Core', 'Conditioning'] as const
 export type Group = (typeof GROUPS)[number] | 'Custom'
 
 export interface Exercise {
@@ -65,6 +65,9 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['egymSquat', 'eGym Squat', 'weight', 60, 2, 'egym-squat'],
     ['wallSit', 'Wall Sit', 'bodyweight', 0, 0, 'wall-sit', true],
     ['gluteBridgeHold', 'Glute Bridge Hold', 'bodyweight', 0, 0, 'glute-bridge', true],
+      ['airSquat', 'Air Squat', 'bodyweight', 0, 0, 'air-squat'],
+    ['pistolSquat', 'Pistol Squat', 'bodyweight', 0, 0, 'air-squat'],
+    ['bodyweightLunge', 'Bodyweight Lunge', 'bodyweight', 0, 0, 'walking-lunge'],
   ],
   Chest: [
     ['bench', 'Bench Press', 'barbell', 80, 2.5, 'bench-press'],
@@ -92,6 +95,10 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['backExtension', 'Back Extension', 'bodyweight', 0, 0, 'back-extension'],
     ['deadHang', 'Dead Hang', 'bodyweight', 0, 0, 'pull-up', true],
     ['supermanHold', 'Superman Hold', 'bodyweight', 0, 0, 'plank', true],
+      ['cleanAndJerk', 'Clean and Jerk', 'barbell', 40, 2.5, 'clean-and-jerk'],
+    ['snatch', 'Snatch', 'barbell', 30, 2.5, 'clean-and-jerk'],
+    ['hangPowerClean', 'Hang Power Clean', 'barbell', 40, 2.5, 'clean-and-jerk'],
+    ['kettlebellSwing', 'Kettlebell Swing', 'weight', 16, 4, 'kettlebell-swing'],
   ],
   Shoulders: [
     ['ohp', 'Overhead Press', 'barbell', 40, 2.5, 'overhead-press'],
@@ -100,6 +107,9 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['rearDeltFly', 'Rear Delt Fly', 'weight', 6, 1, 'reverse-fly'],
     ['egymShoulderPress', 'eGym Shoulder Press', 'weight', 25, 2, 'egym-shoulder-press'],
     ['shrug', 'Shrug', 'barbell', 60, 5, 'dumbbell-shrug'],
+      ['thruster', 'Thruster', 'barbell', 30, 2.5, 'thruster'],
+    ['pushJerk', 'Push Jerk', 'barbell', 40, 2.5, 'clean-and-jerk'],
+    ['handstandPushup', 'Handstand Push-up', 'bodyweight', 0, 0, 'handstand-push-up'],
   ],
   Arms: [
     ['barbellCurl', 'Barbell Curl', 'barbell', 25, 2.5, 'barbell-curl'],
@@ -121,6 +131,21 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['sidePlank', 'Side Plank', 'bodyweight', 0, 0, 'side-plank', true],
     ['hollowHold', 'Hollow Hold', 'bodyweight', 0, 0, 'hollow-hold', true],
     ['lSit', 'L-Sit', 'bodyweight', 0, 0, 'l-sit', true],
+    ['toesToBar', 'Toes-to-Bar', 'bodyweight', 0, 0, 'hanging-leg-raise'],
+  ],
+  Conditioning: [
+    ['burpee', 'Burpee', 'bodyweight', 0, 0, 'burpee'],
+    ['boxJump', 'Box Jump', 'bodyweight', 0, 0, 'box-jump'],
+    ['doubleUnder', 'Double-Under', 'bodyweight', 0, 0, 'double-under'],
+    ['wallBall', 'Wall Ball', 'weight', 9, 1, 'wall-ball'],
+    ['run', 'Run', 'bodyweight', 0, 0, 'run'],
+    ['rowErg', 'Row', 'bodyweight', 0, 0, 'rower'],
+    ['climber', 'Climbers', 'bodyweight', 0, 0, 'burpee'],
+    ['jumpingJack', 'Jumping Jacks', 'bodyweight', 0, 0, 'run'],
+    ['jump', 'Jumps', 'bodyweight', 0, 0, 'box-jump'],
+    ['standup', 'Standups', 'bodyweight', 0, 0, 'plank'],
+    ['sprint', 'Sprint', 'bodyweight', 0, 0, 'run'],
+    ['rest', 'Rest', 'bodyweight', 0, 0, 'hollow-hold'],
   ],
 }
 

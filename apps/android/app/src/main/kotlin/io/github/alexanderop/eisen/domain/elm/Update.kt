@@ -9,6 +9,7 @@ import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.active
 import io.github.alexanderop.eisen.domain.canRate
+import io.github.alexanderop.eisen.domain.findWod
 import io.github.alexanderop.eisen.domain.rirOf
 import io.github.alexanderop.eisen.domain.order
 import io.github.alexanderop.eisen.domain.transition
@@ -44,6 +45,7 @@ fun update(msg: Msg, model: Model, env: Env): Next {
         is Msg.Data -> data(msg, model, env)
         is Msg.Hold -> hold(msg, model, env)
         is Msg.Timer -> timer(msg, model, env)
+        is Msg.Wods -> wods(msg, model, env)
         is Msg.Rest -> rest(msg, model, env)
         is Msg.Health -> health(msg, model)
         is Msg.App -> app(msg, model, env)
@@ -69,11 +71,17 @@ const val DISCARD_UNDO_MS = 6_000L
 private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     // The workout belongs to the session. Nothing else may put a different one on disk.
     var model = if (after.state.active == after.session.active) after else after.copy(state = after.state.copy(active = after.session.active))
+    val extra = mutableListOf<Cmd>()
     // A backup, an erase or a closed workout screen took the set away: the timer goes without logging.
     if (model.hold?.let { holdFits(model, it) } == false) model = model.copy(hold = null)
     // A finished, discarded or erased workout, a removed or moved exercise, an ended rest: the screen goes.
     if (model.restScreen?.let { restScreenFits(model, it) } == false) model = model.copy(restScreen = null)
-    val extra = mutableListOf<Cmd>()
+    // A backup or an erase took the WOD away whose detail showed.
+    val detail = model.wods.detail
+    if (detail != null && findWod(model.state.wods, detail) == null) model = model.copy(wods = model.wods.copy(detail = null))
+    // The draft file holds the builder's draft, or the one from before the process ended.
+    val kept = keptDraft(model.wods)
+    if (kept != keptDraft(before.wods)) extra += Cmd.SaveDraft(kept)
     if (before.session is Session.Discarded && model.session !is Session.Discarded) {
         extra += Cmd.Ui(UiEvent.DismissSnackbar(DISCARD_SNACKBAR))
     }
@@ -86,6 +94,9 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     }
     return model to cmds + extra
 }
+
+/** What the draft file keeps: the open draft without its question, or the one waiting to be continued. */
+fun keptDraft(wods: WodsModel): WodDraft? = (wods.draft ?: wods.pending)?.copy(asking = false)
 
 /**
  * Health Connect follows the history: a new or edited workout is written, a deleted one removed.
@@ -257,7 +268,17 @@ private fun moveBy(msg: Msg.WorkoutScreen.MoveBy, model: Model, env: Env): Next 
 
 private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
     val nav = model.nav
+    // The Timer tab tapped again while it shows: back to the top of its page. A builder with changes asks first.
+    if (msg is Msg.Nav.SelectTab && msg.tab == Tab.TIMER && nav.tab == Tab.TIMER && model.timer == null) {
+        val top = model.copy(timerSetup = null, wods = model.wods.copy(detail = null), nav = nav.copy(timerTop = nav.timerTop + 1), now = env.now)
+        return if (model.wods.draft != null && nav.timerPage == TimerPage.WODS) wods(Msg.Wods.Leave, top, env) else top.only()
+    }
+    if (msg is Msg.Nav.ShowTimerPage) {
+        if (msg.page == nav.timerPage) return model.only()
+        return model.copy(nav = nav.copy(timerPage = msg.page), now = env.now) and Cmd.SaveTimerPage(msg.page)
+    }
     val next = when (msg) {
+        is Msg.Nav.ShowTimerPage -> nav
         is Msg.Nav.SelectTab -> nav.copy(tab = msg.tab)
         is Msg.Nav.ShowHistory -> nav.copy(history = msg.view)
         Msg.Nav.OpenWorkout -> nav.copy(workoutOpen = true)
@@ -275,6 +296,9 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
             nav.tab == Tab.TIMER && model.timerSetup != null -> return timer(Msg.Timer.CloseSetup, model, env)
+            // The builder asks before it loses changes; the detail goes back to the list.
+            nav.tab == Tab.TIMER && nav.timerPage == TimerPage.WODS && model.wods.draft != null -> return wods(Msg.Wods.Leave, model, env)
+            nav.tab == Tab.TIMER && nav.timerPage == TimerPage.WODS && model.wods.detail != null -> return wods(Msg.Wods.Close, model, env)
             nav.tab != Tab.HOME -> nav.copy(tab = Tab.HOME)
             else -> nav
         }
@@ -283,6 +307,7 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             history = msg.history,
             workoutOpen = msg.workoutOpen,
             routine = msg.routine?.takeIf { id -> model.state.routines.any { it.id == id } },
+            timerPage = nav.timerPage,
         )
     }
     // Whatever comes on screen reads the clock, so Home and Progress date themselves with today even

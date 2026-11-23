@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.domain
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
@@ -304,6 +306,7 @@ fun timerCues(config: TimerConfig, calls: TimerCalls): List<TimerCue> {
 data class TimerPreset(val id: String, val name: String, val config: TimerConfig)
 
 /** A finished timer in the history. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class TimerSession(
     val id: String,
@@ -317,6 +320,8 @@ data class TimerSession(
     val rounds: Int,
     /** False when the lifter stopped it before the end. A For Time the lifter finished is complete. */
     val completed: Boolean,
+    /** The WOD this was a run of. Left out of the file for a plain timer, as the PWA leaves it out. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val wodId: String? = null,
 )
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
@@ -333,6 +338,8 @@ data class TimerRun(
     val paused: Long = 0,
     /** Rounds the lifter tapped, in AMRAP and For Time. */
     val taps: Int = 0,
+    /** The WOD being done, copied in so the run still reads right when the WOD is edited or deleted. */
+    val wod: Wod? = null,
 )
 
 /** Milliseconds the run has been going, pauses not counted. */
@@ -342,13 +349,28 @@ fun activeTime(run: TimerRun, now: Long): Long = maxOf(0, (run.pausedAt ?: now) 
 fun isTimerOver(run: TimerRun, now: Long): Boolean = timerView(run.config, activeTime(run, now)).phase == TimerPhase.DONE
 
 /**
+ * Taps a For Time WOD takes from start to finish: one per round, or with a single round one per
+ * item, ticked off in order. Null where the clock ends the run or the lifter counts freely.
+ */
+fun wodSteps(workout: Wod): Int? {
+    if (workout.timer.mode != TimerMode.FOR_TIME) return null
+    return if (workout.rounds > 1) workout.rounds else workout.items.size
+}
+
+/**
  * The history entry of a run that ends at [now]. [finished] is true when the timer ran out or the
  * lifter finished a For Time, false when it was stopped early. Null when it ends in the lead-in:
- * nothing was done yet.
+ * nothing was done yet. A For Time WOD is only complete with every step tapped off: a clock stopped
+ * after one of three rounds is not a time to beat.
  */
 fun timerSession(run: TimerRun, now: Long, finished: Boolean): TimerSession? {
     val view = timerView(run.config, activeTime(run, now))
     if (view.phase == TimerPhase.READY) return null
+    val steps = run.wod?.let(::wodSteps)
+    val allDone = steps == null || run.taps >= steps
+    // With a single round the taps count items, not rounds.
+    val single = steps != null && run.wod?.rounds == 1
+    val tapped = if (countsRoundsByTap(run.config.mode)) run.taps else view.roundsDone
     return TimerSession(
         id = run.id,
         name = run.name,
@@ -356,8 +378,9 @@ fun timerSession(run: TimerRun, now: Long, finished: Boolean): TimerSession? {
         startedAt = run.startedAt,
         finishedAt = now,
         seconds = (view.elapsed.toDouble() / SECOND).roundToLong().toInt(),
-        rounds = if (countsRoundsByTap(run.config.mode)) run.taps else view.roundsDone,
-        completed = finished,
+        rounds = if (single) (if (allDone) 1 else 0) else tapped,
+        completed = finished && allDone,
+        wodId = run.wod?.id,
     )
 }
 

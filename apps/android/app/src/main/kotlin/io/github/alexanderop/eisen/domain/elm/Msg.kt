@@ -7,6 +7,7 @@ import io.github.alexanderop.eisen.domain.TimerCalls
 import io.github.alexanderop.eisen.domain.TimerConfig
 import io.github.alexanderop.eisen.domain.TimerMode
 import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.WodItem
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.Workout as FinishedWorkout
 
@@ -48,6 +49,9 @@ sealed interface Msg {
 
         /** The "Log" and "Progress" switch at the top of the History tab. */
         data class ShowHistory(val view: HistoryView) : Nav
+
+        /** The "WODs" and "Timers" switch at the top of the Timer tab. */
+        data class ShowTimerPage(val page: TimerPage) : Nav
         data object OpenWorkout : Nav
         data object CloseWorkout : Nav
         data class OpenRoutine(val id: String) : Nav
@@ -241,8 +245,14 @@ sealed interface Msg {
         /** "Finish" in For Time: the lifter is done, the run counts as completed. */
         data object Finish : Timer
 
-        /** "+1 round" in AMRAP and For Time. A second one within [TAP_GUARD_MILLIS] is a bounce and does not count. */
+        /**
+         * "+1 round" in AMRAP and For Time. A second one within [TAP_GUARD_MILLIS] is a bounce and does not count.
+         * In a For Time WOD it is "Round done", "Next" or "Done", and the tap of the last step ends the run as completed.
+         */
         data object Tap : Timer
+
+        /** "Not finished? Undo" on the result of a WOD its last tap ended: that tap is taken back and the run goes on. */
+        data object UndoFinish : Timer
 
         /** "−1" next to the count: takes back a round counted by mistake. */
         data object Untap : Timer
@@ -262,6 +272,84 @@ sealed interface Msg {
         /** A swipe on a finished timer in the history: gone at once, with Undo. */
         data class DeleteSession(val id: String) : Timer
         data object UndoDeleteSession : Timer
+    }
+
+    /**
+     * The WODs page of the Timer tab: the list, a WOD's detail and the builder. The builder's Msgs
+     * change the draft in [WodsModel.draft]; only [Save] puts it into the state. A Msg about a WOD,
+     * a draft or an item that is not there changes nothing.
+     */
+    sealed interface Wods : Msg {
+        /** A chip over the benchmarks. */
+        data class Filter(val filter: WodFilter) : Wods
+
+        /** A card: its detail opens. */
+        data class Open(val id: String) : Wods
+
+        /** Back from the detail to the list. */
+        data object Close : Wods
+
+        /**
+         * The play button of a card or "Start" in the detail: straight into the lead-in. Follows the
+         * timer's rules, and leaves the config its mode opens with as it is.
+         */
+        data class Start(val id: String) : Wods
+
+        /** "New WOD": the builder opens empty. */
+        data object New : Wods
+
+        /** "Edit" of one of the lifter's own. */
+        data class Edit(val id: String) : Wods
+
+        /** "Edit a copy" of a benchmark: the builder opens on "<Name> (mine)", a new WOD that is only stored on Save. */
+        data class Copy(val id: String) : Wods
+
+        /** One of the lifter's own: gone at once, with Undo. Its runs stay in the history. */
+        data class Delete(val id: String) : Wods
+        data object UndoDelete : Wods
+
+        /** The name field. Cut to [io.github.alexanderop.eisen.domain.MAX_WOD_NAME], may be blank while typing. */
+        data class Rename(val name: String) : Wods
+
+        /** The type: keeps the items, the numbers start over at the mode's defaults. */
+        data class SetMode(val mode: TimerMode) : Wods
+
+        /** A wheel of the numbers settled. */
+        data class SetTimer(val config: TimerConfig) : Wods
+        data class SetRounds(val rounds: Int) : Wods
+
+        /** A scheme chip or the custom field. Empty: every round as the items say. */
+        data class SetScheme(val scheme: List<Int>) : Wods
+
+        /** An exercise from the picker, with a sensible start, see [startItem]. */
+        data class AddItem(val exerciseId: String) : Wods
+
+        /** The picker's "Add 3": the exercises in the order they were ticked, each with its start. */
+        data class AddItems(val exerciseIds: List<String>) : Wods
+
+        /** "Continue" on the card of a draft from before the process ended: the builder opens on it. */
+        data object ContinueDraft : Wods
+
+        /** "Discard" on that card: the draft is gone. */
+        data object DiscardDraft : Wods
+
+        /** The item editor. By index, checked against the exercise, since a WOD may hold one exercise twice. */
+        data class UpdateItem(val index: Int, val item: WodItem) : Wods
+        data class MoveItem(val from: Int, val to: Int) : Wods
+        data class RemoveItem(val index: Int, val exerciseId: String) : Wods
+
+        /**
+         * Enabled with at least one item. Goes on to the detail of the saved WOD. An edit that changes
+         * the work gives it a new id, so its earlier runs stay in the history but are no longer its best.
+         */
+        data object Save : Wods
+
+        /** Back or the close button of the builder: asks "Discard changes?" when something would be lost. */
+        data object Leave : Wods
+
+        /** The answers to "Discard changes?". */
+        data object KeepEditing : Wods
+        data object Discard : Wods
     }
 
     /** The rest timer. Its alarms and the buttons on its notification end up here too. */
@@ -362,6 +450,9 @@ sealed interface AddTarget {
 
     /** The running workout only, like [WorkoutEvent.AddExercise]. */
     data object Workout : AddTarget
+
+    /** The WOD in the builder, like [Msg.Wods.AddItem]. */
+    data object Wod : AddTarget
 }
 
 /** Why Health Connect's permission is checked, so the answer goes to the right place. */

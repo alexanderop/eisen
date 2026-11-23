@@ -142,16 +142,17 @@ describe('timers in the history', () => {
 describe('migrate to version 7', () => {
   it('adds the timers to a version 6 state and keeps everything else', () => {
     const { timerCalls: _, ...settings } = freshState('lb').settings
-    const { timerPresets: _p, timerSessions: _s, timerConfigs: _c, ...rest } = freshState('lb')
+    const { timerPresets: _p, timerSessions: _s, timerConfigs: _c, wods: _w, ...rest } = freshState('lb')
     const v6 = { ...rest, version: 6, settings, nextRoutineId: 'B' }
     const migrated = migrate(structuredClone(v6))
     if (!isAppState(migrated)) throw new Error('not a valid state')
-    expect(migrated.version).toBe(7)
+    expect(migrated.version).toBe(8)
     expect(migrated.settings).toEqual(freshState('lb').settings)
     expect(migrated.settings.timerCalls).toEqual(DEFAULT_TIMER_CALLS)
     expect(migrated.timerPresets).toEqual([])
     expect(migrated.timerSessions).toEqual([])
     expect(migrated.timerConfigs).toEqual(DEFAULT_TIMERS)
+    expect(migrated.wods).toEqual([])
     expect(migrated.nextRoutineId).toBe('B')
   })
 
@@ -166,10 +167,10 @@ describe('migrate to version 7', () => {
     }
     const migrated = migrate(v1)
     expect(isAppState(migrated)).toBe(true)
-    expect(migrated).toMatchObject({ version: 7, timerSessions: [], timerConfigs: DEFAULT_TIMERS })
+    expect(migrated).toMatchObject({ version: 8, timerSessions: [], timerConfigs: DEFAULT_TIMERS, wods: [] })
   })
 
-  it('rejects a version 7 state without its timers', () => {
+  it('rejects a state without its timers', () => {
     const { timerSessions: _, ...broken } = freshState('kg')
     expect(isAppState(broken)).toBe(false)
   })

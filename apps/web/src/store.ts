@@ -27,9 +27,11 @@ import {
 } from './domain/program'
 import { lastSetReps } from './domain/records'
 import { withCorrectedReps } from './domain/rest'
-import { freshState, isAppState, migrate, type AppState } from './domain/state'
+import { cleanWods, freshState, isAppState, migrate, type AppState } from './domain/state'
 import { timerConfig, type TimerConfig, type TimerPreset, type TimerSession } from './domain/timer'
 import type { Unit } from './domain/units'
+import { isLibraryWod, type Wod } from './domain/wod'
+import { savedVersion } from './domain/wodScreens'
 
 const STORAGE_KEY = 'eisen:v1'
 
@@ -305,6 +307,24 @@ export function deleteTimerPreset(id: string): void {
   state.timerPresets = state.timerPresets.filter((preset) => preset.id !== id)
 }
 
+/**
+ * Saves a WOD from the builder: a new one goes last, an edited one keeps its place. An edit that
+ * changes the work is saved under a new id, see {@link savedVersion}.
+ */
+export function saveWod(draft: Wod): Wod {
+  const id = isLibraryWod(draft.id) ? newId() : draft.id
+  const index = state.wods.findIndex((entry) => entry.id === id)
+  const saved = savedVersion({ ...draft, id }, index === -1 ? undefined : state.wods[index], newId())
+  if (index === -1) state.wods.push(saved)
+  else state.wods[index] = saved
+  return saved
+}
+
+/** Its runs stay in the history. */
+export function deleteWod(id: string): void {
+  state.wods = state.wods.filter((entry) => entry.id !== id)
+}
+
 export function addRoutine(): Routine {
   const taken = new Set(state.routines.map((routine) => routine.name))
   let number = state.routines.length + 1
@@ -378,7 +398,7 @@ export function importData(json: string): boolean {
   try {
     const parsed = migrate(JSON.parse(json))
     if (!isAppState(parsed)) return false
-    Object.assign(state, parsed)
+    Object.assign(state, { ...parsed, wods: cleanWods(parsed.wods) })
     lastChanges.value = null
     return true
   } catch {

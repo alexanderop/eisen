@@ -75,6 +75,11 @@ import io.github.alexanderop.eisen.domain.holdText
 import io.github.alexanderop.eisen.domain.timerSeconds
 import io.github.alexanderop.eisen.domain.timerSummary
 import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.TimerPage
+import io.github.alexanderop.eisen.domain.elm.openWod
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import io.github.alexanderop.eisen.domain.elm.Msg
 import io.github.alexanderop.eisen.domain.elm.PRESET_NAME_LENGTH
 import io.github.alexanderop.eisen.domain.elm.TimerSetup
@@ -106,7 +111,7 @@ fun modeLine(mode: TimerMode): String = when (mode) {
 }
 
 
-private val VoiceIcon = pathIcon(
+internal val VoiceIcon = pathIcon(
     "Voice",
     "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z",
     "M16 9a5 5 0 0 1 0 6",
@@ -117,27 +122,81 @@ private val SaveIcon = pathIcon("Save", "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0
 private val CardShape = RoundedCornerShape(18.dp)
 
 /**
- * The Timer tab: the four modes and the saved timers, or the setup of one of them. Which sheet or
- * dialog is open stays here; the setup itself is in the model ([Model.timerSetup]).
+ * The Timer tab: the WODs and the timers on two pages, a WOD's detail, the builder, or the setup of a
+ * timer. Which sheet or dialog is open stays here; the rest is in the model ([Model.timerSetup],
+ * [Model.wods], [io.github.alexanderop.eisen.domain.elm.Navigation.timerPage]).
  */
 @Composable
 fun TimerScreen(model: Model, dispatch: (Msg) -> Unit) {
     val setup = model.timerSetup
-    if (setup != null) TimerSetupScreen(model, setup, dispatch) else TimerHome(model, dispatch)
+    val draft = model.wods.draft
+    val detail = openWod(model)
+    val wods = model.nav.timerPage == TimerPage.WODS
+    when {
+        setup != null -> TimerSetupScreen(model, setup, dispatch)
+        wods && draft != null -> WodBuilder(model, draft, dispatch)
+        wods && detail != null -> WodDetail(model, detail, dispatch)
+        else -> Column(Modifier.fillMaxSize()) {
+            Text(
+                "Timer",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.6).sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).semantics { heading() },
+            )
+            PageSwitch(model.nav.timerPage) { dispatch(Msg.Nav.ShowTimerPage(it)) }
+            if (wods) WodsPage(model, dispatch) else TimerHome(model, dispatch)
+        }
+    }
 }
+
+/** "WODs" or "Timers", like the Log and Progress switch of the History tab. */
+@Composable
+private fun PageSwitch(page: TimerPage, onChange: (TimerPage) -> Unit) {
+    val pages = listOf(TimerPage.WODS to "WODs", TimerPage.TIMERS to "Timers")
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        pages.forEachIndexed { index, (option, label) ->
+            SegmentedButton(
+                selected = page == option,
+                onClick = { onChange(option) },
+                shape = SegmentedButtonDefaults.itemShape(index, pages.size),
+                icon = {},
+                colors = segmentColors(),
+                label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            )
+        }
+    }
+}
+
+@Composable
+internal fun segmentColors() = SegmentedButtonDefaults.colors(
+    activeContainerColor = EisenColors.Primary,
+    activeContentColor = EisenColors.OnPrimary,
+    inactiveContainerColor = EisenColors.Card,
+    inactiveContentColor = EisenColors.MutedForeground,
+    activeBorderColor = EisenColors.Primary,
+    inactiveBorderColor = EisenColors.Border,
+)
 
 @Composable
 private fun TimerHome(model: Model, dispatch: (Msg) -> Unit) {
     val presets = model.state.timerPresets
     val haptics = rememberHaptics()
+    val list = androidx.compose.foundation.lazy.rememberLazyListState()
+    // A tap on the Timer tab while it shows goes back to the top, once per tap.
+    var top by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(model.nav.timerTop) }
+    LaunchedEffect(model.nav.timerTop) {
+        if (model.nav.timerTop != top) {
+            top = model.nav.timerTop
+            list.animateScrollToItem(0)
+        }
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        state = list,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "title") {
-            Text("Timer", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.6).sp, modifier = Modifier.semantics { heading() })
-        }
         item(key = "modes") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 for (row in TIMER_MODES.chunked(2)) {
@@ -222,12 +281,12 @@ private fun PresetRow(preset: TimerPreset, onOpen: () -> Unit, onStart: () -> Un
                 onClick = onStart,
                 modifier = Modifier.size(48.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = EisenColors.Primary, contentColor = EisenColors.OnPrimary),
-            ) { Icon(PlayIcon, contentDescription = "Start ${preset.name}", modifier = Modifier.size(20.dp)) }
+            ) { Icon(StartIcon, contentDescription = "Start ${preset.name}", modifier = Modifier.size(20.dp)) }
         }
     }
 }
 
-private val PlayIcon = pathIcon("Play", "M7 4.5v15l12-7.5z", filled = true)
+internal val StartIcon = pathIcon("Play", "M7 4.5v15l12-7.5z", filled = true)
 
 private val OnDestructive = Color(0xFF2B0A0A)
 
@@ -369,7 +428,7 @@ private fun TimerSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) ->
 }
 
 @Composable
-private fun SetupRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun SetupRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -393,7 +452,7 @@ private fun SetupRow(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 }
 
 @Composable
-private fun WheelBox(header: String, modifier: Modifier, content: @Composable () -> Unit) {
+internal fun WheelBox(header: String, modifier: Modifier, content: @Composable () -> Unit) {
     Column(
         modifier
             .clip(RoundedCornerShape(14.dp))
@@ -445,7 +504,7 @@ private fun RoundsWheel(value: Int, row: Dp, modifier: Modifier, onChange: (Int)
     }
 }
 
-private fun spokenSeconds(seconds: Int, off: String?): String = when {
+internal fun spokenSeconds(seconds: Int, off: String?): String = when {
     seconds == 0 && off != null -> off
     seconds < 60 -> "$seconds seconds"
     seconds % 60 == 0 -> if (seconds == 60) "1 minute" else "${seconds / 60} minutes"

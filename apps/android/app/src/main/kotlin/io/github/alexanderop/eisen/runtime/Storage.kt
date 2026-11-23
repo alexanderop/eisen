@@ -12,6 +12,8 @@ import io.github.alexanderop.eisen.domain.StateJson
 import io.github.alexanderop.eisen.domain.TimerRun
 import io.github.alexanderop.eisen.domain.decodeState
 import io.github.alexanderop.eisen.domain.elm.RestState
+import io.github.alexanderop.eisen.domain.elm.TimerPage
+import io.github.alexanderop.eisen.domain.elm.WodDraft
 import io.github.alexanderop.eisen.domain.encodeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +74,35 @@ internal object TimerFile {
 }
 
 /**
+ * The WOD builder's draft, in a small file next to the state, so a draft survives the end of the
+ * process. Not part of the state or of backups.
+ */
+internal object DraftFile {
+    private const val NAME = "wod-draft.json"
+    private val writer = Executors.newSingleThreadExecutor()
+
+    fun read(context: Context): WodDraft? =
+        runCatching { StateJson.decodeFromString(WodDraft.serializer(), File(context.filesDir, NAME).readText()) }.getOrNull()
+
+    /** Off the main thread, in order. Null deletes the file. */
+    fun write(context: Context, draft: WodDraft?) {
+        val target = File(context.filesDir, NAME)
+        writer.execute {
+            runCatching {
+                if (draft == null) {
+                    target.delete()
+                } else {
+                    val text = StateJson.encodeToString(WodDraft.serializer(), draft)
+                    val temp = File(target.parentFile, target.name + ".tmp")
+                    temp.writeText(text)
+                    if (!temp.renameTo(target)) target.writeText(text)
+                }
+            }
+        }
+    }
+}
+
+/**
  * Android-only preferences. Their names and keys are the ones earlier versions used, so an update
  * keeps a running rest, the Health Connect switch and the "asked for notifications" mark.
  */
@@ -81,6 +112,8 @@ internal object Prefs {
     private const val HEALTH_ENABLED = "sync_enabled"
     private const val WORKOUT = "workout_screen"
     private const val ASKED_NOTIFICATIONS = "askedNotifications"
+    private const val TIMER = "timer_tab"
+    private const val TIMER_PAGE = "page"
 
     fun rest(context: Context): RestState? {
         val prefs = context.getSharedPreferences(REST, Context.MODE_PRIVATE)
@@ -104,6 +137,14 @@ internal object Prefs {
 
     fun markNotificationsAsked(context: Context) =
         context.getSharedPreferences(WORKOUT, Context.MODE_PRIVATE).edit { putBoolean(ASKED_NOTIFICATIONS, true) }
+
+    fun timerPage(context: Context): TimerPage {
+        val name = context.getSharedPreferences(TIMER, Context.MODE_PRIVATE).getString(TIMER_PAGE, null)
+        return TimerPage.entries.firstOrNull { it.name == name } ?: TimerPage.WODS
+    }
+
+    fun saveTimerPage(context: Context, page: TimerPage) =
+        context.getSharedPreferences(TIMER, Context.MODE_PRIVATE).edit { putString(TIMER_PAGE, page.name) }
 
     /** Before Android 13 every app may show notifications. */
     fun notificationsGranted(context: Context): Boolean =

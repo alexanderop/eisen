@@ -136,6 +136,11 @@ internal object TimerSystem {
             .setContentIntent(openApp())
             .addAction(0, current.toggleLabel, broadcast(if (current.paused) ACTION_RESUME else ACTION_PAUSE))
             .addAction(0, current.endLabel, broadcast(ACTION_END))
+        // A WOD says what to do in this round: in one line, and a line each when the notification is open.
+        if (current.lines.isNotEmpty()) {
+            builder.setContentText(listOf(current.text, current.lines.joinToString(", ")).joinToString(" · "))
+                .setStyle(NotificationCompat.BigTextStyle().bigText((listOf(current.text) + current.lines).joinToString("\n")))
+        }
         val base = current.base
         if (base != null) {
             builder.setShowWhen(true).setWhen(base).setUsesChronometer(true).setChronometerCountDown(current.countDown)

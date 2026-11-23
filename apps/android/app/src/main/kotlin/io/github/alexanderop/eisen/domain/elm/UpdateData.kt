@@ -158,6 +158,7 @@ internal fun exercises(msg: Msg.Exercises, model: Model, env: Env): Next = when 
                 null -> created.only()
                 is AddTarget.Routine -> addSlot(created, target.id, exercise.id)
                 AddTarget.Workout -> workout(WorkoutEvent.AddExercise(exercise.id), created, env)
+                AddTarget.Wod -> wods(Msg.Wods.AddItem(exercise.id), created, env)
             }
         }
     }

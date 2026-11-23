@@ -19,7 +19,7 @@ enum class Equipment(val label: String) {
     @SerialName("bodyweight") BODYWEIGHT("Bodyweight"),
 }
 
-val GROUPS = listOf("Legs", "Chest", "Back", "Shoulders", "Arms", "Core")
+val GROUPS = listOf("Legs", "Chest", "Back", "Shoulders", "Arms", "Core", "Conditioning")
 const val CUSTOM_GROUP = "Custom"
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -72,6 +72,9 @@ val CATALOG: List<Exercise> = listOf(
     row("Legs", "egymSquat", "eGym Squat", W, 60, 2, "egym-squat"),
     row("Legs", "wallSit", "Wall Sit", BW, 0, 0, "wall-sit", TIMED),
     row("Legs", "gluteBridgeHold", "Glute Bridge Hold", BW, 0, 0, "glute-bridge", TIMED),
+    row("Legs", "airSquat", "Air Squat", BW, 0, 0, "air-squat"),
+    row("Legs", "pistolSquat", "Pistol Squat", BW, 0, 0, "air-squat"),
+    row("Legs", "bodyweightLunge", "Bodyweight Lunge", BW, 0, 0, "walking-lunge"),
     row("Chest", "bench", "Bench Press", B, 80, 2.5, "bench-press"),
     row("Chest", "inclineBench", "Incline Bench Press", B, 50, 2.5, "incline-bench-press"),
     row("Chest", "closeGripBench", "Close-Grip Bench Press", B, 50, 2.5, "bench-press"),
@@ -95,12 +98,19 @@ val CATALOG: List<Exercise> = listOf(
     row("Back", "backExtension", "Back Extension", BW, 0, 0, "back-extension"),
     row("Back", "deadHang", "Dead Hang", BW, 0, 0, "pull-up", TIMED),
     row("Back", "supermanHold", "Superman Hold", BW, 0, 0, "plank", TIMED),
+    row("Back", "cleanAndJerk", "Clean and Jerk", B, 40, 2.5, "clean-and-jerk"),
+    row("Back", "snatch", "Snatch", B, 30, 2.5, "clean-and-jerk"),
+    row("Back", "hangPowerClean", "Hang Power Clean", B, 40, 2.5, "clean-and-jerk"),
+    row("Back", "kettlebellSwing", "Kettlebell Swing", W, 16, 4, "kettlebell-swing"),
     row("Shoulders", "ohp", "Overhead Press", B, 40, 2.5, "overhead-press"),
     row("Shoulders", "dumbbellShoulderPress", "Dumbbell Shoulder Press", W, 14, 2, "shoulder-press"),
     row("Shoulders", "lateralRaise", "Lateral Raise", W, 6, 1, "lateral-raise"),
     row("Shoulders", "rearDeltFly", "Rear Delt Fly", W, 6, 1, "reverse-fly"),
     row("Shoulders", "egymShoulderPress", "eGym Shoulder Press", W, 25, 2, "egym-shoulder-press"),
     row("Shoulders", "shrug", "Shrug", B, 60, 5, "dumbbell-shrug"),
+    row("Shoulders", "thruster", "Thruster", B, 30, 2.5, "thruster"),
+    row("Shoulders", "pushJerk", "Push Jerk", B, 40, 2.5, "clean-and-jerk"),
+    row("Shoulders", "handstandPushup", "Handstand Push-up", BW, 0, 0, "handstand-push-up"),
     row("Arms", "barbellCurl", "Barbell Curl", B, 25, 2.5, "barbell-curl"),
     row("Arms", "dumbbellCurl", "Dumbbell Curl", W, 10, 1, "biceps-curl"),
     row("Arms", "hammerCurl", "Hammer Curl", W, 10, 1, "hammer-curl"),
@@ -118,6 +128,19 @@ val CATALOG: List<Exercise> = listOf(
     row("Core", "sidePlank", "Side Plank", BW, 0, 0, "side-plank", TIMED),
     row("Core", "hollowHold", "Hollow Hold", BW, 0, 0, "hollow-hold", TIMED),
     row("Core", "lSit", "L-Sit", BW, 0, 0, "l-sit", TIMED),
+    row("Core", "toesToBar", "Toes-to-Bar", BW, 0, 0, "hanging-leg-raise"),
+    row("Conditioning", "burpee", "Burpee", BW, 0, 0, "burpee"),
+    row("Conditioning", "boxJump", "Box Jump", BW, 0, 0, "box-jump"),
+    row("Conditioning", "doubleUnder", "Double-Under", BW, 0, 0, "double-under"),
+    row("Conditioning", "wallBall", "Wall Ball", W, 9, 1, "wall-ball"),
+    row("Conditioning", "run", "Run", BW, 0, 0, "run"),
+    row("Conditioning", "rowErg", "Row", BW, 0, 0, "rower"),
+    row("Conditioning", "climber", "Climbers", BW, 0, 0, "burpee"),
+    row("Conditioning", "jumpingJack", "Jumping Jacks", BW, 0, 0, "run"),
+    row("Conditioning", "jump", "Jumps", BW, 0, 0, "box-jump"),
+    row("Conditioning", "standup", "Standups", BW, 0, 0, "plank"),
+    row("Conditioning", "sprint", "Sprint", BW, 0, 0, "run"),
+    row("Conditioning", "rest", "Rest", BW, 0, 0, "hollow-hold"),
 )
 
 private val BY_ID = CATALOG.associateBy { it.id }

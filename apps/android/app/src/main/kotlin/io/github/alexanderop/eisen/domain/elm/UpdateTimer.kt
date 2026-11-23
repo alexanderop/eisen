@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.domain.elm
 
+import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.DEFAULT_TIMERS
 import io.github.alexanderop.eisen.domain.Env
 import io.github.alexanderop.eisen.domain.Feel
@@ -23,7 +24,21 @@ import io.github.alexanderop.eisen.domain.timerSession
 import io.github.alexanderop.eisen.domain.timerSummary
 import io.github.alexanderop.eisen.domain.timerView
 import io.github.alexanderop.eisen.domain.TimerView
+import io.github.alexanderop.eisen.domain.Wod
+import io.github.alexanderop.eisen.domain.WodItem
+import io.github.alexanderop.eisen.domain.FindExercise
+import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.itemAmount
+import io.github.alexanderop.eisen.domain.itemText
+import io.github.alexanderop.eisen.domain.wodDone
+import io.github.alexanderop.eisen.domain.wodName
+import io.github.alexanderop.eisen.domain.wodStep
+import io.github.alexanderop.eisen.domain.findExercise
+import io.github.alexanderop.eisen.domain.findWod
 import io.github.alexanderop.eisen.domain.holdText
+import io.github.alexanderop.eisen.domain.roundLines
+import io.github.alexanderop.eisen.domain.wodRound
+import io.github.alexanderop.eisen.domain.wodRounds
 
 /*
  * The interval timers (Tabata, EMOM, AMRAP, For Time). What a run sounds like is worked out once,
@@ -133,21 +148,24 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         }
         Msg.Timer.Again -> {
             val finished = model.timer as? TimerState.Finished ?: return model.only()
-            startTimer(model, timerConfig(finished.session.config), finished.session.name, env)
+            // A WOD starts again as it is now, or as it ran when it was deleted meanwhile.
+            val wod = finished.wod?.let { findWod(model.state.wods, it.id) ?: it }
+            if (wod != null) startWod(model, wod, env)
+            else startTimer(model, timerConfig(finished.session.config), finished.session.name, env)
         }
         Msg.Timer.Pause -> {
             val run = running?.run ?: return model.only()
             if (run.pausedAt != null) return model.only()
             val paused = run.copy(pausedAt = env.now)
             model.copy(timer = running.copy(run = paused), now = env.now) and
-                listOf(Cmd.SaveTimer(paused), Cmd.ScheduleTimer(emptyList(), emptyList(), awakeUntil = null), Cmd.ShowTimer(timerNotice(paused, env.now)))
+                listOf(Cmd.SaveTimer(paused), Cmd.ScheduleTimer(emptyList(), emptyList(), awakeUntil = null), Cmd.ShowTimer(timerNotice(paused, env.now, model.state)))
         }
         Msg.Timer.Resume -> {
             val run = running?.run ?: return model.only()
             val pausedAt = run.pausedAt ?: return model.only()
             val resumed = run.copy(pausedAt = null, paused = run.paused + maxOf(0, env.now - pausedAt))
             model.copy(timer = running.copy(run = resumed), now = env.now) and
-                listOf(Cmd.SaveTimer(resumed), schedule(model, resumed, env.now), Cmd.ShowTimer(timerNotice(resumed, env.now)))
+                listOf(Cmd.SaveTimer(resumed), schedule(model, resumed, env.now), Cmd.ShowTimer(timerNotice(resumed, env.now, model.state)))
         }
         Msg.Timer.End -> {
             if (running == null || running.ending) return model.only()
@@ -159,30 +177,50 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         Msg.Timer.SaveAndEnd -> {
             val run = running?.run ?: return model.only()
             val session = timerSession(run, env.now, finished = false) ?: return closeRun(model, env)
-            fileRun(model, session, env.now) and listOf(Cmd.SaveTimer(null), Cmd.HideTimer)
+            fileRun(model, session, run.wod, env.now) and listOf(Cmd.SaveTimer(null), Cmd.HideTimer)
         }
         Msg.Timer.Discard -> if (running == null) model.only() else closeRun(model, env)
         Msg.Timer.Finish -> {
             val run = running?.run ?: return model.only()
-            if (run.config.mode != TimerMode.FOR_TIME) return model.only()
+            // A WOD finishes with the tap of its last step, or ends early through "End".
+            if (run.config.mode != TimerMode.FOR_TIME || run.wod != null) return model.only()
             val session = timerSession(run, env.now, finished = true) ?: return model.only()
-            fileRun(model, session, env.now) and listOf(Cmd.SaveTimer(null), Cmd.HideTimer)
+            fileRun(model, session, run.wod, env.now) and listOf(Cmd.SaveTimer(null), Cmd.HideTimer)
         }
         Msg.Timer.Tap -> {
             val run = running?.run ?: return model.only()
             val phase = timerView(run.config, activeTime(run, env.now)).phase
             if (!countsRoundsByTap(run.config.mode) || run.pausedAt != null || phase == TimerPhase.READY) return model.only()
+            val wod = run.wod
+            if (wod != null && wodDone(wod, run.taps)) return model.only()
             val last = running.tappedAt
             if (last != null && env.now - last in 0 until TAP_GUARD_MILLIS) return model.only()
             val tapped = run.copy(taps = run.taps + 1)
             val felt = if (model.state.settings.haptics) listOf(Cmd.Ui(UiEvent.Haptic(Feel.TAP))) else emptyList()
-            model.copy(timer = running.copy(run = tapped, tappedAt = env.now), now = env.now) and listOf<Cmd>(Cmd.SaveTimer(tapped)) + felt
+            // The tap of the last step stops the clock: the run is complete now, and its result can take that tap back.
+            if (wod != null && wodDone(wod, tapped.taps)) {
+                val session = timerSession(tapped, env.now, finished = true) ?: return model.only()
+                return fileRun(model, session, wod, env.now, undo = tapped) and listOf<Cmd>(Cmd.SaveTimer(null), Cmd.HideTimer) + felt
+            }
+            model.copy(timer = running.copy(run = tapped, tappedAt = env.now), now = env.now) and
+                listOf<Cmd>(Cmd.SaveTimer(tapped)) + noticeAfterTap(model, run, tapped, env.now) + felt
+        }
+        Msg.Timer.UndoFinish -> {
+            val finished = model.timer as? TimerState.Finished ?: return model.only()
+            val ended = finished.undo ?: return model.only()
+            // The run carries on from its timestamps, so the clock shows the time that really passed.
+            val back = ended.copy(taps = maxOf(0, ended.taps - 1))
+            // Like a start: the run covers a rest begun meanwhile and a hold timer.
+            val (stopped, stopCmds) = stopRest(model)
+            stopped.withState { state -> state.copy(timerSessions = state.timerSessions.filter { it.id != finished.session.id }) }
+                .copy(timer = TimerState.Running(back), hold = null, restScreen = null, now = env.now) and
+                stopCmds + listOf(Cmd.SaveTimer(back), schedule(model, back, env.now), Cmd.ShowTimer(timerNotice(back, env.now, model.state)))
         }
         Msg.Timer.Untap -> {
             val run = running?.run ?: return model.only()
             if (!countsRoundsByTap(run.config.mode) || run.taps == 0) return model.only()
             val untapped = run.copy(taps = run.taps - 1)
-            model.copy(timer = running.copy(run = untapped), now = env.now) and Cmd.SaveTimer(untapped)
+            model.copy(timer = running.copy(run = untapped), now = env.now) and listOf<Cmd>(Cmd.SaveTimer(untapped)) + noticeAfterTap(model, run, untapped, env.now)
         }
         is Msg.Timer.CorrectRounds -> {
             val finished = model.timer as? TimerState.Finished ?: return model.only()
@@ -193,14 +231,14 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             if (corrected == session) return model.only()
             // The result and the history entry are the same session.
             model.withState { state -> state.copy(timerSessions = state.timerSessions.map { if (it.id == session.id) corrected else it }) }
-                .copy(timer = TimerState.Finished(corrected)).only()
+                .copy(timer = finished.copy(session = corrected)).only()
         }
         Msg.Timer.Tick -> {
             val run = running?.run ?: return model.only()
             val ticked = model.copy(now = env.now)
             // The phase or the round changed: the notification says so.
-            val notice = timerNotice(run, env.now)
-            if (notice == timerNotice(run, model.now)) ticked.only() else ticked and Cmd.ShowTimer(notice)
+            val notice = timerNotice(run, env.now, model.state)
+            if (notice == timerNotice(run, model.now, model.state)) ticked.only() else ticked and Cmd.ShowTimer(notice)
         }
         Msg.Timer.Done -> if (model.timer !is TimerState.Finished) model.only()
         else model.copy(timer = null, timerSetup = null, nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
@@ -254,28 +292,39 @@ fun defaultPresetName(mode: TimerMode, presets: List<TimerPreset>): String {
 /**
  * A new run of [config] from now: a rest that runs ends and a hold timer closes (the run covers the
  * workout, which stays as it is underneath), and the config becomes the one its mode opens with.
+ * A run of a [wod] carries it and leaves that config alone: a WOD is not how the lifter set the mode.
  */
-private fun startTimer(model: Model, config: TimerConfig, name: String, env: Env): Next {
-    val run = TimerRun(id = env.newId(), name = name, config = config, calls = model.state.settings.timerCalls, startedAt = env.now)
+private fun startTimer(model: Model, config: TimerConfig, name: String, env: Env, wod: Wod? = null): Next {
+    val run = TimerRun(id = env.newId(), name = name, config = config, calls = model.state.settings.timerCalls, startedAt = env.now, wod = wod)
     val (stopped, stopCmds) = stopRest(model)
-    val started = stopped.copy(timer = TimerState.Running(run), hold = null, restScreen = null, now = env.now)
-        .withState { it.copy(timerConfigs = it.timerConfigs + (config.mode to config)) }
-    val cmds = stopCmds + listOf(Cmd.SaveTimer(run), schedule(model, run, env.now), Cmd.ShowTimer(timerNotice(run, env.now)))
+    val running = stopped.copy(timer = TimerState.Running(run), hold = null, restScreen = null, now = env.now)
+    val started = if (wod != null) running else running.withState { it.copy(timerConfigs = it.timerConfigs + (config.mode to config)) }
+    val cmds = stopCmds + listOf(Cmd.SaveTimer(run), schedule(model, run, env.now), Cmd.ShowTimer(timerNotice(run, env.now, model.state)))
     // Like the first rest: the countdown on the lock screen needs notifications. The run starts whatever the answer.
     if (started.notifications.granted || started.notifications.asked) return started and cmds
     return started.copy(notifications = started.notifications.copy(asked = true)) and
         listOf(Cmd.MarkNotificationsAsked, Cmd.Ui(UiEvent.RequestNotificationPermission)) + cmds
 }
 
+/** A run of [wod] under its name, straight into the lead-in. Nothing happens while another run goes. */
+internal fun startWod(model: Model, wod: Wod, env: Env): Next =
+    if (model.timer is TimerState.Running) model.only() else startTimer(model, timerConfig(wod.timer), wodName(wod), env, wod)
+
+/** A tap moves a WOD's round card, and the notification with it. */
+private fun noticeAfterTap(model: Model, before: TimerRun, after: TimerRun, now: Long): List<Cmd> {
+    val notice = timerNotice(after, now, model.state)
+    return if (notice == timerNotice(before, now, model.state)) emptyList() else listOf(Cmd.ShowTimer(notice))
+}
+
 /** The run goes without a history entry: ended in the lead-in, or discarded. The setup it came from shows again. */
 private fun closeRun(model: Model, env: Env): Next =
     model.copy(timer = null, now = env.now) and listOf(Cmd.SaveTimer(null), Cmd.HideTimer)
 
-/** [session] goes into the history and its result shows. */
-private fun fileRun(model: Model, session: TimerSession, now: Long): Model =
+/** [session] goes into the history and its result shows, with the WOD it was a run of. */
+private fun fileRun(model: Model, session: TimerSession, wod: Wod?, now: Long, undo: TimerRun? = null): Model =
     model.withState { state ->
         if (state.timerSessions.any { it.id == session.id }) state else state.copy(timerSessions = listOf(session) + state.timerSessions)
-    }.copy(timer = TimerState.Finished(session), now = now)
+    }.copy(timer = TimerState.Finished(session, wod, undo), now = now)
 
 /**
  * The run ran out by itself: it is filed as completed with the full time, at the moment it ran out.
@@ -284,7 +333,7 @@ private fun fileRun(model: Model, session: TimerSession, now: Long): Model =
 private fun finishNaturally(model: Model, run: TimerRun, env: Env): Next {
     val endsAt = timerEndsAt(run)
     val session = timerSession(run, endsAt, finished = true) ?: return closeRun(model, env)
-    val filed = fileRun(model, session, env.now)
+    val filed = fileRun(model, session, run.wod, env.now)
     val late = env.now - endsAt
     return if (late > TIMER_TAIL_MILLIS) filed and listOf(Cmd.SaveTimer(null), Cmd.HideTimer)
     else filed and listOf(Cmd.SaveTimer(null), Cmd.After(TIMER_TAIL_MILLIS - late, Msg.Timer.Release(run.id)))
@@ -362,14 +411,45 @@ fun nextText(run: TimerRun, view: TimerView): String? {
 fun roundText(run: TimerRun, round: Int): String? = if (countsRoundsByTap(run.config.mode)) null else "Round $round of ${run.config.rounds}"
 
 /**
- * The run's notification at [now]: the timer's name, the phase and round, and a chronometer that counts
- * the phase down (an open For Time counts up). It only changes at a change of phase or a pause, so a tick
- * sends it only then.
+ * What a WOD's run shows under the ring: [heading], the one count of the round where there is one
+ * ("Round 2 of 3"; an AMRAP counts on its button), and the [lines] of what to do. [current]: a For Time
+ * of one round ticks its items off in order; the lines before it are done. [upNext]: a rest shows the
+ * coming round, "Up next · Round 2 of 8".
  */
-fun timerNotice(run: TimerRun, now: Long): TimerNotice {
+data class RoundCard(val heading: String?, val lines: List<String>, val current: Int? = null, val upNext: Boolean = false)
+
+/** The round card of [run] at [view], null for a plain timer. Exercises and the unit come from [state]. */
+fun roundCard(run: TimerRun, view: TimerView, state: AppState): RoundCard? {
+    val wod = run.wod ?: return null
+    val find = { id: String -> state.findExercise(id) }
+    val unit = state.settings.unit
+    val round = wodRound(wod, run.taps, view.round)
+    return when (wod.timer.mode) {
+        TimerMode.AMRAP -> RoundCard(null, roundLines(wod, round, find, unit))
+        TimerMode.FOR_TIME ->
+            if (wod.rounds > 1) RoundCard("Round $round of ${wod.rounds}", roundLines(wod, round, find, unit))
+            // Every item keeps its line, so the one to do now is found by its place.
+            else RoundCard(null, wod.items.map { stepLine(wod, it, find, unit) }, current = wodStep(wod, run.taps))
+        else ->
+            if (view.phase == TimerPhase.REST) RoundCard("Up next · Round ${view.round + 1} of ${wod.timer.rounds}", roundLines(wod, view.round + 1, find, unit), upNext = true)
+            else RoundCard("Round $round of ${wod.timer.rounds}", roundLines(wod, round, find, unit))
+    }
+}
+
+private fun stepLine(wod: Wod, item: WodItem, find: FindExercise, unit: WeightUnit): String =
+    itemText(item, itemAmount(wod, item, 1), find(item.exerciseId)?.name ?: "Deleted exercise", unit)
+
+/**
+ * The run's notification at [now]: the timer's name, the phase and round, and a chronometer that counts
+ * the phase down (an open For Time counts up). A WOD's adds what to do in this round. It only changes
+ * at a change of phase or round or a pause, so a tick sends it only then.
+ */
+fun timerNotice(run: TimerRun, now: Long, state: AppState): TimerNotice {
     val view = timerView(run.config, activeTime(run, now))
     val paused = run.pausedAt != null
-    val where = listOfNotNull(phaseName(view.phase), roundText(run, view.round).takeIf { view.phase != TimerPhase.READY }).joinToString(" · ")
+    val card = roundCard(run, view, state)
+    val round = if (card != null) card.heading else roundText(run, view.round)
+    val where = listOfNotNull(phaseName(view.phase), round.takeIf { view.phase != TimerPhase.READY }).joinToString(" · ")
     val left = view.phaseLeft
     val base = when {
         paused -> null
@@ -384,6 +464,8 @@ fun timerNotice(run: TimerRun, now: Long): TimerNotice {
         paused = paused,
         toggleLabel = if (paused) "Resume" else "Pause",
         endLabel = "End",
+        // Ticking items off, the notification names the one to do now.
+        lines = card?.let { it.current?.let { at -> listOfNotNull(it.lines.getOrNull(at)) } ?: it.lines }.orEmpty(),
     )
 }
 
@@ -395,7 +477,7 @@ internal fun restoreTimer(model: Model, saved: TimerRun?, now: Long): Next {
     if (saved == null) return model.only()
     if (isTimerOver(saved, now)) {
         val session = timerSession(saved, timerEndsAt(saved), finished = true) ?: return model and Cmd.SaveTimer(null)
-        val filed = fileRun(model, session, now)
+        val filed = fileRun(model, session, saved.wod, now)
         val cmds = mutableListOf<Cmd>(Cmd.SaveTimer(null))
         if (filed.state != model.state) {
             cmds += Cmd.Save(filed.state)
@@ -405,7 +487,7 @@ internal fun restoreTimer(model: Model, saved: TimerRun?, now: Long): Next {
     }
     val restored = model.copy(timer = TimerState.Running(saved))
     val sounds = if (saved.pausedAt == null) listOf(schedule(model, saved, now)) else emptyList()
-    return restored and sounds + Cmd.ShowTimer(timerNotice(saved, now))
+    return restored and sounds + Cmd.ShowTimer(timerNotice(saved, now, model.state))
 }
 
 /** The calls in one line for the "Voice" row: "Every minute, halfway, last 30 s, rounds and rest, 3-2-1 beeps". */

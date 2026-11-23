@@ -95,6 +95,8 @@ object Eisen {
             notifications = Notifications(granted = Prefs.notificationsGranted(app), asked = Prefs.notificationsAsked(app)),
             now = System.currentTimeMillis(),
             savedTimer = TimerFile.read(app),
+            timerPage = Prefs.timerPage(app),
+            savedDraft = DraftFile.read(app),
         )
         val (first, cmds) = initialModel(flags)
         model = first
@@ -158,6 +160,8 @@ object Eisen {
                 is Cmd.ShowTimer -> TimerSystem.show(cmd.notice)
                 Cmd.HideTimer -> TimerSystem.hide()
                 is Cmd.PlayTimerSound -> TimerSounds.play(app, cmd.sound)
+                is Cmd.SaveTimerPage -> Prefs.saveTimerPage(app, cmd.page)
+                is Cmd.SaveDraft -> DraftFile.write(app, cmd.draft)
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.
                 is Cmd.Ui -> when (val event = cmd.event) {
                     is UiEvent.Snackbar -> snackbars.show(event)

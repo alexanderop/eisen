@@ -68,6 +68,7 @@ import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.StateJson
 import io.github.alexanderop.eisen.domain.TimerSession
+import io.github.alexanderop.eisen.domain.elm.wasWodRecord
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.sessionSummary
 import io.github.alexanderop.eisen.domain.OUTCOME_LABELS
@@ -193,7 +194,8 @@ private sealed interface LogItem {
         override val key get() = "w:" + workout.id
     }
 
-    class Interval(val session: TimerSession) : LogItem {
+    /** [record]: a run of a WOD that beat every earlier run of it. */
+    class Interval(val session: TimerSession, val record: Boolean) : LogItem {
         override val startedAt get() = session.startedAt
         override val key get() = "t:" + session.id
     }
@@ -210,7 +212,7 @@ private fun HistoryLog(model: Model, dispatch: (Msg) -> Unit) {
     // Per workout, the exercises that set a record on that day.
     val records = remember(history) { history.indices.map { recordIds(history, it) } }
     val items = remember(history, records, timers) {
-        (history.mapIndexed { index, workout -> LogItem.Lift(workout, records[index]) } + timers.map { LogItem.Interval(it) })
+        (history.mapIndexed { index, workout -> LogItem.Lift(workout, records[index]) } + timers.map { LogItem.Interval(it, wasWodRecord(timers, it)) })
             .sortedByDescending { it.startedAt }
     }
     var draft by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(null) }
@@ -263,7 +265,7 @@ private fun HistoryLog(model: Model, dispatch: (Msg) -> Unit) {
                             haptics.perform(Haptic.TAP)
                         }
                     }, modifier = Modifier.animateItem()) {
-                        TimerRow(session)
+                        TimerRow(session, item.record)
                     }
                 }
             }
@@ -364,7 +366,7 @@ private val StopwatchIcon = pathIcon("Stopwatch", "M10 2h4", "M12 14l3-3", "M4 1
 
 /** A finished interval timer: compact, no detail screen. */
 @Composable
-private fun TimerRow(session: TimerSession) {
+private fun TimerRow(session: TimerSession, record: Boolean) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = CardShape,
@@ -377,7 +379,15 @@ private fun TimerRow(session: TimerSession) {
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(session.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(session.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() })
+                    if (record) {
+                        Spacer(Modifier.width(6.dp))
+                        Badge(containerColor = EisenColors.Primary, contentColor = EisenColors.OnPrimary) {
+                            Text("Record", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
+                        }
+                    }
+                }
                 Text("${formatDate(session.startedAt)} · ${sessionSummary(session)}", fontSize = 13.sp, color = EisenColors.MutedForeground)
             }
             val outcome = timerOutcome(session)

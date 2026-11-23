@@ -19,6 +19,7 @@ import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
 import { OUTCOME_LABELS, sessionSummary, timerOutcome } from '../domain/timer'
 import { historyItems } from '../domain/timerScreens'
+import { wodRecordIds } from '../domain/wodScreens'
 import { fmt, fmtAdded, fmtLoad, formatDate } from '../format'
 import { haptic } from '../haptics'
 import { deleteTimerSession, deleteWorkout, state, updateWorkout } from '../store'
@@ -55,6 +56,9 @@ function duration(workout: Workout): string {
 
 /** Per workout, the exercises that set a record on that day. */
 const records = computed(() => state.history.map((_, index) => recordIds(state.history, index)))
+
+/** The WOD runs that beat every run of their WOD before them. */
+const wodRecords = computed(() => wodRecordIds(state.timerSessions))
 
 /** Workouts and interval timers in one list, newest first. */
 const items = computed(() => historyItems(state.history, state.timerSessions))
@@ -110,7 +114,10 @@ function save() {
       <Card v-if="item.kind === 'timer'" as="article" class="timer-row">
         <span class="timer-icon" aria-hidden="true"><Timer :size="20" :stroke-width="2.25" /></span>
         <div class="timer-text">
-          <h2>{{ item.session.name }}</h2>
+          <h2>
+            {{ item.session.name }}
+            <Badge v-if="wodRecords.has(item.session.id)">Record</Badge>
+          </h2>
           <p class="muted meta">
             {{ formatDate(item.session.startedAt) }} ·
             <span class="nowrap">{{ sessionSummary(item.session) }}</span>

@@ -129,7 +129,8 @@ class DomainTest {
         assertEquals(CATALOG.size, CATALOG.map { it.id }.toSet().size)
         val folder = java.io.File("../../web/src/assets/exercises")
         for (exercise in CATALOG) {
-            assertTrue(exercise.id, java.io.File(folder, "${exercise.image}.webp").exists())
+            val file = java.io.File(folder, "${exercise.image}.webp")
+            assertTrue(exercise.id, file.exists())
         }
     }
 

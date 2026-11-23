@@ -9,6 +9,7 @@ import { hold } from './hold'
 import { closeSetDone, doneLog, minimiseRestScreen, restScreenOpen } from './rest'
 import { state } from './store'
 import { timer } from './timer'
+import { wodsHome } from './wods'
 import HistoryView from './views/HistoryView.vue'
 import HomeView from './views/HomeView.vue'
 import SettingsView from './views/SettingsView.vue'
@@ -56,6 +57,16 @@ const timerHome = ref(0)
 function onTimerDone() {
   tab.value = 'timer'
   timerHome.value += 1
+}
+
+/** The tab of the page on screen, tapped again: back to the top of it. The Timer tab closes what is open. */
+function onTab(id: Tab) {
+  if (id === tab.value && id === 'timer') {
+    wodsHome()
+    timerHome.value += 1
+    window.scrollTo(0, 0)
+  }
+  tab.value = id
 }
 
 function isWorkoutEntry(): boolean {
@@ -161,7 +172,7 @@ watch([tab, showWorkout, shared], () => window.scrollTo(0, 0), { flush: 'post' }
           v-for="item in TABS"
           :key="item.id"
           :aria-current="tab === item.id ? 'page' : undefined"
-          @click="tab = item.id"
+          @click="onTab(item.id)"
         >
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path :d="item.icon" fill="currentColor" fill-rule="evenodd" />

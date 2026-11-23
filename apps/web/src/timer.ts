@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, toRaw } from 'vue'
 import {
   activeTime,
   MAX_OPEN_TIMER_SECONDS,
@@ -14,10 +14,12 @@ import {
   type TimerRun,
   type TimerSession,
 } from './domain/timer'
+import { wod, wodDone, wodName, type Wod } from './domain/wod'
+import { undoneRun } from './domain/wodScreens'
 import { haptic } from './haptics'
 import { cancelHold } from './hold'
 import { audioContext, stopRest } from './rest'
-import { addTimerSession, newId, rememberTimerConfig, setTimerSessionRounds, state } from './store'
+import { addTimerSession, deleteTimerSession, newId, rememberTimerConfig, setTimerSessionRounds, state } from './store'
 
 /**
  * The interval timer that runs, and the result once it is over.
@@ -28,6 +30,10 @@ export const timer = reactive({
   run: null as TimerRun | null,
   /** The run that just ended, for the result screen. Null when it ended in the lead-in. */
   result: null as TimerSession | null,
+  /** The WOD the result is a run of, so "Again" can start it once more. */
+  resultWod: null as Wod | null,
+  /** The run the last tap of a For Time WOD ended, while its result is open: "Undo" takes it back. */
+  undo: null as TimerRun | null,
   /** The run came back after a reload: it has no sound until something is tapped. */
   restored: false,
   /** The audio clock runs, so the cues can be heard. */
@@ -208,6 +214,8 @@ function endsAt(run: TimerRun): number {
 function close(session: TimerSession | null): void {
   if (session) addTimerSession(session)
   timer.result = session
+  timer.resultWod = session ? (timer.run?.wod ?? null) : null
+  timer.undo = null
   timer.run = null
   clearInterval(interval)
   interval = undefined
@@ -247,32 +255,47 @@ function begin(): void {
   prepare()
 }
 
-/**
- * Starts a timer: the lead-in first, then the timer itself. Ends a running rest and closes a hold.
- * Call from a tap handler: browsers only allow sound after a user gesture.
- */
-export function startTimer(config: TimerConfig, name: string): void {
+function start(config: TimerConfig, name: string, workout?: Wod): void {
   unlock()
   stopRest()
   cancelHold()
   silence(true)
-  const clean = timerConfig(config)
-  rememberTimerConfig(clean)
   timer.result = null
+  timer.resultWod = null
+  timer.undo = null
   timer.restored = false
   lastTap = 0
   timer.run = {
     id: newId(),
     name,
-    config: clean,
+    config: timerConfig(config),
     calls: { ...state.settings.timerCalls },
     startedAt: Date.now(),
     pausedAt: null,
     paused: 0,
     taps: 0,
+    ...(workout ? { wod: workout } : {}),
   }
   begin()
   persist()
+}
+
+/**
+ * Starts a timer: the lead-in first, then the timer itself. Ends a running rest and closes a hold.
+ * Call from a tap handler: browsers only allow sound after a user gesture.
+ */
+export function startTimer(config: TimerConfig, name: string): void {
+  rememberTimerConfig(timerConfig(config))
+  start(config, name)
+}
+
+/**
+ * Starts a WOD like a timer, under its name. Its mode keeps the config the lifter last set:
+ * a benchmark does not change what the timer cards open with.
+ */
+export function startWod(workout: Wod): void {
+  const copy = wod(structuredClone(toRaw(workout)))
+  start(copy.timer, wodName(copy), copy)
 }
 
 export function pauseTimer(): void {
@@ -298,7 +321,10 @@ export function resumeTimer(): void {
 const TAP_GUARD_MS = 800
 let lastTap = 0
 
-/** One more round in AMRAP and For Time. */
+/**
+ * One more round in AMRAP and For Time. In a For Time WOD a tap is a round or an item done, and
+ * the one on the last stops the clock: the run is complete at that moment.
+ */
 export function tapRound(): void {
   const run = timer.run
   if (!run || run.pausedAt !== null || timerNow.value?.phase !== 'work') return
@@ -306,6 +332,12 @@ export function tapRound(): void {
   if (time - lastTap < TAP_GUARD_MS) return
   lastTap = time
   run.taps += 1
+  if (run.wod && wodDone(run.wod, run.taps)) {
+    const ended = { ...toRaw(run) }
+    finishTimer()
+    timer.undo = ended
+    return
+  }
   haptic('tap')
   persist()
 }
@@ -349,6 +381,26 @@ export function endTimer(save: boolean): void {
 
 export function dismissResult(): void {
   timer.result = null
+  timer.undo = null
+}
+
+/**
+ * "Not finished? Undo": the last tap was too early. The saved run goes, the tap is taken back and
+ * the run carries on. It runs on timestamps, so the clock shows the time that really passed.
+ */
+export function undoFinish(): void {
+  const ended = timer.undo
+  if (!ended || !timer.result) return
+  deleteTimerSession(timer.result.id)
+  unlock()
+  silence(true)
+  timer.result = null
+  timer.resultWod = null
+  timer.undo = null
+  timer.restored = false
+  timer.run = undoneRun(ended)
+  begin()
+  persist()
 }
 
 function isTimerRun(value: unknown): value is TimerRun {
@@ -374,7 +426,12 @@ function restore(): void {
       localStorage.removeItem(TIMER_KEY)
       return
     }
-    timer.run = { ...saved, config: timerConfig(saved.config) }
+    const { wod: workout, ...rest } = saved
+    timer.run = {
+      ...rest,
+      config: timerConfig(saved.config),
+      ...(workout && Array.isArray(workout.items) ? { wod: wod(workout) } : {}),
+    }
     timer.restored = true
     begin()
   } catch {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check } from '@lucide/vue'
 import ExerciseImage from './ExerciseImage.vue'
 import { Button, ChipGroup, ConfirmButton, Field, Input, Sheet } from './ui'
 import { computed, ref } from 'vue'
@@ -10,12 +11,17 @@ import {
   type Equipment,
   type Group,
 } from '../domain/exercises'
+import { searchRank, WOD_EXERCISE_IDS } from '../domain/wodScreens'
 import { addCustomExercise, deleteCustomExercise, exercises } from '../store'
 
-const props = defineProps<{ exclude: string[] }>()
-const emit = defineEmits<{ pick: [id: string]; close: [] }>()
+/**
+ * `multiple` is the WOD builder's picker: rows toggle a check, and one button adds them all in the
+ * order they were tapped. It starts on the movements WODs are made of.
+ */
+const props = defineProps<{ exclude: string[]; multiple?: boolean }>()
+const emit = defineEmits<{ pick: [id: string]; pickMany: [ids: string[]]; close: [] }>()
 
-const query = ref('')
+const query = defineModel<string>('query', { default: '' })
 const creating = ref(false)
 const name = ref('')
 const equipment = ref<Equipment>('barbell')
@@ -24,29 +30,55 @@ const timed = ref(false)
 const ORDER: Group[] = ['Custom', ...GROUPS]
 const GROUP_TITLES: Partial<Record<Group, string>> = { Custom: 'Your exercises' }
 
-type Filter = Group | 'All'
-const filter = ref<Filter>('All')
+type Filter = Group | 'All' | 'WOD'
+const filter = defineModel<string>('filter', { default: 'All' })
 const filters = computed(() =>
-  (['All', ...ORDER] as Filter[])
+  ([...(props.multiple ? ['WOD'] : []), 'All', ...ORDER] as Filter[])
     .filter((group) => group !== 'Custom' || exercises.value.some((e) => e.group === 'Custom'))
     .map((group) => ({ value: group, label: group === 'Custom' ? 'Yours' : group })),
 )
 
+function inFilter(exercise: { id: string; group: Group }): boolean {
+  if (filter.value === 'All') return true
+  if (filter.value === 'WOD') return WOD_EXERCISE_IDS.has(exercise.id)
+  return exercise.group === filter.value
+}
+
 const sections = computed(() => {
-  const needle = query.value.trim().toLowerCase()
   // The lifter's own exercises stay listed even when already added, so they can be deleted here.
   const available = exercises.value.filter(
     (exercise) =>
       (exercise.group === 'Custom' || !props.exclude.includes(exercise.id)) &&
-      (filter.value === 'All' || exercise.group === filter.value) &&
-      exercise.name.toLowerCase().includes(needle),
+      inFilter(exercise) &&
+      searchRank(exercise.name, query.value) !== null,
   )
+  // A search lists its hits in one list, those where a word starts with it first.
+  if (query.value.trim()) {
+    const ranked = available
+      .map((exercise, index) => ({ exercise, index, rank: searchRank(exercise.name, query.value) ?? 2 }))
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .map((entry) => entry.exercise)
+    return ranked.length > 0 ? [{ group: 'Results', title: 'Results', items: ranked }] : []
+  }
   return ORDER.map((group) => ({
     group,
     title: GROUP_TITLES[group] ?? group,
     items: available.filter((exercise) => exercise.group === group),
   })).filter((section) => section.items.length > 0)
 })
+
+/** Ticked in the multiple picker, in the order they were tapped. */
+const selected = ref<string[]>([])
+
+function onRow(id: string) {
+  if (!props.multiple) {
+    emit('pick', id)
+    return
+  }
+  const at = selected.value.indexOf(id)
+  if (at === -1) selected.value.push(id)
+  else selected.value.splice(at, 1)
+}
 
 function startCreating() {
   name.value = query.value.trim()
@@ -55,13 +87,20 @@ function startCreating() {
 
 function create() {
   const exercise = addCustomExercise(name.value, equipment.value, timed.value)
-  if (exercise) emit('pick', exercise.id)
+  if (!exercise) return
+  if (!props.multiple) {
+    emit('pick', exercise.id)
+    return
+  }
+  if (!selected.value.includes(exercise.id)) selected.value.push(exercise.id)
+  creating.value = false
+  query.value = ''
 }
 
 </script>
 
 <template>
-  <Sheet :title="creating ? 'New exercise' : 'Add exercise'" @close="emit('close')">
+  <Sheet :title="creating ? 'New exercise' : multiple ? 'Add movements' : 'Add exercise'" @close="emit('close')">
     <form v-if="creating" class="form" @submit.prevent="create">
       <Field label="Name">
         <Input v-model="name" maxlength="40" placeholder="Cable Lateral Raise" />
@@ -114,11 +153,15 @@ function create() {
             <button
               class="pick"
               :disabled="exclude.includes(exercise.id)"
-              @click="emit('pick', exercise.id)"
+              :aria-pressed="multiple ? selected.includes(exercise.id) : undefined"
+              @click="onRow(exercise.id)"
             >
               <ExerciseImage :image="exercise.image" :name="exercise.name" />
               <span class="pick-name">{{ exercise.name }}</span>
-              <span class="muted kind">
+              <span v-if="multiple" class="check" :class="{ on: selected.includes(exercise.id) }" aria-hidden="true">
+                <Check v-if="selected.includes(exercise.id)" :size="18" :stroke-width="3" />
+              </span>
+              <span v-else class="muted kind">
                 {{
                   exclude.includes(exercise.id)
                     ? 'Added'
@@ -137,6 +180,11 @@ function create() {
           </div>
         </section>
         <p v-if="sections.length === 0" class="muted none">No exercise matches.</p>
+      </div>
+      <div v-if="multiple" class="add-bar">
+        <Button class="w-full" :disabled="selected.length === 0" @click="emit('pickMany', [...selected])">
+          {{ selected.length === 0 ? 'Tap movements to add them' : `Add ${selected.length}` }}
+        </Button>
       </div>
     </template>
   </Sheet>
@@ -247,6 +295,33 @@ function create() {
 
 .pick-name {
   flex: 1;
+}
+
+.check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+}
+
+.check.on {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* "Add 3" stays in reach while the list scrolls under it. */
+.add-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: -8px;
+  padding: 12px 0 4px;
+  background: linear-gradient(to bottom, transparent, var(--popover) 12px);
 }
 
 .kind {
