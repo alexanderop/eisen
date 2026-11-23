@@ -182,7 +182,7 @@ class TimerUpdateTest {
         val saved = started().send(Msg.Timer.End, now = STARTED_AT + 65_000).send(Msg.Timer.SaveAndEnd, now = STARTED_AT + 65_000)
         val session = TimerSession("t1", "Tabata", short, STARTED_AT, STARTED_AT + 65_000, seconds = 55, rounds = 2, completed = false)
         assertEquals(listOf(session), saved.state.timerSessions)
-        assertEquals(TimerState.Finished(session), saved.model.timer)
+        assertEquals(TimerState.Finished(session, at = STARTED_AT + 65_000), saved.model.timer)
         assertTrue(saved.cmds.containsAll(listOf(Cmd.SaveTimer(null), Cmd.HideTimer, Cmd.Save(saved.state))))
         assertTrue(subscriptions(saved.model).isEmpty())
         // Done goes back to the Timer tab, Again straight into the lead-in of the same timer.
@@ -217,7 +217,7 @@ class TimerUpdateTest {
 
         val over = ticking.send(Msg.Timer.Tick, now = STARTED_AT + 90_005)
         val session = TimerSession("t1", "Tabata", short, STARTED_AT, STARTED_AT + 90_000, seconds = 80, rounds = 3, completed = true)
-        assertEquals(TimerState.Finished(session), over.model.timer)
+        assertEquals(TimerState.Finished(session, at = STARTED_AT + 90_005), over.model.timer)
         assertEquals(listOf(session), over.state.timerSessions)
         assertTrue(Cmd.After(TIMER_TAIL_MILLIS - 5, Msg.Timer.Release("t1")) in over.cmds)
         assertFalse(Cmd.HideTimer in over.cmds)
@@ -267,7 +267,7 @@ class TimerUpdateTest {
 
         val (over, filed) = init(flags.copy(now = STARTED_AT + 600_000, healthEnabled = true))
         val session = TimerSession("t1", "Tabata", short, STARTED_AT, STARTED_AT + 90_000, seconds = 80, rounds = 3, completed = true)
-        assertEquals(TimerState.Finished(session), over.timer)
+        assertEquals(TimerState.Finished(session, at = STARTED_AT + 600_000), over.timer)
         assertEquals(listOf(session), over.state.timerSessions)
         assertTrue(filed.containsAll(listOf(Cmd.SaveTimer(null), Cmd.Save(over.state), Cmd.Health(HealthJob.Upsert(emptyList(), listOf(session))))))
 

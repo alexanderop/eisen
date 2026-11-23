@@ -2,10 +2,11 @@
 import { Play } from '@lucide/vue'
 import { computed } from 'vue'
 import { bestText, wodBest, wodFormat, wodLines, wodName, type Wod } from '../domain/wod'
-import { cardLabel } from '../domain/wodScreens'
+import { bannerMotions, cardLabel } from '../domain/wodScreens'
 import { findExercise, state } from '../store'
 import ExerciseImage from './ExerciseImage.vue'
 import { Card } from './ui'
+import WodBanner from './WodBanner.vue'
 
 /**
  * A WOD in a list: the whole card opens it, the round button starts it at once.
@@ -14,7 +15,8 @@ import { Card } from './ui'
 const props = defineProps<{ workout: Wod; preview?: boolean }>()
 const emit = defineEmits<{ open: []; start: [] }>()
 
-/** The first movement's picture, or its letter. */
+/** The figures of its movements across the top. Without any, the first movement's picture or its letter. */
+const banner = computed(() => bannerMotions(props.workout).length > 0)
 const first = computed(() => props.workout.items.map((item) => findExercise(item.exerciseId)).find(Boolean))
 
 const name = computed(() => wodName(props.workout))
@@ -25,9 +27,10 @@ const label = computed(() => cardLabel(props.workout, findExercise, state.settin
 </script>
 
 <template>
-  <Card as="div" class="wod-card" :class="{ preview }" :aria-hidden="preview || undefined">
+  <Card as="div" class="wod-card" :class="{ preview, 'with-banner': banner }" :aria-hidden="preview || undefined">
     <component :is="preview ? 'div' : 'button'" class="open" :aria-label="preview ? undefined : label" @click="emit('open')">
-      <ExerciseImage :image="first?.image" :name="first?.name ?? name" :size="56" />
+      <WodBanner v-if="banner" class="figures" :workout="workout" />
+      <ExerciseImage v-else :image="first?.image" :name="first?.name ?? name" :size="56" />
       <span class="text">
         <strong class="name">{{ name }}</strong>
         <span v-if="format !== name" class="format">{{ format }}</span>
@@ -118,5 +121,43 @@ button.open:active {
 
 .play:active {
   transform: scale(0.94);
+}
+
+/* The figures across the top, the text below them, the play button at the right of the text. */
+.with-banner {
+  position: relative;
+  display: block;
+  padding: 0;
+}
+
+.with-banner .open {
+  width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.figures {
+  height: 64px;
+}
+
+.with-banner .text {
+  padding: 10px 72px 12px 16px;
+}
+
+.with-banner .play {
+  position: absolute;
+  right: 12px;
+  top: calc(64px + (100% - 64px) / 2);
+  transform: translateY(-50%);
+}
+
+.with-banner .play:active {
+  transform: translateY(-50%) scale(0.94);
+}
+
+.with-banner.preview .text {
+  padding-right: 16px;
 }
 </style>

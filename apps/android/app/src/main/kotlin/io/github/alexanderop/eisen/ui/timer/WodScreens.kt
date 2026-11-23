@@ -21,7 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
 import io.github.alexanderop.eisen.domain.wodName
@@ -140,6 +144,26 @@ import io.github.alexanderop.eisen.domain.elm.wodLoads
 import io.github.alexanderop.eisen.domain.elm.wodRows
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseMotion
+import io.github.alexanderop.eisen.ui.WodBanner
+import io.github.alexanderop.eisen.domain.SuggestionKind
+import io.github.alexanderop.eisen.domain.WodSuggestion
+import io.github.alexanderop.eisen.domain.elm.bannerMotions
+import io.github.alexanderop.eisen.domain.elm.searchedWods
+import io.github.alexanderop.eisen.domain.elm.ownWods
+import io.github.alexanderop.eisen.domain.elm.noMatchText
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
+import io.github.alexanderop.eisen.domain.elm.searching
+import io.github.alexanderop.eisen.domain.elm.typedParts
+import io.github.alexanderop.eisen.domain.elm.wodSuggestions
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.CollectionInfo
+import androidx.compose.ui.semantics.collectionInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.ReorderableColumnItem
@@ -195,15 +219,23 @@ private fun chipColors() = FilterChipDefaults.filterChipColors(
 
 // The list
 
-/** A draft from before the process ended, "New WOD", the lifter's own and the benchmarks with their filter. */
+/**
+ * The search field and the chips, pinned at the top, over a draft from before the process ended,
+ * "New WOD", the lifter's own and the benchmarks, all through the chip. While something is typed the
+ * page is what the search found, best first. [list] lives with the Timer tab, so a detail opened
+ * from here comes back to the same place.
+ */
 @Composable
-internal fun WodsPage(model: Model, dispatch: (Msg) -> Unit) {
+internal fun WodsPage(model: Model, list: LazyListState, dispatch: (Msg) -> Unit, heading: @Composable () -> Unit) {
     val find = wodFind(model)
     val unit = model.state.settings.unit
     val sessions = model.state.timerSessions
-    val own = model.state.wods
+    val own = ownWods(model)
     val library = benchmarks(model)
-    val list = rememberLazyListState()
+    val searching = searching(model)
+    val found = if (searching) searchedWods(model) else emptyList()
+    val scope = rememberCoroutineScope()
+    val focus = LocalFocusManager.current
     // A tap on the Timer tab while it shows goes back to the top, once per tap.
     var top by rememberSaveable { mutableIntStateOf(model.nav.timerTop) }
     LaunchedEffect(model.nav.timerTop) {
@@ -212,12 +244,217 @@ internal fun WodsPage(model: Model, dispatch: (Msg) -> Unit) {
             list.animateScrollToItem(0)
         }
     }
+    // Where the pinned chips and field end inside the page: the suggestions hang from there.
+    var page by remember { mutableStateOf(0f) }
+    var under by remember { mutableIntStateOf(0) }
+    val wasSearching by rememberUpdatedState(searching)
+    val pinned: @Composable () -> Unit = {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(EisenColors.Background)
+                .padding(bottom = 8.dp)
+                .onGloballyPositioned { under = (it.boundsInWindow().bottom - page).roundToInt() },
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // The chips above the field: the suggestions open under it and never cover them.
+            WodFilters(model.wods.filter, dispatch)
+            WodSearchField(
+                query = model.wods.query,
+                onQuery = { typed ->
+                    // A search that starts shows its best match first, right under the field; typing on does not scroll.
+                    val starting = !wasSearching && typed.isNotBlank()
+                    dispatch(Msg.Wods.Search(typed))
+                    if (starting) scope.launch { list.scrollToItem(SEARCH_ITEM) }
+                },
+                onFocus = { focused -> dispatch(if (focused) Msg.Wods.Search(model.wods.query) else Msg.Wods.CloseSuggestions) },
+                onSearch = {
+                    dispatch(Msg.Wods.CloseSuggestions)
+                    focus.clearFocus()
+                },
+            )
+        }
+    }
+    Box(Modifier.fillMaxSize().onGloballyPositioned { page = it.boundsInWindow().top }) {
+        WodsList(model, list, searching, found, own, library, find, unit, sessions, dispatch, heading, pinned)
+        val suggestions = wodSuggestions(model)
+        if (suggestions.isNotEmpty()) {
+            // A tap outside the list closes it and keeps the search. The field and the chips above it stay as they are.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = with(LocalDensity.current) { under.toDp() })
+                    .clickable(interactionSource = null, indication = null, onClickLabel = "Close suggestions") {
+                        dispatch(Msg.Wods.CloseSuggestions)
+                        focus.clearFocus()
+                    },
+            ) {
+                SuggestionList(suggestions, model.wods.query) { suggestion ->
+                    if (suggestion.kind == SuggestionKind.WOD) dispatch(Msg.Wods.Open(suggestion.id, suggested = true))
+                    else {
+                        dispatch(Msg.Wods.SearchMovement(suggestion.text))
+                        scope.launch { list.scrollToItem(SEARCH_ITEM) }
+                    }
+                    focus.clearFocus()
+                }
+            }
+        }
+    }
+}
+
+/** The pinned field's place in the list: after the heading, and it stays at the top once that scrolled away. */
+private const val SEARCH_ITEM = 1
+
+/** How long typing rests before the page searches: every key is kept, the search follows a moment later. */
+private const val SEARCH_DEBOUNCE_MS = 150L
+
+/**
+ * "Search WODs or movements", with a clear button once something is typed. The text lives here, so no
+ * key is lost while the page searches; it goes to the model a moment after the typing rests, and
+ * comes back from it only when the model changed it (cleared, or a movement picked).
+ */
+@Composable
+private fun WodSearchField(query: String, onQuery: (String) -> Unit, onFocus: (Boolean) -> Unit, onSearch: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    var text by rememberSaveable { mutableStateOf(query) }
+    var sent by rememberSaveable { mutableStateOf(query) }
+    val send by rememberUpdatedState(onQuery)
+    LaunchedEffect(query) {
+        if (query != sent) {
+            sent = query
+            text = query
+        }
+    }
+    LaunchedEffect(text) {
+        if (text == sent) return@LaunchedEffect
+        delay(SEARCH_DEBOUNCE_MS)
+        sent = text
+        send(text)
+    }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it },
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { state ->
+                if (state.isFocused != focused) {
+                    focused = state.isFocused
+                    onFocus(state.isFocused)
+                }
+            }
+            .semantics { contentDescription = "Search WODs" },
+        placeholder = { Text("Search WODs or movements", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingIcon = { Icon(Icons.Search, contentDescription = null) },
+        trailingIcon = if (text.isNotEmpty()) {
+            {
+                IconButton(onClick = {
+                    text = ""
+                    sent = ""
+                    onQuery("")
+                }) { Icon(Icons.Close, contentDescription = "Clear search") }
+            }
+        } else {
+            null
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(16.dp),
+        // A search is not a sentence: no capitals, and no autocorrect turning a typed "fr" into "for".
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = {
+            // The search key searches what is typed now, without waiting.
+            if (text != sent) {
+                sent = text
+                onQuery(text)
+            }
+            onSearch()
+        }),
+    )
+}
+
+/**
+ * What to offer while typing, attached under the field and the chips over the page: a WOD opens its
+ * detail, a movement becomes the search. The typed part of each is bold.
+ */
+@Composable
+private fun SuggestionList(suggestions: List<WodSuggestion>, query: String, onPick: (WodSuggestion) -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .shadow(12.dp, shape)
+            .clip(shape)
+            .background(EisenColors.Card)
+            .border(1.dp, EisenColors.Border, shape)
+            .semantics { collectionInfo = CollectionInfo(rowCount = suggestions.size, columnCount = 1) },
+    ) {
+        suggestions.forEachIndexed { index, suggestion ->
+            if (index > 0) HorizontalDivider(color = EisenColors.Border)
+            val movement = suggestion.kind == SuggestionKind.MOVEMENT
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(role = Role.Button, onClickLabel = if (movement) "Search for it" else "Open") { onPick(suggestion) }
+                    .heightIn(min = 52.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (movement) {
+                    Icon(Icons.Workouts, contentDescription = null, tint = EisenColors.MutedForeground, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                }
+                val (before, typed, after) = typedParts(suggestion.text, query)
+                Text(
+                    buildAnnotatedString {
+                        append(before)
+                        withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, color = EisenColors.Foreground)) { append(typed) }
+                        append(after)
+                    },
+                    Modifier.weight(1f),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = EisenColors.Foreground.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(suggestion.detail, fontSize = 14.sp, color = EisenColors.MutedForeground, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WodsList(
+    model: Model,
+    list: LazyListState,
+    searching: Boolean,
+    found: List<Wod>,
+    own: List<Wod>,
+    library: List<Wod>,
+    find: FindExercise,
+    unit: WeightUnit,
+    sessions: List<TimerSession>,
+    dispatch: (Msg) -> Unit,
+    heading: @Composable () -> Unit,
+    pinned: @Composable () -> Unit,
+) {
     LazyColumn(
         Modifier.fillMaxSize(),
         state = list,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item(key = "heading") { Box(Modifier.bleed(16.dp)) { heading() } }
+        // Cards scroll under it, so it has the page's ground.
+        stickyHeader(key = "search") { pinned() }
+        if (searching) {
+            if (found.isEmpty()) item(key = "none") { NoMatch(noMatchText(model), chip = model.wods.filter != WodFilter.ALL, dispatch) }
+            items(found, key = { "found:" + it.id }) { wod ->
+                WodCard(wod, find, unit, wodBest(sessions, wod.id), onOpen = { dispatch(Msg.Wods.Open(wod.id)) }, onStart = { dispatch(Msg.Wods.Start(wod.id)) })
+            }
+            return@LazyColumn
+        }
         model.wods.pending?.let { pending ->
             item(key = "pending") { PendingDraft(wodName(pending.wod), dispatch) }
         }
@@ -240,23 +477,38 @@ internal fun WodsPage(model: Model, dispatch: (Msg) -> Unit) {
             }
         }
         item(key = "benchmarks") { SectionTitle("Benchmarks") }
-        item(key = "filters") {
-            LazyRow(Modifier.bleed(16.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(WodFilter.entries, key = { it.name }) { filter ->
-                    FilterChip(
-                        selected = model.wods.filter == filter,
-                        onClick = { dispatch(Msg.Wods.Filter(filter)) },
-                        label = { Text(filter.label, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) },
-                        modifier = Modifier.height(40.dp),
-                        shape = CircleShape,
-                        colors = chipColors(),
-                        border = null,
-                    )
-                }
-            }
-        }
         items(library, key = { it.id }) { wod ->
             WodCard(wod, find, unit, wodBest(sessions, wod.id), onOpen = { dispatch(Msg.Wods.Open(wod.id)) }, onStart = { dispatch(Msg.Wods.Start(wod.id)) })
+        }
+    }
+}
+
+/** The chips, pinned over the search field: they filter the whole page, and what the search finds. */
+@Composable
+private fun WodFilters(selected: WodFilter, dispatch: (Msg) -> Unit) {
+    LazyRow(Modifier.bleed(16.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(WodFilter.entries, key = { it.name }) { filter ->
+            FilterChip(
+                selected = selected == filter,
+                onClick = { dispatch(Msg.Wods.Filter(filter)) },
+                label = { Text(filter.label, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) },
+                modifier = Modifier.height(40.dp),
+                shape = CircleShape,
+                colors = chipColors(),
+                border = null,
+            )
+        }
+    }
+}
+
+/** Nothing the search could find, with the ways back: every chip ("Show all", the text stays) and every WOD. */
+@Composable
+private fun NoMatch(text: String, chip: Boolean, dispatch: (Msg) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground, textAlign = TextAlign.Center)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (chip) SecondaryButton("Show all", Icons.ChevronDown, Modifier) { dispatch(Msg.Wods.Filter(WodFilter.ALL)) }
+            SecondaryButton("Clear search", Icons.Close, Modifier) { dispatch(Msg.Wods.ClearSearch) }
         }
     }
 }
@@ -286,35 +538,46 @@ private fun PendingDraft(name: String, dispatch: (Msg) -> Unit) {
 }
 
 /**
- * A WOD as a card: its first movement's picture, name, format and movements, and its best run. The
- * whole card opens the detail, the play button starts it at once. Without [onOpen] it is the
- * builder's preview, without [onStart] it has no play button.
+ * A WOD as a card: the banner of its movements across the top (or, without any strip, its first
+ * movement's picture beside the text), name, format and movements, and its best run. The whole card
+ * opens the detail, the play button starts it at once. Without [onOpen] it is the builder's preview,
+ * without [onStart] it has no play button.
  */
 @Composable
 internal fun WodCard(wod: Wod, find: FindExercise, unit: WeightUnit, best: TimerSession?, onOpen: (() -> Unit)?, onStart: (() -> Unit)?) {
     val colors = CardDefaults.cardColors(containerColor = EisenColors.Card, contentColor = EisenColors.Foreground)
     val border = BorderStroke(1.dp, EisenColors.Border)
+    val banner = bannerMotions(wod).isNotEmpty()
     val content: @Composable () -> Unit = {
+        if (banner) WodBanner(wod, height = 64.dp, find = find)
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 88.dp).padding(start = 12.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
+            Modifier.fillMaxWidth().heightIn(min = if (banner) 0.dp else 88.dp).padding(
+                start = if (banner) 16.dp else 12.dp,
+                end = 10.dp,
+                top = if (banner) 8.dp else 12.dp,
+                bottom = if (banner) 10.dp else 12.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val first = wod.items.firstNotNullOfOrNull { find(it.exerciseId) }
-            ExerciseTile(first?.image, first?.name ?: "?", size = 56.dp)
-            Spacer(Modifier.width(14.dp))
+            if (!banner) {
+                val first = wod.items.firstNotNullOfOrNull { find(it.exerciseId) }
+                ExerciseTile(first?.image, first?.name ?: "?", size = 56.dp)
+                Spacer(Modifier.width(14.dp))
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(wodName(wod), fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(wodName(wod), fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (wodFormat(wod) != wodName(wod)) {
-                    Text(wodFormat(wod), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = EisenColors.Primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(wodFormat(wod), fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = EisenColors.Primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text(
                     wodLines(wod, find, unit).joinToString(" · ").ifEmpty { "No movements yet" },
                     fontSize = 13.sp,
+                    lineHeight = 18.sp,
                     color = EisenColors.MutedForeground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (best != null) Text("Best ${bestText(best)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EisenColors.Foreground)
+                if (best != null) Text("Best ${bestText(best)}", fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground)
             }
             if (onStart != null) {
                 Spacer(Modifier.width(8.dp))
@@ -375,6 +638,7 @@ internal fun WodDetail(model: Model, wod: Wod, dispatch: (Msg) -> Unit) {
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            if (bannerMotions(wod).isNotEmpty()) WodBanner(wod, height = 140.dp, find = find, modifier = Modifier.clip(CardShape), playing = true)
             // The format once: under a name, or as the title of an unnamed WOD.
             Column {
                 if (wodFormat(wod) != wodName(wod)) {

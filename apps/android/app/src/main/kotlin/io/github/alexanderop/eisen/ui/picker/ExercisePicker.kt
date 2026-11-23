@@ -78,11 +78,9 @@ import io.github.alexanderop.eisen.domain.kindLabel
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.Icons
-import io.github.alexanderop.eisen.ui.pathIcon
 import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
-private val SearchIcon = pathIcon("Search", "m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 1 0 0-16z")
 
 private const val ALL = "All"
 
@@ -269,7 +267,7 @@ private fun ColumnScope.PickList(
         onValueChange = onQuery,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         placeholder = { Text("Search exercises") },
-        leadingIcon = { Icon(SearchIcon, contentDescription = null) },
+        leadingIcon = { Icon(Icons.Search, contentDescription = null) },
         trailingIcon = if (query.isNotEmpty()) {
             { IconButton(onClick = { onQuery("") }) { Icon(Icons.Close, contentDescription = "Clear search") } }
         } else {

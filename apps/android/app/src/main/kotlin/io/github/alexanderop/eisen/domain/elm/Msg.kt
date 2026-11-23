@@ -247,14 +247,22 @@ sealed interface Msg {
 
         /**
          * "+1 round" in AMRAP and For Time. A second one within [TAP_GUARD_MILLIS] is a bounce and does not count.
-         * In a For Time WOD it is "Round done", "Next" or "Done", and the tap of the last step ends the run as completed.
+         * In a For Time WOD it ticks off the item to do now, one tap per item of every round but the rests,
+         * and the tap of the last ends the run as completed. During a rest it does nothing: the clock counts that.
+         * A tap of a WOD keeps its time in the run's splits.
          */
         data object Tap : Timer
 
-        /** "Not finished? Undo" on the result of a WOD its last tap ended: that tap is taken back and the run goes on. */
+        /** "Skip rest" while a rest of a For Time WOD runs: it ends early. No tap, no split. */
+        data object SkipRest : Timer
+
+        /**
+         * "Not finished? Undo" on the result of a WOD its last tap ended: that tap is taken back and the run goes on.
+         * Like every answer on the result, it does not count within [RESULT_GUARD_MILLIS] of the result showing.
+         */
         data object UndoFinish : Timer
 
-        /** "−1" next to the count: takes back a round counted by mistake. */
+        /** "−1" next to the count, "Back" in a For Time WOD: takes back a tap made by mistake, and its split. */
         data object Untap : Timer
 
         /** "−" and "+" on the result of AMRAP and For Time: corrects the rounds of the saved session by [by]. */
@@ -265,6 +273,9 @@ sealed interface Msg {
 
         /** "Done" on the result: back to the Timer tab. */
         data object Done : Timer
+
+        /** "Don't count this run" on the result: its history entry goes, with Undo, and the WOD it was a run of shows. */
+        data object DontCount : Timer
 
         /** The last cues of run [id] had time to play. Lets the timer's service go if no other run started. */
         data class Release(val id: String) : Timer
@@ -283,8 +294,23 @@ sealed interface Msg {
         /** A chip over the benchmarks. */
         data class Filter(val filter: WodFilter) : Wods
 
-        /** A card: its detail opens. */
-        data class Open(val id: String) : Wods
+        /**
+         * A card, or a WOD among the suggestions ([suggested]): its detail opens, and the suggestions close.
+         * From a suggestion the search is done with, so it is cleared.
+         */
+        data class Open(val id: String, val suggested: Boolean = false) : Wods
+
+        /** Typed in the search field: the page filters at once, and the suggestions open while there is text. */
+        data class Search(val query: String) : Wods
+
+        /** The keyboard's search key, or a tap outside the field: the suggestions close, the search stays. */
+        data object CloseSuggestions : Wods
+
+        /** A movement among the suggestions: its name becomes the search, and the suggestions close. */
+        data class SearchMovement(val name: String) : Wods
+
+        /** The field's clear button, or "Clear search" when nothing matched. */
+        data object ClearSearch : Wods
 
         /** Back from the detail to the list. */
         data object Close : Wods

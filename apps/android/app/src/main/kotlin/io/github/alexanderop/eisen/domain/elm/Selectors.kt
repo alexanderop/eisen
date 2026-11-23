@@ -31,6 +31,11 @@ import io.github.alexanderop.eisen.domain.canRate
 import io.github.alexanderop.eisen.domain.encodeState
 import io.github.alexanderop.eisen.domain.findExercise
 import io.github.alexanderop.eisen.domain.startProgress
+import io.github.alexanderop.eisen.domain.WodSuggestion
+import io.github.alexanderop.eisen.domain.motionOf
+import io.github.alexanderop.eisen.domain.REST_EXERCISE
+import io.github.alexanderop.eisen.domain.searchWods
+import io.github.alexanderop.eisen.domain.suggestWods
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -165,10 +170,10 @@ fun openWod(model: Model): Wod? = model.wods.detail?.let { findWod(model.state.w
 /** True when the draft in the builder edits one of the lifter's own WODs, false for a new one. */
 fun draftEditsOwn(model: Model, draft: WodDraft): Boolean = model.state.wods.any { it.id == draft.wod.id }
 
-/** The benchmarks the chip over them lets through. */
-fun benchmarks(model: Model): List<Wod> {
+/** The WODs of [wods] the chip lets through. */
+private fun chipped(model: Model, wods: List<Wod>): List<Wod> {
     val find = wodFind(model)
-    return WOD_LIBRARY.filter { wod ->
+    return wods.filter { wod ->
         when (model.wods.filter) {
             WodFilter.ALL -> true
             WodFilter.NO_WEIGHTS -> isBodyweightWod(wod, find)
@@ -176,6 +181,83 @@ fun benchmarks(model: Model): List<Wod> {
             WodFilter.AMRAP -> wod.timer.mode == TimerMode.AMRAP
         }
     }
+}
+
+/** The benchmarks the chip lets through. */
+fun benchmarks(model: Model): List<Wod> = chipped(model, WOD_LIBRARY)
+
+/** The lifter's own WODs the chip lets through: the chips sit over the whole page. */
+fun ownWods(model: Model): List<Wod> = chipped(model, model.state.wods)
+
+/** True while the WODs page shows what the search found instead of its sections. */
+fun searching(model: Model): Boolean = model.wods.query.isNotBlank()
+
+/**
+ * What the search finds, the lifter's own and the benchmarks together, best first, through the chip
+ * as well. Every WOD while nothing is typed.
+ */
+fun searchedWods(model: Model): List<Wod> = searchWods(chipped(model, model.state.wods + WOD_LIBRARY), model.wods.query, wodFind(model))
+
+/** The list under the search field, over the same WODs as the results, through the chip: empty while it is closed. */
+fun wodSuggestions(model: Model): List<WodSuggestion> =
+    if (!model.wods.suggesting) emptyList() else suggestWods(chipped(model, model.state.wods + WOD_LIBRARY), model.wods.query, wodFind(model))
+
+/** What the page says when the search found nothing: "No WODs match “fra”", with the chip when one is on. */
+fun noMatchText(model: Model): String {
+    val typed = "No WODs match \u201c${model.wods.query.trim()}\u201d"
+    return if (model.wods.filter == WodFilter.ALL) typed else "$typed in ${model.wods.filter.label}"
+}
+
+/** Most figures a banner shows: more would get too small to read on a phone. */
+const val MAX_BANNER_FIGURES = 4
+
+/**
+ * The motion strips of a WOD's banner: its movements in order, each once, those that have a
+ * strip, at most [MAX_BANNER_FIGURES]. Two exercises that share a strip show it once.
+ * Empty when none has one: the card keeps its still tile.
+ */
+fun bannerMotions(workout: Wod): List<String> =
+    workout.items.mapNotNull { motionOf(it.exerciseId) }.distinct().take(MAX_BANNER_FIGURES)
+
+/**
+ * The slots of a WOD's banner: its movements in order, each once and without the rests, at most
+ * [MAX_BANNER_FIGURES]. One whose figure an earlier one already shows is left out; one without a
+ * figure keeps its slot and shows its still picture.
+ */
+fun bannerSlots(workout: Wod): List<String> {
+    val slots = mutableListOf<String>()
+    val shown = mutableSetOf<String>()
+    for (item in workout.items) {
+        val id = item.exerciseId
+        if (id == REST_EXERCISE || id in slots) continue
+        val strip = motionOf(id)
+        if (strip != null && !shown.add(strip)) continue
+        slots += id
+    }
+    return slots.take(MAX_BANNER_FIGURES)
+}
+
+/**
+ * A suggestion's text cut around what was typed, so that part can be bold: "Pu" in "Push-ups"
+ * gives ("", "Pu", "sh-ups"). A match at the start of a word wins over one inside a word.
+ * Without a match the whole text is the first part.
+ */
+fun typedParts(text: String, typed: String): Triple<String, String, String> {
+    val needle = typed.trim().lowercase()
+    val lower = text.lowercase()
+    if (needle.isEmpty()) return Triple(text, "", "")
+    var at = -1
+    var index = lower.indexOf(needle)
+    while (index != -1) {
+        if (index == 0 || !lower[index - 1].let { it in 'a'..'z' || it in '0'..'9' }) {
+            at = index
+            break
+        }
+        if (at == -1) at = index
+        index = lower.indexOf(needle, index + 1)
+    }
+    if (at == -1) return Triple(text, "", "")
+    return Triple(text.substring(0, at), text.substring(at, at + needle.length), text.substring(at + needle.length))
 }
 
 /** The items whose exercise still exists, each with its line of [wodLines]. */

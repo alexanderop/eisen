@@ -72,7 +72,7 @@ const SECOND = 1000
 const MINUTE = 60 * SECOND
 const LEAD_IN = TIMER_LEAD_IN_SECONDS * SECOND
 /** A spoken line waits for the long beep at a change of phase to end. */
-const VOICE_AFTER_BEEP = 700
+export const VOICE_AFTER_BEEP = 700
 /** Room one spoken line needs before the next one starts. */
 const VOICE_GAP = 2500
 
@@ -340,6 +340,11 @@ export interface TimerSession {
   completed: boolean
   /** The WOD this was a run of. Left out for a plain timer. */
   wodId?: string
+  /**
+   * Seconds into the WOD at each tap, to one decimal, pauses and lead-in not counted.
+   * A later run is measured against them while it is still going. Left out when nothing was tapped.
+   */
+  splits?: number[]
 }
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
@@ -357,6 +362,15 @@ export interface TimerRun {
   taps: number
   /** The WOD being done, copied in so the run still reads right when the WOD is edited or deleted. */
   wod?: Wod
+  /** Seconds into the WOD at each tap so far, one entry per tap. Only kept for a WOD. */
+  splits?: number[]
+  /** The taps the rest was skipped at: the rest that started with that tap is over early. */
+  restSkipped?: number
+}
+
+/** Seconds into the work of a run, to one decimal: the time a tap at `now` is filed under. */
+export function splitTime(run: TimerRun, now: number): number {
+  return Math.round(timerView(run.config, activeTime(run, now)).elapsed / 100) / 10
 }
 
 /** Milliseconds the run has been going, pauses not counted. */
@@ -369,13 +383,24 @@ export function isTimerOver(run: TimerRun, now: number): boolean {
   return timerView(run.config, activeTime(run, now)).phase === 'done'
 }
 
+/** The id of the catalog exercise that stands for a pause inside a WOD. */
+export const REST_EXERCISE = 'rest'
+
 /**
- * Taps a For Time WOD takes from start to finish: one per round, or with a single round one per
- * item, ticked off in order. Null where the clock ends the run or the lifter counts freely.
+ * Items of one round that are ticked off with a tap: all but the rests, which the clock counts.
+ * At least 1, so a WOD of nothing but rests still has an end.
+ */
+export function tapsPerRound(workout: Wod): number {
+  return Math.max(1, workout.items.filter((item) => item.exerciseId !== REST_EXERCISE).length)
+}
+
+/**
+ * Taps a For Time WOD takes from start to finish: one per item of every round, ticked off in
+ * order. Null where the clock ends the run or the lifter counts freely.
  */
 export function wodSteps(workout: Wod): number | null {
   if (workout.timer.mode !== 'forTime') return null
-  return workout.rounds > 1 ? workout.rounds : workout.items.length
+  return workout.rounds * tapsPerRound(workout)
 }
 
 /**
@@ -389,9 +414,10 @@ export function timerSession(run: TimerRun, now: number, finished: boolean): Tim
   if (view.phase === 'ready') return null
   const steps = run.wod ? wodSteps(run.wod) : null
   const allDone = steps === null || run.taps >= steps
-  // With a single round the taps count items, not rounds.
-  const single = steps !== null && run.wod?.rounds === 1
+  // In a For Time WOD the taps count items: a round is done with its last item.
+  const perRound = steps === null || !run.wod ? 0 : tapsPerRound(run.wod)
   const tapped = countsRoundsByTap(run.config.mode) ? run.taps : view.roundsDone
+  const splits = run.wod && run.splits && run.splits.length > 0 ? run.splits : null
   return {
     id: run.id,
     name: run.name,
@@ -399,9 +425,10 @@ export function timerSession(run: TimerRun, now: number, finished: boolean): Tim
     startedAt: run.startedAt,
     finishedAt: now,
     seconds: Math.round(view.elapsed / SECOND),
-    rounds: single ? (allDone ? 1 : 0) : tapped,
+    rounds: perRound > 0 ? Math.floor(Math.min(run.taps, steps ?? 0) / perRound) : tapped,
     completed: finished && allDone,
     ...(run.wod ? { wodId: run.wod.id } : {}),
+    ...(splits ? { splits: [...splits] } : {}),
   }
 }
 

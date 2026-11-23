@@ -32,6 +32,10 @@ export const wods = reactive({
   discarding: null as 'back' | 'top' | null,
   /** The benchmark filter, for as long as the app is open. */
   filter: 'all' as WodFilter,
+  /** The search of the WODs page, kept like the filter. */
+  query: '',
+  /** Where the list was scrolled to when a detail or the builder opened from it. */
+  listScroll: 0,
   /** The exercise picker's filter and search, while the builder is open. */
   picker: { filter: 'WOD', query: '' },
   /** The WODs page is on screen: only then does the back button belong to it. */
@@ -55,6 +59,11 @@ function hasEntry(): boolean {
   return (history.state as { wods?: boolean } | null)?.wods === true
 }
 
+/** Remembers where the list stood, for coming back to it. */
+function leaveList(): void {
+  if (wods.screen.kind === 'list') wods.listScroll = window.scrollY
+}
+
 function pushEntry(): void {
   if (!hasEntry()) history.pushState({ wods: true }, '')
 }
@@ -71,8 +80,27 @@ function toList(): void {
 }
 
 export function openDetail(id: string): void {
+  leaveList()
   wods.screen = { kind: 'detail', id }
   pushEntry()
+}
+
+/** How long to wait for the closing timer to take its history entry back. */
+const TIMER_POP_MS = 400
+
+/**
+ * Opens a WOD's detail once the timer screen has closed, as after "Don't count this run". The
+ * timer takes its history entry back as it closes, and that would land on the list: the detail
+ * opens after it, or after a moment when the timer had no entry.
+ */
+export function returnToDetail(id: string): void {
+  const open = () => {
+    window.removeEventListener('popstate', open)
+    clearTimeout(fallback)
+    openDetail(id)
+  }
+  window.addEventListener('popstate', open)
+  const fallback = setTimeout(open, TIMER_POP_MS)
 }
 
 export function closeDetail(): void {
@@ -82,6 +110,7 @@ export function closeDetail(): void {
 function openEdit(edit: WodEdit): void {
   wods.edit = edit
   wods.picker = { filter: 'WOD', query: '' }
+  leaveList()
   wods.screen = { kind: 'builder' }
   pushEntry()
 }
@@ -101,6 +130,7 @@ export function copyWod(workout: Wod): void {
 /** "Continue" on the card of a draft from before a reload. */
 export function continueEdit(): void {
   if (!wods.edit) return
+  leaveList()
   wods.screen = { kind: 'builder' }
   pushEntry()
 }

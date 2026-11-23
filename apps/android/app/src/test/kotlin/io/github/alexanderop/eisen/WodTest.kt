@@ -37,6 +37,14 @@ import io.github.alexanderop.eisen.domain.wodImages
 import io.github.alexanderop.eisen.domain.wodLines
 import io.github.alexanderop.eisen.domain.wodRound
 import io.github.alexanderop.eisen.domain.wodRounds
+import io.github.alexanderop.eisen.domain.gapText
+import io.github.alexanderop.eisen.domain.liveGap
+import io.github.alexanderop.eisen.domain.roundsGap
+import io.github.alexanderop.eisen.domain.roundsGapText
+import io.github.alexanderop.eisen.domain.splitTime
+import io.github.alexanderop.eisen.domain.isRest
+import io.github.alexanderop.eisen.domain.wodRest
+import io.github.alexanderop.eisen.domain.WodRest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -164,10 +172,13 @@ class WodTest {
         assertNull(wodRounds(lib("wod-cindy")))
         assertEquals(30, wodRounds(lib("wod-chelsea")))
         assertEquals(1, wodRound(fran, 0, 1))
-        assertEquals(3, wodRound(fran, 2, 1))
+        // Two items a round: the second tap finishes round one.
+        assertEquals(1, wodRound(fran, 1, 1))
+        assertEquals(2, wodRound(fran, 2, 1))
         assertEquals(3, wodRound(fran, 5, 1))
-        assertFalse(wodDone(fran, 2))
-        assertTrue(wodDone(fran, 3))
+        assertEquals(3, wodRound(fran, 9, 1))
+        assertFalse(wodDone(fran, 5))
+        assertTrue(wodDone(fran, 6))
         assertEquals(8, wodRound(lib("wod-cindy"), 7, 1))
         assertFalse(wodDone(lib("wod-cindy"), 99))
         assertEquals(12, wodRound(lib("wod-chelsea"), 7, 12))
@@ -177,7 +188,12 @@ class WodTest {
         val murph = lib("wod-murph")
         assertEquals(5, wodSteps(murph))
         assertEquals(1, wodSteps(lib("wod-grace")))
-        assertEquals(3, wodSteps(lib("wod-fran")))
+        assertEquals(6, wodSteps(lib("wod-fran")))
+        assertEquals(12, wodSteps(lib("wod-venus")))
+        // Venus: three items a round. The fifth tap is the second item of round two.
+        assertEquals(1, wodStep(lib("wod-venus"), 4))
+        assertEquals(2, wodRound(lib("wod-venus"), 4, 1))
+        assertEquals(2, wodStep(lib("wod-venus"), 12))
         assertNull(wodSteps(lib("wod-cindy")))
         assertEquals(0, wodStep(murph, 0))
         assertEquals(3, wodStep(murph, 3))
@@ -185,6 +201,39 @@ class WodTest {
         assertFalse(wodDone(murph, 4))
         assertTrue(wodDone(murph, 5))
         assertEquals(1, wodRound(murph, 3, 1))
+    }
+
+    @Test fun `lets the clock count a rest instead of asking for a tap`() {
+        val zeus = lib("wod-zeus")
+        // Five movements and a rest a round: five taps, four rounds.
+        assertEquals(20, wodSteps(zeus))
+        assertTrue(isRest(zeus.items[5]))
+        assertEquals(4, wodStep(zeus, 4))
+        // The fifth tap ends round one: on to the first movement of round two, past the rest.
+        assertEquals(0, wodStep(zeus, 5))
+        assertEquals(2, wodRound(zeus, 5, 1))
+        assertFalse(wodDone(zeus, 19))
+        assertTrue(wodDone(zeus, 20))
+
+        val five = listOf(60.0, 120.0, 180.0, 240.0, 300.0)
+        // No rest in the middle of a round.
+        assertNull(wodRest(zeus, five.take(3), 185.0))
+        // The fifth tap starts the two minutes by itself.
+        assertEquals(WodRest(120, 120), wodRest(zeus, five, 300.0))
+        assertEquals(WodRest(59, 120), wodRest(zeus, five, 361.5))
+        assertNull(wodRest(zeus, five, 420.0))
+        // After the very last tap there is nothing to rest for.
+        val all = List(20) { (it + 1) * 60.0 }
+        assertNull(wodRest(zeus, all, 1200.0))
+        assertNull(wodRest(lib("wod-fran"), listOf(40.0, 75.0), 76.0))
+        assertNull(wodRest(lib("wod-cindy"), listOf(60.0), 61.0))
+
+        // Ares: two sprints, then a minute.
+        val ares = lib("wod-ares")
+        assertEquals(20, wodSteps(ares))
+        assertEquals(WodRest(50, 60), wodRest(ares, listOf(20.0, 40.0, 50.0, 60.0), 70.0))
+        timerSession(run(zeus, 20), 10_000L + 1_300_000L, true)!!.let { assertEquals(true to 4, it.completed to it.rounds) }
+        timerSession(run(zeus, 7), 10_000L + 500_000L, false)!!.let { assertEquals(false to 1, it.completed to it.rounds) }
     }
 
     @Test fun `knows when an edit changed the work and not only the name or the cap`() {
@@ -237,7 +286,7 @@ class WodTest {
         timerSession(run(workout, taps), 10_000L + seconds * 1000L, finished)!!.copy(id = id)
 
     @Test fun `files a run of a workout under its id`() {
-        val filed = session(lib("wod-fran"), 292, 3, true, "a")
+        val filed = session(lib("wod-fran"), 292, 6, true, "a")
         assertEquals(Triple("wod-fran", 292, 3), Triple(filed.wodId, filed.seconds, filed.rounds))
         val plain = timerSession(run(lib("wod-fran")).copy(wod = null), 20_000, true)!!
         assertNull(plain.wodId)
@@ -247,8 +296,9 @@ class WodTest {
 
     @Test fun `counts a For Time only as finished with every step tapped off`() {
         // The clock stopped after one of three rounds: saved, but not a time to beat.
-        val early = session(lib("wod-fran"), 3, 1, true, "early")
+        val early = session(lib("wod-fran"), 3, 2, true, "early")
         assertEquals(false to 1, early.completed to early.rounds)
+        session(lib("wod-fran"), 3, 1, true, "item").let { assertEquals(false to 0, it.completed to it.rounds) }
         assertEquals(TimerOutcome.STOPPED, timerOutcome(early))
         assertNull(wodBest(listOf(early), "wod-fran"))
         // A single round counts its items: all five ticked off is one round.
@@ -263,8 +313,8 @@ class WodTest {
         val fran = lib("wod-fran")
         val cindy = lib("wod-cindy")
         val sessions = listOf(
-            session(fran, 310, 3, true, "slow"),
-            session(fran, 292, 3, true, "fast"),
+            session(fran, 310, 6, true, "slow"),
+            session(fran, 292, 6, true, "fast"),
             session(fran, 120, 1, false, "stopped"),
             session(fran, 600, 2, true, "capped"),
             session(cindy, 1200, 14, true, "c14"),
@@ -279,11 +329,58 @@ class WodTest {
         assertNull(wodBest(sessions, "wod-chelsea"))
         assertNull(wodBest(sessions, "wod-grace"))
 
-        assertTrue(isWodRecord(sessions, session(fran, 280, 3, true, "new")))
-        assertFalse(isWodRecord(sessions, session(fran, 292, 3, true, "same")))
+        assertTrue(isWodRecord(sessions, session(fran, 280, 6, true, "new")))
+        assertFalse(isWodRecord(sessions, session(fran, 292, 6, true, "same")))
         assertFalse(isWodRecord(sessions, session(fran, 100, 1, false, "quit")))
         assertTrue(isWodRecord(sessions, session(cindy, 1200, 19, true, "more")))
         // A first run has nothing to beat.
-        assertFalse(isWodRecord(emptyList(), session(fran, 280, 3, true, "first")))
+        assertFalse(isWodRecord(emptyList(), session(fran, 280, 6, true, "first")))
+    }
+
+    @Test fun `keeps the time of every tap and files it with the run`() {
+        val fran = lib("wod-fran")
+        assertEquals(41.3, splitTime(run(fran), 10_000L + 41_260L), 0.0)
+        // In the lead-in nothing has started.
+        assertEquals(0.0, splitTime(run(fran), 4_000), 0.0)
+        val done = timerSession(run(fran, 6).copy(splits = listOf(40.0, 75.0, 120.0, 150.0, 190.0, 212.5)), 10_000L + 212_500L, true)!!
+        assertEquals(listOf(40.0, 75.0, 120.0, 150.0, 190.0, 212.5), done.splits)
+        assertFalse("splits" in StateJson.encodeToString(TimerSession.serializer(), timerSession(run(fran, 0), 30_000, false)!!))
+        val plain = timerSession(run(fran, 2).copy(wod = null, splits = listOf(1.0, 2.0)), 30_000, true)!!
+        assertFalse("splits" in StateJson.encodeToString(TimerSession.serializer(), plain))
+    }
+
+    @Test fun `measures a run against the best while it is still going`() {
+        val best = session(lib("wod-fran"), 213, 6, true, "best").copy(splits = listOf(40.0, 75.0, 120.0, 150.0, 190.0, 212.5))
+        // Level until the first item takes longer than it did in the best run.
+        assertEquals(0, liveGap(best, emptyList(), 20.0))
+        assertEquals(7, liveGap(best, emptyList(), 47.0))
+        // Tapped 5 s early: ahead by that, for as long as the next item stays within its time.
+        assertEquals(-5, liveGap(best, listOf(35.0), 50.0))
+        assertEquals(0, liveGap(best, listOf(35.0), 75.0))
+        assertEquals(8, liveGap(best, listOf(35.0), 83.0))
+        // Behind at the last tap stays behind.
+        assertEquals(15, liveGap(best, listOf(40.0, 90.0), 95.0))
+        // The finish: only the last tap counts.
+        // Whole seconds as the screen shows them: the best reads 3:33, this run 3:20.
+        assertEquals(-13, liveGap(best, listOf(38.0, 70.0, 110.0, 140.0, 180.0, 200.0), 200.0))
+        // Nothing to measure against.
+        assertNull(liveGap(null, listOf(10.0), 20.0))
+        assertNull(liveGap(session(lib("wod-fran"), 213, 6, true, "old"), listOf(10.0), 20.0))
+
+        assertEquals("12s ahead", gapText(-12))
+        assertEquals("1:05 behind", gapText(65))
+        assertEquals("On pace", gapText(0))
+    }
+
+    @Test fun `counts an AMRAP against the rounds the best run had by now`() {
+        val best = session(lib("wod-cindy"), 1200, 4, true, "best").copy(splits = listOf(60.0, 125.0, 200.0, 290.0))
+        assertEquals(0, roundsGap(best, 0, 30.0))
+        assertEquals(-1, roundsGap(best, 0, 61.0))
+        assertEquals(1, roundsGap(best, 3, 130.0))
+        assertEquals(0, roundsGap(best, 4, 300.0))
+        assertNull(roundsGap(null, 2, 100.0))
+        assertEquals("2 rounds ahead", roundsGapText(2))
+        assertEquals("1 round behind", roundsGapText(-1))
+        assertEquals("On pace", roundsGapText(0))
     }
 }

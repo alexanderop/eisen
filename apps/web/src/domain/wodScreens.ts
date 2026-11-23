@@ -1,10 +1,17 @@
 import { CATALOG, type Equipment, type Exercise } from './exercises'
+import { motionOf } from './motions'
 import { holdText } from './program'
 import {
   DEFAULT_TIMERS,
   sessionSummary,
+  TIMER_LEAD_IN_SECONDS,
   TIMER_MODES,
+  tapsPerRound,
+  timerOutcome,
+  VOICE_AFTER_BEEP,
+  wodSteps,
   type TimerConfig,
+  type TimerCue,
   type TimerMode,
   type TimerRun,
   type TimerSession,
@@ -15,21 +22,28 @@ import { formatWeight, type Unit } from './units'
 import {
   bestText,
   distance,
+  gapText,
   isBodyweightWod,
+  isRest,
   isWodRecord,
   itemAmount,
   itemText,
+  liveGap,
   loadIn,
   MAX_SCHEME_LENGTH,
   MAX_WOD_NAME,
   roundItems,
   roundLines,
+  roundsGap,
+  roundsGapText,
   SCHEMES,
   sameWork,
   wod,
   wodFormat,
   wodLines,
   wodName,
+  wodDone,
+  wodRest,
   wodRound,
   wodRounds,
   wodStep,
@@ -57,6 +71,16 @@ export function filterWods(list: Wod[], filter: WodFilter, find: Find): Wod[] {
 }
 
 /**
+ * The WODs page when a search finds nothing: "No WODs match “fra”", and with a chip on, which one
+ * narrowed it: "No WODs match “fra” in No weights".
+ */
+export function noMatchText(query: string, filter: WodFilter): string {
+  const text = `No WODs match “${query.trim()}”`
+  if (filter === 'all') return text
+  return `${text} in ${WOD_FILTERS.find((entry) => entry.value === filter)?.label ?? filter}`
+}
+
+/**
  * What a card reads to a screen reader, with the pauses a sighted lifter gets from the layout:
  * "Fran. 21-15-9, For Time. Thruster 43kg, Pull-ups. Best 4:52."
  */
@@ -68,6 +92,52 @@ export function cardLabel(workout: Wod, find: Find, unit: Unit, best: TimerSessi
   if (lines.length > 0) parts.push(lines.join(', '))
   if (best) parts.push(`Best ${bestText(best)}`)
   return `${parts.join('. ')}.`
+}
+
+/** Most figures a banner shows: more would get too small to read on a phone. */
+export const MAX_BANNER_FIGURES = 4
+
+/** One place in a WOD's banner: the figure of a movement, or its still picture where it has none. */
+export interface BannerSlot {
+  exerciseId: string
+  /** The motion strip, null for a movement without one. */
+  strip: string | null
+}
+
+/**
+ * The places of a WOD's banner: its movements in order, each once, at most
+ * {@link MAX_BANNER_FIGURES}. Rests are no movement. Empty when not one of them has a strip:
+ * the card keeps its still tile then.
+ */
+export function bannerMotions(workout: Wod): BannerSlot[] {
+  const slots: BannerSlot[] = []
+  for (const item of workout.items) {
+    if (isRest(item) || slots.some((slot) => slot.exerciseId === item.exerciseId)) continue
+    slots.push({ exerciseId: item.exerciseId, strip: motionOf(item.exerciseId) ?? null })
+  }
+  const shown = slots.slice(0, MAX_BANNER_FIGURES)
+  return shown.some((slot) => slot.strip) ? shown : []
+}
+
+/**
+ * A suggestion's text cut around what was typed, so that part can be bold: "Pu" in "Push-ups"
+ * gives ["", "Pu", "sh-ups"]. A match at the start of a word wins over one inside a word.
+ * Without a match the whole text is the first part.
+ */
+export function typedParts(text: string, typed: string): [string, string, string] {
+  const needle = typed.trim().toLowerCase()
+  const lower = text.toLowerCase()
+  if (!needle) return [text, '', '']
+  let at = -1
+  for (let index = lower.indexOf(needle); index !== -1; index = lower.indexOf(needle, index + 1)) {
+    if (index === 0 || !/[a-z0-9]/.test(lower[index - 1])) {
+      at = index
+      break
+    }
+    if (at === -1) at = index
+  }
+  if (at === -1) return [text, '', '']
+  return [text.slice(0, at), text.slice(at, at + needle.length), text.slice(at + needle.length)]
 }
 
 /** The exercises a WOD is usually made of: those of the benchmarks and the Conditioning group. */
@@ -346,18 +416,37 @@ export function wodRecordIds(sessions: TimerSession[]): Set<string> {
 }
 
 /**
- * Over the round card of a running WOD, the one count on screen: "Round 2 of 3", and in a rest
- * "Up next · Round 3 of 8". Nothing in an AMRAP, whose button counts the rounds, and nothing for a
- * single round.
+ * Over the round card of a running WOD: "Round 3 of 30" in an EMOM or Tabata, and in a rest
+ * "Up next · Round 3 of 8". A For Time says its round next to the phase word instead, so here only
+ * in a rest that ends a round. Nothing in an AMRAP, whose button counts the rounds.
  */
-export function roundHeading(workout: Wod, taps: number, view: TimerView): string {
+export function roundHeading(workout: Wod, taps: number, view: TimerView, resting = false): string {
   const rounds = wodRounds(workout)
-  if (rounds === null || rounds <= 1) return ''
+  if (rounds === null) return ''
+  if (workout.timer.mode === 'forTime') {
+    if (!resting) return ''
+    const next = taps % tapsPerRound(workout) === 0
+    if (!next) return 'Up next'
+    return rounds > 1 ? `Up next · Round ${wodRound(workout, taps, 1)} of ${rounds}` : 'Up next'
+  }
+  if (rounds <= 1) return ''
   if (view.phase === 'rest') return `Up next · Round ${Math.min(view.round + 1, rounds)} of ${rounds}`
   return `Round ${wodRound(workout, taps, view.round)} of ${rounds}`
 }
 
-/** One line of the round card. `done` and `current` only in a single round of several items. */
+/** "2/4" after the phase word of a For Time of several rounds: the round being done. */
+export function roundTag(workout: Wod, taps: number): string {
+  if (workout.timer.mode !== 'forTime' || workout.rounds <= 1) return ''
+  return `${wodRound(workout, taps, 1)}/${workout.rounds}`
+}
+
+/** True when the tap that made it `taps` finished a round and another one follows. */
+export function endsRound(workout: Wod, taps: number): boolean {
+  if (workout.timer.mode !== 'forTime' || workout.rounds <= 1 || taps === 0) return false
+  return taps % tapsPerRound(workout) === 0 && !wodDone(workout, taps)
+}
+
+/** One line of the round card. `done` and `current` only where the items are ticked off, in a For Time. */
 export interface CardLine {
   text: string
   state: 'plain' | 'done' | 'current'
@@ -367,9 +456,18 @@ export interface CardLine {
 
 /**
  * What the round card shows: the lines of the round the lifter is in, in a rest those of the
- * coming round. A single-round For Time shows every item, ticked off in order.
+ * coming round. A For Time ticks off the items of its round in order, one tap each. A rest line is
+ * ticked off with the item before it and is never the one to do. In a rest nothing is to do: a
+ * rest that ends the round shows the next round untouched.
  */
-export function roundCard(workout: Wod, taps: number, view: TimerView, find: Find, unit: Unit): CardLine[] {
+export function roundCard(
+  workout: Wod,
+  taps: number,
+  view: TimerView,
+  find: Find,
+  unit: Unit,
+  resting = false,
+): CardLine[] {
   const plain = (round: number): CardLine[] => {
     const items = roundItems(workout, round).filter((item) => find(item.exerciseId))
     return roundLines(workout, round, find, unit).map((text, index) => ({
@@ -379,36 +477,155 @@ export function roundCard(workout: Wod, taps: number, view: TimerView, find: Fin
     }))
   }
   if (view.phase === 'rest') return plain(view.round + 1)
-  if (workout.timer.mode === 'forTime' && workout.rounds === 1 && workout.items.length > 1) {
-    return workout.items.map((item, index) => {
-      const name = find(item.exerciseId)?.name ?? 'Deleted exercise'
-      return {
-        text: itemText(item, itemAmount(workout, item, 1), name, unit),
-        state: index < taps ? 'done' : index === taps ? 'current' : 'plain',
-        exerciseId: item.exerciseId,
-      }
-    })
-  }
-  return plain(wodRound(workout, taps, view.round))
+  const round = wodRound(workout, taps, view.round)
+  if (workout.timer.mode !== 'forTime') return plain(round)
+  // Every item is a tap, so one whose exercise was deleted keeps its line.
+  const step = wodStep(workout, taps)
+  const fresh = resting && taps % tapsPerRound(workout) === 0
+  return workout.items.map((item, index) => ({
+    text: itemLine(workout, item, round, find, unit),
+    state: fresh || index > step ? 'plain' : index < step ? 'done' : resting ? 'plain' : 'current',
+    exerciseId: item.exerciseId,
+  }))
 }
 
-/** The big button of a For Time WOD: what a tap does now. */
-export function wodButton(
-  workout: Wod,
-  taps: number,
-  find: Find,
-  unit: Unit,
-): { big: string; small: string } {
-  if (workout.rounds > 1) return { big: 'Round done', small: 'tap' }
-  if (workout.items.length > 1) {
-    const item = workout.items[wodStep(workout, taps)]
-    const name = find(item.exerciseId)?.name ?? 'Deleted exercise'
-    return { big: 'Next', small: itemText(item, itemAmount(workout, item, 1), name, unit) }
-  }
-  return { big: 'Done', small: 'tap when finished' }
+function itemLine(workout: Wod, item: WodItem, round: number, find: Find, unit: Unit): string {
+  return itemText(item, itemAmount(workout, item, round), find(item.exerciseId)?.name ?? 'Deleted exercise', unit)
 }
 
-/** "Not finished? Undo": the run as it was before the tap that ended it. */
+/** The big button of a For Time WOD: the line a tap ticks off, and what comes after it. */
+export interface WodButton {
+  /** "50 × Push-ups". */
+  line: string
+  /** "tap when done · then 20 × Sit-ups", "tap when done · finishes the WOD". */
+  hint: string
+  /** For a screen reader: "50 × Push-ups done. Next: 20 × Sit-ups." */
+  label: string
+}
+
+/** What follows the item a tap ticks off: "20 × Sit-ups", "rest 2:00", "round 3". Null on the very last. */
+function nextThing(workout: Wod, taps: number, find: Find, unit: Unit): string | null {
+  if (taps >= (wodSteps(workout) ?? 0) - 1) return null
+  const step = wodStep(workout, taps)
+  let rest = 0
+  for (let index = step + 1; index < workout.items.length && isRest(workout.items[index]); index += 1) {
+    rest += workout.items[index].unit === 'seconds' ? workout.items[index].amount : 0
+  }
+  if (rest > 0) return `rest ${holdText(rest)}`
+  const round = wodRound(workout, taps, 1)
+  const next = workout.items.findIndex((item, index) => index > step && !isRest(item))
+  if (next !== -1) return itemLine(workout, workout.items[next], round, find, unit)
+  return `round ${round + 1}`
+}
+
+export function wodButton(workout: Wod, taps: number, find: Find, unit: Unit): WodButton {
+  if (workout.items.every(isRest)) return { line: 'Done', hint: 'tap when finished', label: 'Done' }
+  const step = wodStep(workout, taps)
+  const line = itemLine(workout, workout.items[step], wodRound(workout, taps, 1), find, unit)
+  const next = nextThing(workout, taps, find, unit)
+  if (next === null) {
+    return { line, hint: 'tap when done · finishes the WOD', label: `${line} done. Finishes the WOD.` }
+  }
+  return { line, hint: `tap when done · then ${next}`, label: `${line} done. Next: ${next}.` }
+}
+
+/** "Not finished? Undo" and "Back": the run as it was before its last tap. A skipped rest comes back. */
 export function undoneRun(run: TimerRun): TimerRun {
-  return { ...run, taps: Math.max(0, run.taps - 1) }
+  const { restSkipped: _, ...kept } = run
+  const taps = Math.max(0, run.taps - 1)
+  return { ...kept, taps, ...(run.splits ? { splits: run.splits.slice(0, taps) } : {}) }
+}
+
+/** The rest a running WOD is in at `elapsed` seconds into it, unless the lifter skipped it. */
+export function runRest(run: TimerRun, elapsed: number): { left: number; total: number } | null {
+  if (!run.wod || run.restSkipped === run.taps) return null
+  return wodRest(run.wod, run.splits ?? [], elapsed)
+}
+
+/**
+ * The sounds at the end of the rest the last tap started: three short beeps and a long one, then
+ * "Go", as the run's calls allow. Timed like {@link TimerCue}: milliseconds of the run, lead-in
+ * included, pauses not counted. None once the rest is skipped.
+ */
+export function restCues(run: TimerRun): TimerCue[] {
+  const splits = run.splits ?? []
+  if (splits.length === 0) return []
+  const start = splits[splits.length - 1]
+  const rest = runRest(run, start)
+  if (!rest) return []
+  const begin = (TIMER_LEAD_IN_SECONDS + start) * 1000
+  const end = begin + rest.total * 1000
+  const cues: TimerCue[] = []
+  if (run.calls.beeps) {
+    for (const before of [3, 2, 1]) {
+      if (end - before * 1000 > begin) cues.push({ at: end - before * 1000, sound: 'beep' })
+    }
+    cues.push({ at: end, sound: 'beep-long' })
+  }
+  if (run.calls.phases) cues.push({ at: end + VOICE_AFTER_BEEP, sound: 'go' })
+  return cues
+}
+
+export type PaceTone = 'ahead' | 'behind' | 'level'
+
+/** The line between the clock and the round card of a For Time or an AMRAP. */
+export interface PaceLine {
+  /** "Best 12:40", "Best 18 rounds", or "First run: this sets your best". */
+  best: string
+  /** "12s ahead", "2 rounds behind", "On pace". Null while there is nothing to measure against. */
+  gap: string | null
+  tone: PaceTone
+  /** "▲" ahead, "▼" behind, "" on pace: so colour is not the only sign. */
+  arrow: string
+}
+
+const ARROWS: Record<PaceTone, string> = { ahead: '▲', behind: '▼', level: '' }
+
+function paced(line: PaceLine, gap: string, tone: PaceTone): PaceLine {
+  return { ...line, gap, tone, arrow: ARROWS[tone] }
+}
+
+/**
+ * How the run stands against the best one, live. Null in an EMOM or a Tabata, which have
+ * nothing to beat. In the lead-in only the best: nothing has started yet.
+ */
+export function paceLine(run: TimerRun, best: TimerSession | null, view: TimerView): PaceLine | null {
+  const mode = run.wod?.timer.mode
+  if (mode !== 'forTime' && mode !== 'amrap') return null
+  if (!best) return { best: 'First run: this sets your best', gap: null, tone: 'level', arrow: '' }
+  const line: PaceLine = { best: `Best ${bestText(best)}`, gap: null, tone: 'level', arrow: '' }
+  if (view.phase === 'ready') return line
+  const elapsed = view.elapsed / 1000
+  if (mode === 'forTime') {
+    const gap = liveGap(best, run.splits ?? [], elapsed)
+    if (gap === null) return line
+    return paced(line, gapText(gap), gap < 0 ? 'ahead' : gap > 0 ? 'behind' : 'level')
+  }
+  const rounds = roundsGap(best, run.taps, elapsed)
+  if (rounds === null) return line
+  return paced(line, roundsGapText(rounds), rounds > 0 ? 'ahead' : rounds < 0 ? 'behind' : 'level')
+}
+
+/**
+ * Under the result of a finished run, measured against the best before it: "12s faster than your
+ * best", "1 round fewer than your best". Null without a best, or for a run that was not finished.
+ */
+export function resultGap(
+  result: TimerSession,
+  before: TimerSession | null,
+): { text: string; better: boolean } | null {
+  if (!before || timerOutcome(result) !== 'completed') return null
+  if (result.config.mode === 'forTime') {
+    const diff = result.seconds - before.seconds
+    if (diff === 0) return { text: 'Same time as your best', better: false }
+    return { text: `${holdText(Math.abs(diff))} ${diff < 0 ? 'faster' : 'slower'} than your best`, better: diff < 0 }
+  }
+  if (result.config.mode !== 'amrap') return null
+  const diff = result.rounds - before.rounds
+  if (diff === 0) return { text: 'As many rounds as your best', better: false }
+  const count = Math.abs(diff)
+  return {
+    text: `${count} ${count === 1 ? 'round' : 'rounds'} ${diff > 0 ? 'more' : 'fewer'} than your best`,
+    better: diff > 0,
+  }
 }

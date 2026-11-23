@@ -2,6 +2,7 @@ import { computed, reactive, ref, toRaw } from 'vue'
 import {
   activeTime,
   MAX_OPEN_TIMER_SECONDS,
+  splitTime,
   TIMER_LEAD_IN_SECONDS,
   TIMER_MODES,
   timerConfig,
@@ -15,7 +16,7 @@ import {
   type TimerSession,
 } from './domain/timer'
 import { wod, wodDone, wodName, type Wod } from './domain/wod'
-import { undoneRun } from './domain/wodScreens'
+import { endsRound, restCues, runRest, undoneRun } from './domain/wodScreens'
 import { haptic } from './haptics'
 import { cancelHold } from './hold'
 import { audioContext, stopRest } from './rest'
@@ -66,8 +67,15 @@ const decoding = new Map<string, Promise<void>>()
 
 let context: AudioContext | undefined
 let cues: TimerCue[] = []
-/** Cues handed to the audio clock, played or still waiting, by their place in `cues`. */
-const scheduled = new Map<number, { node: AudioScheduledSourceNode | null; when: number }>()
+/** The beeps and "Go" at the end of the rest the last tap started. They change with every tap. */
+let restSounds: TimerCue[] = []
+/**
+ * Cues handed to the audio clock, played or still waiting: those of `cues` by their place in it,
+ * those of a rest by their time and sound.
+ */
+const scheduled = new Map<string, { node: AudioScheduledSourceNode | null; when: number }>()
+
+const restKey = (cue: TimerCue) => `rest:${cue.at}:${cue.sound}`
 
 function isTone(sound: string): boolean {
   return sound === 'beep' || sound === 'beep-long'
@@ -103,7 +111,7 @@ function decode(names: string[]): Promise<unknown> {
 
 /** Gets the recordings of the running timer ready, then puts them on the audio clock. */
 function prepare(): void {
-  const names = [...new Set(cues.map((cue) => cue.sound).filter((sound) => !isTone(sound)))]
+  const names = [...new Set([...cues, ...restSounds].map((cue) => cue.sound).filter((sound) => !isTone(sound)))]
   void decode(names).then(syncSounds)
 }
 
@@ -142,14 +150,35 @@ function syncSounds(): void {
   if (!run || run.pausedAt !== null || !audio || audio.state !== 'running') return
   const active = activeTime(run, Date.now())
   const base = audio.currentTime
-  for (const [index, cue] of cues.entries()) {
+  const schedule = (key: string, cue: TimerCue) => {
     const wait = cue.at - active
-    if (wait > AHEAD_MS) break
-    if (scheduled.has(index) || wait < -LATE_MS) continue
+    if (scheduled.has(key) || wait < -LATE_MS || wait > AHEAD_MS) return
     const when = base + Math.max(0, wait) / 1000
     const node = play(audio, cue.sound, when)
-    if (node !== undefined) scheduled.set(index, { node, when })
+    if (node !== undefined) scheduled.set(key, { node, when })
   }
+  for (const [index, cue] of cues.entries()) {
+    if (cue.at - active > AHEAD_MS) break
+    schedule(String(index), cue)
+  }
+  for (const cue of restSounds) schedule(restKey(cue), cue)
+}
+
+/** The rest's sounds after a tap, Back or Skip: the old rest's go, still playing or not. */
+function syncRest(): void {
+  const run = timer.run
+  restSounds = run ? restCues(run) : []
+  const keep = new Set(restSounds.map(restKey))
+  for (const [key, entry] of scheduled) {
+    if (!key.startsWith('rest:') || keep.has(key)) continue
+    try {
+      entry.node?.stop()
+    } catch {
+      // Already over.
+    }
+    scheduled.delete(key)
+  }
+  prepare()
 }
 
 /** Takes back what the audio clock would still play. `all` also cuts off what plays right now. */
@@ -224,6 +253,8 @@ function close(session: TimerSession | null): void {
 
 /** Phase and round the vibration last went with, so each change vibrates once. */
 let lastStep = ''
+/** The taps whose rest was on screen at the last tick, to buzz when it runs out. */
+let restingAt: number | null = null
 
 function tick(): void {
   now.value = Date.now()
@@ -243,13 +274,19 @@ function tick(): void {
     else if (view.phase === 'rest') haptic('timerRest')
   }
   lastStep = step
+  // A WOD's rest ran out by itself: back to work, like the start of a work phase.
+  const resting = view.phase === 'work' && runRest(run, view.elapsed / 1000) !== null
+  if (!resting && restingAt === run.taps && run.restSkipped !== run.taps && run.pausedAt === null) haptic('timerWork')
+  restingAt = resting ? run.taps : null
   syncSounds()
 }
 
 function begin(): void {
   cues = timerCues(timer.run!.config, timer.run!.calls)
+  restSounds = restCues(timer.run!)
   scheduled.clear()
   lastStep = ''
+  restingAt = null
   interval ??= setInterval(tick, 200)
   tick()
   prepare()
@@ -274,7 +311,7 @@ function start(config: TimerConfig, name: string, workout?: Wod): void {
     pausedAt: null,
     paused: 0,
     taps: 0,
-    ...(workout ? { wod: workout } : {}),
+    ...(workout ? { wod: workout, splits: [] } : {}),
   }
   begin()
   persist()
@@ -322,8 +359,9 @@ const TAP_GUARD_MS = 800
 let lastTap = 0
 
 /**
- * One more round in AMRAP and For Time. In a For Time WOD a tap is a round or an item done, and
- * the one on the last stops the clock: the run is complete at that moment.
+ * One more round in AMRAP and For Time. In a For Time WOD a tap is an item done, and the one on
+ * the last item of the last round stops the clock: the run is complete at that moment.
+ * A WOD keeps the time of every tap, to measure the next run by.
  */
 export function tapRound(): void {
   const run = timer.run
@@ -332,22 +370,40 @@ export function tapRound(): void {
   if (time - lastTap < TAP_GUARD_MS) return
   lastTap = time
   run.taps += 1
+  if (run.wod) (run.splits ??= []).push(splitTime(run, time))
   if (run.wod && wodDone(run.wod, run.taps)) {
     const ended = { ...toRaw(run) }
     finishTimer()
     timer.undo = ended
     return
   }
-  haptic('tap')
+  haptic(run.wod && endsRound(run.wod, run.taps) ? 'round' : 'tap')
+  syncRest()
+  syncSounds()
   persist()
 }
 
-/** Takes back a round tapped by mistake. */
+/** Takes back a round or an item tapped by mistake, with its time. */
 export function untapRound(): void {
   const run = timer.run
   if (!run || run.taps === 0) return
   run.taps -= 1
+  run.splits?.splice(run.taps)
+  delete run.restSkipped
   haptic('tap')
+  syncRest()
+  syncSounds()
+  persist()
+}
+
+/** Ends a WOD's rest early: its beeps and "Go" are dropped. No tap, no split. */
+export function skipRest(): void {
+  const run = timer.run
+  if (!run) return
+  run.restSkipped = run.taps
+  restingAt = null
+  haptic('tap')
+  syncRest()
   persist()
 }
 
@@ -384,6 +440,12 @@ export function dismissResult(): void {
   timer.undo = null
 }
 
+/** "Don't count this run": the result goes from the history, as if the run never happened. */
+export function forgetResult(): void {
+  if (timer.result) deleteTimerSession(timer.result.id)
+  dismissResult()
+}
+
 /**
  * "Not finished? Undo": the last tap was too early. The saved run goes, the tap is taken back and
  * the run carries on. It runs on timestamps, so the clock shows the time that really passed.
@@ -401,6 +463,10 @@ export function undoFinish(): void {
   timer.run = undoneRun(ended)
   begin()
   persist()
+}
+
+function isSplits(value: unknown, taps: number): value is number[] {
+  return Array.isArray(value) && value.length === taps && value.every((split) => typeof split === 'number')
 }
 
 function isTimerRun(value: unknown): value is TimerRun {
@@ -426,11 +492,14 @@ function restore(): void {
       localStorage.removeItem(TIMER_KEY)
       return
     }
-    const { wod: workout, ...rest } = saved
+    const { wod: workout, splits, restSkipped, ...rest } = saved
+    const isWod = workout && Array.isArray(workout.items)
     timer.run = {
       ...rest,
       config: timerConfig(saved.config),
-      ...(workout && Array.isArray(workout.items) ? { wod: wod(workout) } : {}),
+      ...(isWod ? { wod: wod(workout) } : {}),
+      ...(isWod && isSplits(splits, saved.taps) ? { splits } : {}),
+      ...(typeof restSkipped === 'number' ? { restSkipped } : {}),
     }
     timer.restored = true
     begin()

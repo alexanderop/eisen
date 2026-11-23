@@ -66,6 +66,8 @@ import io.github.alexanderop.eisen.domain.elm.HistoryView
 import io.github.alexanderop.eisen.domain.elm.TimerState
 import io.github.alexanderop.eisen.domain.elm.TAP_GUARD_MILLIS
 import io.github.alexanderop.eisen.domain.elm.timerRun
+import io.github.alexanderop.eisen.domain.elm.MAX_QUERY
+import io.github.alexanderop.eisen.domain.elm.RESULT_GUARD_MILLIS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -775,6 +777,7 @@ class UpdateTest {
         var wodsFiled = 0
         var drafted = 0
         var undone = 0
+        var guarded = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -876,6 +879,28 @@ class UpdateTest {
                 } else {
                     assertTrue(where, subscriptions(after.model).none { it is Sub.TimerClock })
                 }
+                // A WOD run keeps the time of every tap, one per tap and in order; a plain timer keeps none.
+                for (kept in listOfNotNull(run, (after.model.timer as? TimerState.Finished)?.undo)) {
+                    if (kept.wod != null) {
+                        assertEquals(where, kept.taps, kept.splits.size)
+                        assertEquals(where, kept.splits.sorted(), kept.splits)
+                    } else {
+                        assertTrue(where, kept.splits.isEmpty())
+                    }
+                }
+                // A skipped rest never adds a split or a tap.
+                if (msg == Msg.Timer.SkipRest && run != null && wasRunningRun(step) != null) {
+                    assertEquals(where, wasRunningRun(step)!!.splits, run.splits)
+                    assertEquals(where, wasRunningRun(step)!!.taps, run.taps)
+                }
+                // The result does not answer within a second of showing: that is the thumb of the last tap.
+                val shown = step.model.timer as? TimerState.Finished
+                if (shown != null && msg is Msg.Timer && now - shown.at in 0 until RESULT_GUARD_MILLIS &&
+                    (msg == Msg.Timer.UndoFinish || msg == Msg.Timer.Done || msg == Msg.Timer.Again || msg == Msg.Timer.DontCount || msg is Msg.Timer.CorrectRounds)
+                ) {
+                    assertSame(where, step.model, after.model)
+                    guarded++
+                }
                 // The run is kept in its file exactly when it changed, with that run.
                 val kept = after.cmds.filterIsInstance<Cmd.SaveTimer>()
                 assertEquals(where, if (run != step.model.timerRun) listOf(Cmd.SaveTimer(run)) else emptyList<Cmd>(), kept)
@@ -900,13 +925,16 @@ class UpdateTest {
                         assertNotNull(where, ended)
                         assertEquals(where, ended!!.id, session.id)
                         assertEquals(where, session, (after.model.timer as? TimerState.Finished)?.session)
+                        // The last tap of a WOD is filed with the run, so the run its result can bring back has it.
+                        val filedRun = (after.model.timer as? TimerState.Finished)?.undo ?: ended
+                        assertEquals(where, filedRun.splits.takeIf { filedRun.wod != null && it.isNotEmpty() }, session.splits)
                         assertTrue(where, session.seconds in 0..(timerSeconds(session.config) ?: MAX_OPEN_TIMER_SECONDS))
                         assertTrue(where, session.finishedAt >= session.startedAt && session.rounds >= 0)
                         if (!countsRoundsByTap(session.config.mode)) assertTrue(where, session.rounds <= session.config.rounds)
                         filed++
                         if (session.completed && msg != Msg.Timer.Finish && msg != Msg.Timer.Tap) ranOut++
                     } else {
-                        assertTrue(where, msg is Msg.Timer.DeleteSession || msg == Msg.Timer.UndoFinish)
+                        assertTrue(where, msg is Msg.Timer.DeleteSession || msg == Msg.Timer.UndoFinish || msg == Msg.Timer.DontCount)
                     }
                 }
                 // The lifter's WODs: ids of their own, never a benchmark's, each in its limits; the draft too, but for its name.
@@ -919,12 +947,15 @@ class UpdateTest {
                     if (step.model.wods.draft == null) drafted++
                 }
                 after.model.wods.detail?.let { assertNotNull(where, findWod(after.state.wods, it)) }
+                // The suggestions only open over something typed, and the search fits its field.
+                assertTrue(where, !after.model.wods.suggesting || after.model.wods.query.isNotBlank())
+                assertTrue(where, after.model.wods.query.length <= MAX_QUERY)
                 // The draft file is written exactly when what it keeps changed, with that.
                 val keptAfter = keptDraft(after.model.wods)
                 assertEquals(where, if (keptAfter != keptDraft(step.model.wods)) listOf(Cmd.SaveDraft(keptAfter)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SaveDraft>())
                 // A finished WOD run is complete only with every step tapped off; Undo brings back the run its last tap ended.
                 val ended = (step.model.timer as? TimerState.Finished)?.undo
-                if (msg == Msg.Timer.UndoFinish && ended != null) {
+                if (msg == Msg.Timer.UndoFinish && ended != null && after.model != step.model) {
                     undone++
                     assertEquals(where, ended.taps - 1, after.model.timerRun!!.taps)
                     assertTrue(where, after.state.timerSessions.none { it.id == ended.id })
@@ -971,7 +1002,10 @@ class UpdateTest {
         assertTrue("only $wodRuns WODs started", wodRuns >= 20)
         assertTrue("only $wodsFiled runs of WODs were filed", wodsFiled >= 5)
         assertTrue("only $undone finished runs were undone", undone >= 3)
+        assertTrue("only $guarded taps on a result were too early", guarded >= 1)
     }
+
+    private fun wasRunningRun(step: Step) = (step.model.timer as? TimerState.Running)?.run
 
     /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */
     private fun randomMsg(model: Model, random: java.util.Random): Msg {
@@ -1016,7 +1050,7 @@ class UpdateTest {
                     Msg.Timer.KeepGoing, Msg.Timer.SaveAndEnd, Msg.Timer.Discard, Msg.Timer.Finish, Msg.Timer.Tap, Msg.Timer.Tap,
                     Msg.Timer.Untap, Msg.Timer.CorrectRounds(1), Msg.Timer.CorrectRounds(-1),
                     Msg.Timer.Done, Msg.Timer.Again, Msg.Nav.Back, Msg.Timer.Release(model.timerRun?.id ?: "gone"),
-                    Msg.Timer.UndoFinish, Msg.Timer.Tap,
+                    Msg.Timer.UndoFinish, Msg.Timer.Tap, Msg.Timer.SkipRest, Msg.Timer.DontCount,
                 ),
             )
         }
@@ -1178,6 +1212,16 @@ class UpdateTest {
             { Msg.Nav.ShowHistory(pick(HistoryView.entries)) },
             { Msg.Nav.ShowTimerPage(pick(TimerPage.entries)) },
             { Msg.Wods.Filter(pick(WodFilter.entries)) },
+            {
+                pick(
+                    listOf(
+                        Msg.Wods.Search(pick(listOf("", " ", "pu", "fran", "x".repeat(80), model.wods.query))),
+                        Msg.Wods.CloseSuggestions,
+                        Msg.Wods.SearchMovement(pick(listOf("Pull-ups", "Thruster"))),
+                        Msg.Wods.ClearSearch,
+                    ),
+                )
+            },
             { Msg.Wods.Open(pick(wodIds)) },
             { Msg.Wods.Close },
             { Msg.Wods.Start(pick(wodIds)) },

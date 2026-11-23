@@ -116,7 +116,7 @@ fun wodRounds(workout: Wod): Int? = when (workout.timer.mode) {
  */
 fun wodRound(workout: Wod, taps: Int, clockRound: Int): Int = when (workout.timer.mode) {
     TimerMode.AMRAP -> taps + 1
-    TimerMode.FOR_TIME -> minOf(taps + 1, workout.rounds)
+    TimerMode.FOR_TIME -> minOf(taps / tapsPerRound(workout) + 1, workout.rounds)
     else -> clockRound
 }
 
@@ -126,11 +126,87 @@ fun wodDone(workout: Wod, taps: Int): Boolean {
     return taps >= steps
 }
 
+/** The indices in `items` of what takes a tap: everything but the rests. */
+private fun tappable(workout: Wod): List<Int> = workout.items.indices.filter { !isRest(workout.items[it]) }
+
 /**
- * In a For Time with a single round the items are ticked off one by one:
- * the index of the one to do now. The last one stays current once all are done.
+ * In a For Time the items of a round are ticked off one by one: the index in `items` of the one
+ * to do now. Rests are skipped: they take no tap. The last one stays current once everything is done.
  */
-fun wodStep(workout: Wod, taps: Int): Int = maxOf(0, minOf(taps, workout.items.size - 1))
+fun wodStep(workout: Wod, taps: Int): Int {
+    val tappable = tappable(workout)
+    if (tappable.isEmpty()) return 0
+    return tappable[if (wodDone(workout, taps)) tappable.size - 1 else taps % tappable.size]
+}
+
+/** True for a pause between the work: the clock counts it down, it takes no tap. */
+fun isRest(item: WodItem): Boolean = item.exerciseId == REST_EXERCISE
+
+/** A pause a For Time is in: seconds [left] of it, rounded up, and its [total]. */
+data class WodRest(val left: Int, val total: Int)
+
+/**
+ * The pause a For Time is in, if any: it starts by itself with the tap on the item before it and
+ * runs for the seconds of the rest items that follow that item. A rest after the very last item is
+ * none: the WOD is over with that tap. [splits] are the taps so far, [elapsed] the seconds into the WOD now.
+ */
+fun wodRest(workout: Wod, splits: List<Double>, elapsed: Double): WodRest? {
+    val taps = splits.size
+    if (workout.timer.mode != TimerMode.FOR_TIME || taps == 0 || wodDone(workout, taps)) return null
+    val tappable = tappable(workout)
+    if (tappable.isEmpty()) return null
+    // The item just ticked off, and the rests between it and the next one to tick.
+    val last = tappable[(taps - 1) % tappable.size]
+    val total = workout.items.drop(last + 1).takeWhile(::isRest).sumOf { if (it.unit == WodUnit.SECONDS) it.amount else 0 }
+    val left = total - (elapsed - splits[taps - 1])
+    return if (total > 0 && left > 0) WodRest(kotlin.math.ceil(left).toInt(), total) else null
+}
+
+/** JavaScript's `Math.round`: halves go up. */
+private fun jsRound(value: Double): Int = Math.floor(value + 0.5).toInt()
+
+/**
+ * How a For Time run stands against the best one, in seconds: negative is ahead, positive behind.
+ * It is the gap at the last tap, and it grows live once the current item takes longer than it did
+ * in the best run. Null when there is no best with splits to measure against.
+ * [splits] are this run's taps so far, [elapsed] the seconds into the WOD now.
+ */
+fun liveGap(best: TimerSession?, splits: List<Double>, elapsed: Double): Int? {
+    val pace = best?.splits
+    if (pace.isNullOrEmpty()) return null
+    val taps = splits.size
+    if (taps > pace.size) return null
+    // Whole seconds the way the clock and the "Best" next to it show them, so the three never disagree.
+    val atLastTap = if (taps == 0) Int.MIN_VALUE else jsRound(splits[taps - 1]) - jsRound(pace[taps - 1])
+    val onThisItem = if (taps < pace.size) Math.floor(elapsed).toInt() - jsRound(pace[taps]) else Int.MIN_VALUE
+    val gap = maxOf(atLastTap, onThisItem)
+    // Before the first tap there is only the live part: until the best run's first split passes, it is level.
+    return if (taps == 0) maxOf(0, gap) else gap
+}
+
+/**
+ * How an AMRAP stands against the best one, in rounds: positive is ahead.
+ * Null when the best run has no splits.
+ */
+fun roundsGap(best: TimerSession?, taps: Int, elapsed: Double): Int? {
+    val pace = best?.splits
+    if (pace.isNullOrEmpty()) return null
+    return taps - pace.count { it <= elapsed }
+}
+
+/** "12s ahead", "1:05 behind", "On pace". */
+fun gapText(seconds: Int): String = when {
+    seconds == 0 -> "On pace"
+    seconds < 0 -> "${holdText(-seconds)} ahead"
+    else -> "${holdText(seconds)} behind"
+}
+
+/** "2 rounds ahead", "1 round behind", "On pace". */
+fun roundsGapText(rounds: Int): String {
+    if (rounds == 0) return "On pace"
+    val count = kotlin.math.abs(rounds)
+    return "$count ${if (count == 1) "round" else "rounds"} ${if (rounds > 0) "ahead" else "behind"}"
+}
 
 /** What there is to do in this round. A Tabata takes its items in turns, one per round. */
 fun roundItems(workout: Wod, round: Int): List<WodItem> {

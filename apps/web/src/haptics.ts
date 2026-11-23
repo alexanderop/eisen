@@ -18,6 +18,8 @@ const PATTERNS = {
   holdStart: 60,
   /** A hold ran its full time. Long enough to feel with the phone on the floor. */
   holdEnd: [300, 120, 300, 120, 300],
+  /** A round of a WOD ticked off: stronger than a tap, felt with the phone on the floor. */
+  round: [60, 80, 120],
   /** An interval timer's work starts. */
   timerWork: 80,
   /** An interval timer's rest starts. */

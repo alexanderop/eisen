@@ -4,12 +4,14 @@
  * The phone lies on the floor two metres away: the colour says the phase, the digits the time,
  * and there is one obvious button.
  */
-import { Check, Minus, Pause, Play, Plus, Undo2, Volume2 } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { Check, Hourglass, Minus, Pause, Play, Plus, Undo2, Volume2 } from '@lucide/vue'
+import { useElementSize } from '@vueuse/core'
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { holdText } from '../domain/program'
 import {
   countsRoundsByTap,
   OUTCOME_LABELS,
+  REST_EXERCISE,
   TIMER_NAMES,
   timerOutcome,
   timerSummary,
@@ -17,7 +19,16 @@ import {
 } from '../domain/timer'
 import { nextText } from '../domain/timerScreens'
 import { bestText, findWod, isWodRecord, wodBest, wodFormat } from '../domain/wod'
-import { roundCard, roundHeading, wodButton } from '../domain/wodScreens'
+import {
+  endsRound,
+  paceLine,
+  resultGap,
+  roundCard,
+  roundHeading,
+  roundTag,
+  runRest,
+  wodButton,
+} from '../domain/wodScreens'
 import { formatClock } from '../rest'
 import { findExercise, state } from '../store'
 import {
@@ -25,8 +36,10 @@ import {
   dismissResult,
   endTimer,
   finishTimer,
+  forgetResult,
   pauseTimer,
   resumeTimer,
+  skipRest,
   startTimer,
   startWod,
   tapRound,
@@ -37,8 +50,9 @@ import {
   wakeSound,
 } from '../timer'
 import { useWakeLock } from '../wakeLock'
+import { returnToDetail } from '../wods'
 import ExerciseMotion from './ExerciseMotion.vue'
-import { Button } from './ui'
+import { Button, ConfirmButton } from './ui'
 
 useWakeLock()
 
@@ -56,7 +70,7 @@ const ready = computed(() => view.value?.phase === 'ready')
 const workout = computed(() => run.value?.wod ?? null)
 const tapped = computed(() => (config.value ? countsRoundsByTap(config.value.mode) : false))
 /**
- * A For Time WOD has one big button that always moves on: a round, an item, or the whole WOD.
+ * A For Time WOD has one big button that always moves on: the item done, or on the last the whole WOD.
  * The tap on the last stops the clock, so it has no "Hold to finish".
  */
 const stepped = computed(() => workout.value?.timer.mode === 'forTime')
@@ -67,12 +81,43 @@ const forTime = computed(() => config.value?.mode === 'forTime')
 /** After a reload the browser keeps the timer silent until the screen is tapped once. */
 const needsTap = computed(() => timer.restored && !timer.sound)
 
+/** Seconds into the work, pauses and lead-in not counted. */
+const elapsed = computed(() => (view.value ? view.value.elapsed / 1000 : 0))
+/** A WOD's rest, which runs by itself after the tap before it: it takes over the ring and the button. */
+const rest = computed(() => (run.value && view.value?.phase === 'work' ? runRest(run.value, elapsed.value) : null))
+
 const stage = computed(() => {
   if (paused.value) return 'paused'
+  if (rest.value) return 'rest'
   return view.value?.phase ?? 'work'
 })
 
 const PHASE_WORDS = { ready: 'Get ready', work: 'Work', rest: 'Rest', done: 'Done' } as const
+
+const phaseWord = computed(() => {
+  if (paused.value) return 'Paused'
+  if (rest.value) return 'Rest'
+  return view.value ? PHASE_WORDS[view.value.phase] : ''
+})
+/** "2/4" after the phase word: the round reads from across the room. */
+const tag = computed(() =>
+  workout.value && run.value && !rest.value && !ready.value ? roundTag(workout.value, run.value.taps) : '',
+)
+
+/** The phase word pulses once as a round is ticked off. */
+const pulse = ref(false)
+let pulseTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => run.value?.taps ?? 0,
+  async (taps, before) => {
+    if (!workout.value || taps <= before || !endsRound(workout.value, taps)) return
+    pulse.value = false
+    await nextTick()
+    pulse.value = true
+    clearTimeout(pulseTimer)
+    pulseTimer = setTimeout(() => (pulse.value = false), 700)
+  },
+)
 
 const roundLine = computed(() => {
   const current = view.value
@@ -86,13 +131,16 @@ const clock = computed(() => {
   const current = view.value
   if (!current) return ''
   if (current.phase === 'ready') return String(seconds(current.phaseLeft ?? 0))
+  if (rest.value) return formatClock(rest.value.left)
   if (forTime.value) return formatClock(Math.floor(current.elapsed / 1000))
   return formatClock(seconds(current.phaseLeft ?? 0))
 })
 
 const capLine = computed(() => {
   if (!forTime.value || !config.value || ready.value) return ''
-  return config.value.work > 0 ? `Cap ${holdText(config.value.work)}` : 'No cap'
+  const cap = config.value.work > 0 ? `Cap ${holdText(config.value.work)}` : 'No cap'
+  // In a rest the big digits count it down: the WOD's own clock moves down here.
+  return rest.value ? `${formatClock(Math.floor(elapsed.value))} · ${cap}` : cap
 })
 
 const RADIUS = 46
@@ -106,12 +154,17 @@ const ring = computed(() => {
   const current = view.value
   if (!current) return 0
   if (current.phase === 'ready') return 1 - current.progress
+  const resting = rest.value
+  const started = run.value?.splits?.at(-1)
+  if (resting && started !== undefined) return Math.max(0, (resting.total - (elapsed.value - started)) / resting.total)
   if (forTime.value) return current.phaseTotal === null ? (current.elapsed % 60000) / 60000 : current.progress
   return 1 - current.progress
 })
 
 /** A new phase starts with a full ring at once, not with the ring running back round. */
-const ringKey = computed(() => (view.value ? `${view.value.phase}:${view.value.round}` : ''))
+const ringKey = computed(() =>
+  view.value ? `${view.value.phase}:${view.value.round}:${rest.value ? `rest${run.value?.taps}` : ''}` : '',
+)
 
 /** Left out where it would only repeat the digits or the next line: an AMRAP is one block. */
 const totalLine = computed(() => {
@@ -129,14 +182,18 @@ const moreBelow = computed(() => {
 })
 
 const linesList = ref<HTMLElement>()
-/** The item to do now stays in view as the list is ticked off. */
+/** The item to do now stays in view as the list is ticked off. A rest shows the coming round from its top. */
 watch(
-  () => run.value?.taps,
+  () => [run.value?.taps, rest.value !== null],
   async () => {
     await nextTick()
     const list = linesList.value
-    const current = list?.querySelector<HTMLElement>('.current')
-    if (!list || !current) return
+    if (!list) return
+    const current = list.querySelector<HTMLElement>('.current')
+    if (!current) {
+      list.scrollTop = 0
+      return
+    }
     // The last one done stays in sight above it, so the list reads as a list.
     const before = current.previousElementSibling as HTMLElement | null
     list.scrollTop = before ? before.offsetTop : 0
@@ -146,26 +203,38 @@ watch(
 
 /** The round card of a WOD: what to do now, in place of the "Next" line. */
 const heading = computed(() =>
-  workout.value && run.value && view.value ? roundHeading(workout.value, run.value.taps, view.value) : '',
+  workout.value && run.value && view.value
+    ? roundHeading(workout.value, run.value.taps, view.value, rest.value !== null)
+    : '',
 )
 const lines = computed(() =>
   workout.value && run.value && view.value
-    ? roundCard(workout.value, run.value.taps, view.value, findExercise, state.settings.unit).map((line) => ({
-        ...line,
-        exercise: findExercise(line.exerciseId),
-      }))
+    ? roundCard(workout.value, run.value.taps, view.value, findExercise, state.settings.unit, rest.value !== null).map(
+        (line) => ({ ...line, rest: line.exerciseId === REST_EXERCISE, exercise: findExercise(line.exerciseId) }),
+      )
     : [],
 )
-/** A single round ticked off in order: only the item to do now moves. */
+/** The best run of this WOD, to measure the run by as it goes. */
+const best = computed(() => (workout.value ? wodBest(state.timerSessions, workout.value.id) : null))
+const pace = computed(() => (run.value && view.value ? paceLine(run.value, best.value, view.value) : null))
+/** One line, or two when the chip does not fit next to the best: the ring makes room for either. */
+const paceEl = useTemplateRef<HTMLElement>('paceEl')
+const { height: paceHeight } = useElementSize(paceEl)
+/** Items ticked off in order: only the one to do now moves. */
 const ticking = computed(() => lines.value.some((line) => line.state === 'current'))
 /** In a WOD the time left sits under the phase. A For Time has its cap in the ring already. */
 const wodTotal = computed(() => workout.value !== null && !forTime.value && totalLine.value !== '')
-/** What the ring has to leave room for: the card shows up to four lines and scrolls the rest. */
+/**
+ * What the ring has to leave room for: the card shows up to four lines and scrolls the rest.
+ * The line against the best takes its room from the button.
+ */
 const cardSpace = computed(() => ({
   '--shown': Math.min(4, Math.max(1, lines.value.length)),
   '--current': ticking.value ? 1 : 0,
   '--heading': heading.value ? 1 : 0,
   '--total': wodTotal.value ? 1 : 0,
+  '--pace': pace.value ? 1 : 0,
+  '--pace-h': `${paceHeight.value}px`,
 }))
 
 function onEnd() {
@@ -229,6 +298,8 @@ function onHoldClick(event: MouseEvent) {
 onBeforeUnmount(() => {
   clearTimeout(holdTimer)
   clearTimeout(hintTimer)
+  clearTimeout(pulseTimer)
+  clearTimeout(guardTimer)
 })
 
 const result = computed(() => timer.result)
@@ -243,6 +314,27 @@ const resultTapped = computed(() =>
 const others = computed(() => state.timerSessions.filter((session) => session.id !== result.value?.id))
 const record = computed(() => (result.value ? isWodRecord(others.value, result.value) : false))
 const bestBefore = computed(() => (result.value?.wodId ? wodBest(others.value, result.value.wodId) : null))
+const gap = computed(() => (result.value ? resultGap(result.value, bestBefore.value) : null))
+
+/** The tap that finished a run, landing twice, must not undo it or start it again. */
+const RESULT_GUARD_MS = 1000
+const guarded = ref(false)
+let guardTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => result.value?.id,
+  (id) => {
+    clearTimeout(guardTimer)
+    guarded.value = id !== undefined
+    if (guarded.value) guardTimer = setTimeout(() => (guarded.value = false), RESULT_GUARD_MS)
+  },
+  { immediate: true },
+)
+
+function onResultClick(event: MouseEvent) {
+  if (!guarded.value) return
+  event.stopPropagation()
+  event.preventDefault()
+}
 
 /** "Tabata · 8 × 20s / 10s", or the numbers alone when the name already is the mode. */
 function describe(name: string, timerConfig: TimerConfig): string {
@@ -256,6 +348,14 @@ function roundsText(rounds: number): string {
 
 function onDone() {
   dismissResult()
+  emit('done')
+}
+
+/** "Don't count this run": it leaves the history, and the lifter is back at the WOD. */
+function onForget() {
+  const done = resultWod.value
+  forgetResult()
+  if (done && findWod(state.wods, done.id)) returnToDetail(done.id)
   emit('done')
 }
 
@@ -288,6 +388,7 @@ defineExpose({ back })
     v-if="run && view"
     class="timer"
     :class="[stage, { compact: tapped || stepped, 'for-time': forTime, wod: workout }]"
+    :style="workout ? cardSpace : undefined"
     role="dialog"
     aria-modal="true"
     :aria-label="`${run.name} timer`"
@@ -303,9 +404,11 @@ defineExpose({ back })
       Tap for sound
     </button>
 
-    <section class="centre" :style="workout ? cardSpace : undefined">
+    <section class="centre">
       <div class="phase-block">
-        <p class="phase">{{ paused ? 'Paused' : PHASE_WORDS[view.phase] }}</p>
+        <p class="phase" :class="{ pulse }">
+          {{ phaseWord }}<span v-if="tag" class="phase-round"> · {{ tag }}</span>
+        </p>
         <p v-if="roundLine" class="round">{{ roundLine }}</p>
         <p v-else-if="wodTotal" class="total">{{ totalLine }}</p>
       </div>
@@ -325,16 +428,26 @@ defineExpose({ back })
         <span class="time" :class="{ lead: ready, long: clock.length > 4 }" role="timer">{{ clock }}</span>
         <span v-if="capLine" class="below">{{ capLine }}</span>
       </div>
+      <p v-if="pace" ref="paceEl" class="pace">
+        <span>{{ pace.best }}</span>
+        <span v-if="pace.gap" class="pace-gap" :class="pace.tone">
+          <span v-if="pace.arrow" aria-hidden="true">{{ pace.arrow }}</span>
+          {{ pace.gap }}
+        </span>
+      </p>
       <div v-if="workout" class="round-card">
         <p v-if="heading" class="round-heading">{{ heading }}</p>
         <ul ref="linesList" class="round-lines" :class="{ more: moreBelow }" aria-live="polite">
           <li v-for="(line, index) in lines" :key="index" :class="line.state">
+            <span v-if="line.rest" class="line-tile rest-tile" aria-hidden="true">
+              <Hourglass :size="22" />
+            </span>
             <ExerciseMotion
-              v-if="line.exercise"
+              v-else-if="line.exercise"
               class="line-tile"
               :exercise="line.exercise"
               :size="40"
-              :playing="!paused && (!ticking || line.state === 'current')"
+              :playing="!paused && !rest && (!ticking || line.state === 'current')"
             />
             <span>
               <Check v-if="line.state === 'done'" class="tick" :size="18" :stroke-width="3" aria-label="Done:" />
@@ -354,18 +467,23 @@ defineExpose({ back })
         <Undo2 :size="22" aria-hidden="true" />
         Back
       </button>
-      <button
-        class="tap"
-        :disabled="paused || ready"
-        :aria-label="`${button.big}: ${button.small}`"
-        @click="tapRound"
-      >
-        <span class="tap-big">{{ button.big }}</span>
-        <span class="tap-small">{{ button.small }}</span>
+      <button v-if="rest" class="tap skip" :disabled="paused" @click="skipRest">
+        <span class="tap-big">Skip rest</span>
+        <span class="tap-small">then {{ button.line }}</span>
+      </button>
+      <button v-else class="tap" :disabled="paused || ready" :aria-label="button.label" @click="tapRound">
+        <span class="tap-big">
+          <Check class="tap-check" :size="28" :stroke-width="3.5" aria-hidden="true" />
+          <span class="tap-line">{{ button.line }}</span>
+        </span>
+        <span class="tap-small">{{ button.hint }}</span>
       </button>
     </div>
 
-    <div v-else-if="tapped" class="tap-area">
+    <div v-else-if="tapped" class="tap-area steps">
+      <button class="back-step minus" :disabled="run.taps === 0 || ready" aria-label="One round less" @click="untapRound">
+        −1
+      </button>
       <button
         class="tap"
         :disabled="paused || ready"
@@ -375,14 +493,6 @@ defineExpose({ back })
         <span class="count">{{ run.taps }}</span>
         <span class="count-label">{{ workout ? 'rounds done' : run.taps === 1 ? 'round' : 'rounds' }}</span>
         <span class="tap-hint">+1 · tap</span>
-      </button>
-      <button
-        class="minus"
-        :disabled="run.taps === 0 || ready"
-        aria-label="One round less"
-        @click="untapRound"
-      >
-        −1
       </button>
     </div>
 
@@ -427,7 +537,15 @@ defineExpose({ back })
     aria-modal="true"
     :aria-label="`${result.name} result`"
     @keydown.esc="back"
+    @click.capture="onResultClick"
   >
+    <div v-if="timer.undo" class="result-top">
+      <Button variant="ghost" class="undo" @click="undoFinish">
+        <Undo2 :size="20" aria-hidden="true" />
+        Not finished? Undo
+      </Button>
+    </div>
+
     <header class="result-head">
       <h2>{{ result.name }}</h2>
       <p class="muted">{{ resultWod ? wodFormat(resultWod) : describe(result.name, result.config) }}</p>
@@ -454,12 +572,14 @@ defineExpose({ back })
           </button>
         </div>
         <p class="caption">{{ result.rounds === 1 ? 'round' : 'rounds' }}</p>
+        <p v-if="gap" class="gap" :class="{ better: gap.better }">{{ gap.text }}</p>
         <p v-if="bestBefore" class="best">Previous best {{ bestText(bestBefore) }}</p>
         <p class="second">{{ formatClock(result.seconds) }}</p>
       </template>
       <template v-else>
         <p class="big">{{ formatClock(result.seconds) }}</p>
         <p class="caption">total time</p>
+        <p v-if="gap" class="gap" :class="{ better: gap.better }">{{ gap.text }}</p>
         <p v-if="bestBefore" class="best">Previous best {{ bestText(bestBefore) }}</p>
         <p v-if="!resultForTime" class="second">{{ roundsText(result.rounds) }}</p>
         <p v-else-if="resultWod && resultWod.rounds > 1" class="second">
@@ -468,12 +588,17 @@ defineExpose({ back })
       </template>
     </section>
 
-    <Button v-if="timer.undo" variant="ghost" size="md" class="undo" @click="undoFinish">Not finished? Undo</Button>
-
     <div class="controls two">
       <Button variant="secondary" class="w-full big-button" @click="onAgain">Again</Button>
       <Button class="w-full big-button" @click="onDone">Done</Button>
     </div>
+    <ConfirmButton
+      variant="ghost"
+      class="forget"
+      label="Don't count this run"
+      confirm-label="Tap again to remove it"
+      @confirm="onForget"
+    />
   </div>
 </template>
 
@@ -562,11 +687,22 @@ header {
 
 .phase {
   color: var(--stage);
+  transform-origin: center;
   font-size: var(--phase);
   line-height: 1;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* The round of a For Time, as big as the phase word and in the colour of the digits. */
+.phase-round {
+  color: var(--foreground);
+}
+
+/* A round ticked off: the phase word swells once. */
+.phase.pulse {
+  animation: pulse 600ms ease-out;
 }
 
 /* About 60% of the phase word: the second thing read from across the room. */
@@ -711,26 +847,6 @@ header {
   opacity: 0.7;
 }
 
-.minus {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  width: 52px;
-  height: 44px;
-  border-radius: 14px;
-  background: rgb(0 0 0 / 0.18);
-  color: var(--primary-foreground);
-  font-size: var(--fs-md);
-  font-weight: 800;
-}
-
-.tap:disabled + .minus,
-.minus:disabled {
-  background: transparent;
-  color: var(--muted-foreground);
-  opacity: 0.5;
-}
-
 .controls {
   display: grid;
   gap: 10px;
@@ -814,16 +930,63 @@ header {
  * The ring takes what height is left once the card has its lines, and the clock stays the
  * biggest thing on screen: the button and the paddings give way first.
  */
+.timer.wod {
+  --gap: clamp(6px, 1.6dvh, 16px);
+  --pace-size: clamp(20px, 2.6dvh, 22px);
+  /* The line against the best as high as it is: one line, or two when its chip wraps. */
+  --pace-room: calc(var(--pace) * (max(var(--pace-h), 1.2 * var(--pace-size) + 6px) + var(--gap)));
+}
+
 .timer.wod .centre {
   container-type: size;
+  gap: var(--gap);
   --line: clamp(20px, 3.2dvh, 30px);
   /* A line is as high as its text or its 40px picture with a little air, whichever is taller. */
   --picture: 44px;
   --row: max(1.2 * var(--line), var(--picture));
   --room: calc(
     var(--phase) + var(--total) * 26px + var(--heading) * 24px + var(--shown) * (var(--row) + 0.02 * var(--line)) +
-      var(--current) * 6.5px + 24px + 2 * clamp(6px, 1.6dvh, 16px)
+      var(--current) * 6.5px + var(--pace-room) + 24px + 2 * var(--gap)
   );
+}
+
+/* How the run stands against the best one: read at a glance, between the clock and the card. */
+.pace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  max-width: 100%;
+  /* As high with the chip as without, so nothing moves when it shows up. */
+  min-height: calc(1.2 * var(--pace-size) + 6px);
+  color: var(--muted-foreground);
+  font-size: var(--pace-size);
+  line-height: 1.2;
+  font-weight: 800;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pace-gap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  border-radius: var(--r-full);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-weight: 900;
+}
+
+.pace-gap.ahead {
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
+}
+
+.pace-gap.behind {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
 }
 
 .timer.wod .dial {
@@ -892,7 +1055,7 @@ header {
   text-align: left;
 }
 
-/* Ticked off in a single round: done ones step back, the one to do now stands out. */
+/* Ticked off in a For Time: done ones step back, the one to do now stands out. */
 .round-lines .done {
   color: var(--muted-foreground);
   font-weight: 700;
@@ -921,11 +1084,16 @@ header {
 }
 
 .timer.wod .tap {
-  height: clamp(96px, 17dvh, 200px);
+  height: clamp(96px, calc(17dvh - var(--pace-room)), 200px);
 }
 
+/* The count and its label fit the button at any height: it gives its room to the line against the best. */
 .timer.wod .count {
-  font-size: clamp(44px, 8.5dvh, 88px);
+  font-size: clamp(36px, 5.5dvh, 64px);
+}
+
+.timer.wod .tap-hint {
+  display: none;
 }
 
 /* The For Time button: what the tap does, big, and what it is for, small. Nothing overlaps. */
@@ -942,10 +1110,44 @@ header {
 }
 
 .tap-big {
-  font-size: clamp(28px, 5dvh, 44px);
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  font-size: clamp(22px, 3.6dvh, 34px);
+  line-height: 1.1;
   font-weight: 900;
   letter-spacing: -0.02em;
+}
+
+.tap-check {
+  flex: none;
+}
+
+.tap-line {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* "Skip rest" stands in for the big button while the rest runs by itself: there to use, not to hit. */
+.tap.skip {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+/* A rest in the card: a dark tile with an hourglass, not a photo. */
+.rest-tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #0b0c0e;
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--rest);
 }
 
 .tap-small {
@@ -972,9 +1174,15 @@ header {
   font-weight: 800;
 }
 
+.minus {
+  font-size: var(--fs-xl);
+  font-weight: 900;
+}
+
 @media (max-height: 700px) {
   .timer.wod {
-    gap: 10px;
+    gap: 8px;
+    --gap: 6px;
   }
 
   /* No pictures on a short screen: the clock keeps its size. */
@@ -991,24 +1199,23 @@ header {
     text-align: inherit;
   }
 
+  /* Never under 80px: the ring gives way, not the button. */
   .timer.wod .tap {
-    height: clamp(72px, 11.5dvh, 200px);
+    height: clamp(80px, calc(11.5dvh - var(--pace-room)), 200px);
   }
 
-  .timer.wod .count {
-    font-size: clamp(40px, 7dvh, 88px);
+  .timer.wod .steps .tap {
+    padding: 6px 16px;
   }
 
-  .timer.wod .tap-hint {
-    display: none;
-  }
 
+  /* 24px to Pause with the 8px gap, so a slide off the button does not pause. */
   .timer.wod .tap-area {
-    margin-bottom: 4px;
+    margin-bottom: 16px;
   }
 
   .timer.wod .big-button {
-    height: 50px;
+    height: 46px;
   }
 }
 
@@ -1102,9 +1309,35 @@ header {
   color: var(--primary-foreground);
 }
 
-/* The best before this run, to measure it by. */
+/* "Not finished? Undo" sits where a back button would, far from where the big button was. */
+.result-top {
+  display: flex;
+  margin: -4px 0 0 -8px;
+}
+
 .undo {
+  min-height: 48px;
+  padding: 0 12px;
+  color: var(--primary);
+  font-size: var(--fs-base-plus);
+  font-weight: 800;
+}
+
+.forget {
   align-self: center;
+  min-height: 44px;
+  font-size: var(--fs-sm-plus);
+}
+
+.gap {
+  margin-top: 10px;
+  color: var(--muted-foreground);
+  font-size: var(--fs-lg);
+  font-weight: 800;
+}
+
+.gap.better {
+  color: var(--primary);
 }
 
 .best {
@@ -1158,6 +1391,12 @@ header {
   }
 }
 
+@keyframes pulse {
+  40% {
+    transform: scale(1.18);
+  }
+}
+
 @keyframes fade {
   from {
     opacity: 0;
@@ -1177,6 +1416,7 @@ header {
   }
 
   .paused .time,
+  .phase.pulse,
   .confirm,
   .panel {
     animation: none;

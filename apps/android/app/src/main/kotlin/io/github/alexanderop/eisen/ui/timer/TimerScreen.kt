@@ -132,21 +132,33 @@ fun TimerScreen(model: Model, dispatch: (Msg) -> Unit) {
     val draft = model.wods.draft
     val detail = openWod(model)
     val wods = model.nav.timerPage == TimerPage.WODS
+    // Out here, so the list is where it was when the lifter comes back from a WOD's detail.
+    val wodsList = androidx.compose.foundation.lazy.rememberLazyListState()
     when {
         setup != null -> TimerSetupScreen(model, setup, dispatch)
         wods && draft != null -> WodBuilder(model, draft, dispatch)
         wods && detail != null -> WodDetail(model, detail, dispatch)
+        // The WODs page scrolls its heading away, so a short screen has room for its cards under the search.
+        wods -> WodsPage(model, wodsList, dispatch) { TimerHeading(model, dispatch) }
         else -> Column(Modifier.fillMaxSize()) {
-            Text(
-                "Timer",
-                fontSize = 30.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.6).sp,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).semantics { heading() },
-            )
-            PageSwitch(model.nav.timerPage) { dispatch(Msg.Nav.ShowTimerPage(it)) }
-            if (wods) WodsPage(model, dispatch) else TimerHome(model, dispatch)
+            TimerHeading(model, dispatch)
+            TimerHome(model, dispatch)
         }
+    }
+}
+
+/** "Timer" and the switch between its two pages. */
+@Composable
+private fun TimerHeading(model: Model, dispatch: (Msg) -> Unit) {
+    Column {
+        Text(
+            "Timer",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.6).sp,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).semantics { heading() },
+        )
+        PageSwitch(model.nav.timerPage) { dispatch(Msg.Nav.ShowTimerPage(it)) }
     }
 }
 

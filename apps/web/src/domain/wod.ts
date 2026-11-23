@@ -1,6 +1,14 @@
 import type { Exercise } from './exercises'
 import { holdText } from './program'
-import { timerConfig, timerOutcome, wodSteps, type TimerConfig, type TimerSession } from './timer'
+import {
+  REST_EXERCISE,
+  tapsPerRound,
+  timerConfig,
+  timerOutcome,
+  wodSteps,
+  type TimerConfig,
+  type TimerSession,
+} from './timer'
 import { convert, formatWeight, roundTo, type Unit } from './units'
 
 /** What one line of a WOD counts: reps, seconds held or metres covered. */
@@ -91,7 +99,9 @@ export function wodRounds(workout: Wod): number | null {
  */
 export function wodRound(workout: Wod, taps: number, clockRound: number): number {
   if (workout.timer.mode === 'amrap') return taps + 1
-  if (workout.timer.mode === 'forTime') return Math.min(taps + 1, workout.rounds)
+  if (workout.timer.mode === 'forTime') {
+    return Math.min(Math.floor(taps / tapsPerRound(workout)) + 1, workout.rounds)
+  }
   return clockRound
 }
 
@@ -102,11 +112,81 @@ export function wodDone(workout: Wod, taps: number): boolean {
 }
 
 /**
- * In a For Time with a single round the items are ticked off one by one:
- * the index of the one to do now. The last one stays current once all are done.
+ * In a For Time the items of a round are ticked off one by one: the index in `items` of the one
+ * to do now. Rests are skipped: they take no tap. The last one stays current once everything is done.
  */
 export function wodStep(workout: Wod, taps: number): number {
-  return Math.max(0, Math.min(taps, workout.items.length - 1))
+  const tappable = workout.items.flatMap((item, index) => (isRest(item) ? [] : [index]))
+  if (tappable.length === 0) return 0
+  return tappable[wodDone(workout, taps) ? tappable.length - 1 : taps % tappable.length]
+}
+
+/** True for a pause between the work: the clock counts it down, it takes no tap. */
+export function isRest(item: WodItem): boolean {
+  return item.exerciseId === REST_EXERCISE
+}
+
+/**
+ * The pause a For Time is in, if any: it starts by itself with the tap on the item before it and
+ * runs for the seconds of the rest items that follow that item. `left` and `total` in seconds.
+ * A rest after the very last item is none: the WOD is over with that tap.
+ * `splits` are the taps so far, `elapsed` the seconds into the WOD now.
+ */
+export function wodRest(workout: Wod, splits: number[], elapsed: number): { left: number; total: number } | null {
+  const taps = splits.length
+  if (workout.timer.mode !== 'forTime' || taps === 0 || wodDone(workout, taps)) return null
+  const tappable = workout.items.flatMap((item, index) => (isRest(item) ? [] : [index]))
+  if (tappable.length === 0) return null
+  // The item just ticked off, and the rests between it and the next one to tick.
+  const last = tappable[(taps - 1) % tappable.length]
+  let total = 0
+  for (let index = last + 1; index < workout.items.length && isRest(workout.items[index]); index += 1) {
+    total += workout.items[index].unit === 'seconds' ? workout.items[index].amount : 0
+  }
+  const left = total - (elapsed - splits[taps - 1])
+  return total > 0 && left > 0 ? { left: Math.ceil(left), total } : null
+}
+
+/**
+ * How a For Time run stands against the best one, in seconds: negative is ahead, positive behind.
+ * It is the gap at the last tap, and it grows live once the current item takes longer than it did
+ * in the best run. Null when there is no best with splits to measure against.
+ * `splits` are this run's taps so far, `elapsed` the seconds into the WOD now.
+ */
+export function liveGap(best: TimerSession | null, splits: number[], elapsed: number): number | null {
+  const pace = best?.splits
+  if (!pace || pace.length === 0) return null
+  const taps = splits.length
+  if (taps > pace.length) return null
+  // Whole seconds the way the clock and the "Best" next to it show them, so the three never disagree.
+  const atLastTap = taps === 0 ? -Infinity : Math.round(splits[taps - 1]) - Math.round(pace[taps - 1])
+  const onThisItem = taps < pace.length ? Math.floor(elapsed) - Math.round(pace[taps]) : -Infinity
+  const gap = Math.max(atLastTap, onThisItem)
+  // Before the first tap there is only the live part: until the best run's first split passes, it is level.
+  return taps === 0 ? Math.max(0, gap) : gap
+}
+
+/**
+ * How an AMRAP stands against the best one, in rounds: positive is ahead.
+ * Null when the best run has no splits.
+ */
+export function roundsGap(best: TimerSession | null, taps: number, elapsed: number): number | null {
+  const pace = best?.splits
+  if (!pace || pace.length === 0) return null
+  return taps - pace.filter((split) => split <= elapsed).length
+}
+
+/** "12s ahead", "1:05 behind", "On pace". */
+export function gapText(seconds: number): string {
+  if (seconds === 0) return 'On pace'
+  return seconds < 0 ? `${holdText(-seconds)} ahead` : `${holdText(seconds)} behind`
+}
+
+/** "2 rounds ahead", "1 round behind", "On pace". */
+export function roundsGapText(rounds: number): string {
+  if (rounds === 0) return 'On pace'
+  const count = Math.abs(rounds)
+  return `${count} ${count === 1 ? 'round' : 'rounds'} ${rounds > 0 ? 'ahead' : 'behind'}`
 }
 
 /** What there is to do in this round. A Tabata takes its items in turns, one per round. */

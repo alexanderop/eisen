@@ -143,6 +143,15 @@ object Icons {
     val Minus = pathIcon("Minus", "M5 12h14")
     val Plus = pathIcon("Plus", "M5 12h14", "M12 5v14")
     val Close = pathIcon("Close", "M18 6 6 18", "m6 6 12 12")
+    val Search = pathIcon("Search", "m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 1 0 0-16z")
+    // Lucide's hourglass.
+    val Hourglass = pathIcon(
+        "Hourglass",
+        "M5 22h14",
+        "M5 2h14",
+        "M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22",
+        "M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2",
+    )
     val Back = pathIcon("Back", "m12 19-7-7 7-7", "M19 12H5")
     val ChevronRight = pathIcon("ChevronRight", "m9 18 6-6-6-6")
     val ChevronUp = pathIcon("ChevronUp", "m18 15-6-6-6 6")

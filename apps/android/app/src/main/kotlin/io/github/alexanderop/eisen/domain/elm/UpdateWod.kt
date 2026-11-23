@@ -27,6 +27,9 @@ import io.github.alexanderop.eisen.domain.wodName
 
 const val WOD_SNACKBAR = "wod"
 
+/** The longest search the field takes: longer than any name it could find. */
+const val MAX_QUERY = 60
+
 /** What a copy of a benchmark is called. */
 fun copyName(name: String): String = "$name (mine)"
 
@@ -37,8 +40,20 @@ internal fun wods(msg: Msg.Wods, model: Model, env: Env): Next {
         is Msg.Wods.Filter -> if (msg.filter == wods.filter) model.only() else model.copy(wods = wods.copy(filter = msg.filter)).only()
         is Msg.Wods.Open -> {
             if (findWod(model.state.wods, msg.id) == null || wods.detail == msg.id) return model.only()
-            model.copy(wods = wods.copy(detail = msg.id), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+            val searched = if (msg.suggested) wods.copy(query = "") else wods
+            model.copy(wods = searched.copy(detail = msg.id, suggesting = false), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
         }
+        is Msg.Wods.Search -> {
+            val query = msg.query.take(MAX_QUERY)
+            val next = wods.copy(query = query, suggesting = query.isNotBlank())
+            if (next == wods) model.only() else model.copy(wods = next).only()
+        }
+        Msg.Wods.CloseSuggestions -> if (!wods.suggesting) model.only() else model.copy(wods = wods.copy(suggesting = false)).only()
+        is Msg.Wods.SearchMovement -> {
+            val next = wods.copy(query = msg.name.take(MAX_QUERY), suggesting = false)
+            if (next == wods) model.only() else model.copy(wods = next).only()
+        }
+        Msg.Wods.ClearSearch -> if (wods.query.isEmpty() && !wods.suggesting) model.only() else model.copy(wods = wods.copy(query = "", suggesting = false)).only()
         Msg.Wods.Close -> if (wods.detail == null) model.only() else model.copy(wods = wods.copy(detail = null), now = env.now).only()
         is Msg.Wods.Start -> {
             val wod = findWod(model.state.wods, msg.id) ?: return model.only()

@@ -10,6 +10,7 @@ import { deleteWod, findExercise, state } from '../store'
 import ExerciseMotion from './ExerciseMotion.vue'
 import TimerCalls from './TimerCalls.vue'
 import { Button, Card, ConfirmButton, ListRow, Sheet } from './ui'
+import WodBanner from './WodBanner.vue'
 
 const props = defineProps<{ workout: Wod }>()
 const emit = defineEmits<{ back: []; edit: []; copy: []; start: [] }>()
@@ -43,6 +44,7 @@ function onDelete() {
   <Button class="back px-1" variant="ghost" size="md" @click="emit('back')">‹ WODs</Button>
 
   <header class="head">
+    <WodBanner class="header-banner" :workout="workout" playing />
     <h1 class="page-title">{{ name }}</h1>
     <p v-if="format !== name" class="format">{{ format }}</p>
     <p class="time">{{ timerSummary(workout.timer) }}</p>
@@ -108,6 +110,12 @@ function onDelete() {
   flex-direction: column;
   gap: 2px;
   margin-top: -8px;
+}
+
+.header-banner {
+  height: 140px;
+  margin-bottom: 10px;
+  border-radius: 18px;
 }
 
 .page-title {

@@ -3,7 +3,24 @@ package io.github.alexanderop.eisen.ui
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.State
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import io.github.alexanderop.eisen.domain.Wod
+import io.github.alexanderop.eisen.domain.elm.MAX_BANNER_FIGURES
+import io.github.alexanderop.eisen.domain.elm.bannerMotions
+import io.github.alexanderop.eisen.domain.elm.bannerSlots
+import io.github.alexanderop.eisen.domain.REST_EXERCISE
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -46,8 +63,11 @@ private val MotionShape = RoundedCornerShape(10.dp)
 
 /** The strip of an exercise from the shared assets. Null when it has none or its file is not there. */
 @Composable
-private fun motionStrip(exerciseId: String?): ImageBitmap? {
-    val name = exerciseId?.let(::motionOf) ?: return null
+private fun motionStrip(exerciseId: String?): ImageBitmap? = exerciseId?.let(::motionOf)?.let { stripNamed(it) }
+
+/** The strip of this name from the shared assets, null when its file is not there. */
+@Composable
+private fun stripNamed(name: String): ImageBitmap? {
     val context = LocalContext.current
     return remember(name) {
         strips.getOrPut(name) {
@@ -67,32 +87,17 @@ private fun motionStrip(exerciseId: String?): ImageBitmap? {
  */
 @Composable
 fun ExerciseMotion(exercise: Exercise?, size: Dp, modifier: Modifier = Modifier, playing: Boolean = true) {
+    if (exercise?.id == REST_EXERCISE) {
+        RestTile(size, modifier)
+        return
+    }
     val strip = motionStrip(exercise?.id)
     if (strip == null) {
         ExerciseTile(exercise?.image, exercise?.name ?: "?", modifier, size)
         return
     }
     var visible by remember { mutableStateOf(false) }
-    var frame by remember { mutableIntStateOf(MOTION_STILL_FRAME) }
-    val moving = playing && visible
-    LaunchedEffect(moving) {
-        if (!moving) {
-            frame = MOTION_STILL_FRAME
-            return@LaunchedEffect
-        }
-        val scale = currentCoroutineContext()[MotionDurationScale]
-        val start = withFrameMillis { it }
-        while (true) {
-            if (scale != null && scale.scaleFactor == 0f) {
-                frame = MOTION_STILL_FRAME
-                snapshotFlow { scale.scaleFactor }.first { it != 0f }
-            }
-            // The frame clock stops while the app is in the background, and this waits for it.
-            val elapsed = withFrameMillis { it } - start
-            frame = ((elapsed / MOTION_FRAME_MS) % MOTION_FRAMES).toInt()
-            delay(MOTION_FRAME_MS - elapsed % MOTION_FRAME_MS)
-        }
-    }
+    val frame by motionFrame(playing && visible)
     Spacer(
         modifier
             .size(size)
@@ -100,15 +105,88 @@ fun ExerciseMotion(exercise: Exercise?, size: Dp, modifier: Modifier = Modifier,
             .clip(MotionShape)
             .background(Color(MOTION_BACKGROUND))
             .border(1.dp, EisenColors.Border, MotionShape)
-            .drawBehind {
-                val side = strip.height
-                drawImage(
-                    strip,
-                    srcOffset = IntOffset(frame * side, 0),
-                    srcSize = IntSize(side, side),
-                    dstSize = IntSize(this.size.width.roundToInt(), this.size.height.roundToInt()),
-                    filterQuality = FilterQuality.Medium,
-                )
-            },
+            .drawBehind { drawFrame(strip, frame) },
     )
+}
+
+/** A rest in a WOD: an hourglass on the strips' dark ground, not a photo. Decorative: the line says "Rest". */
+@Composable
+fun RestTile(size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(size).clip(MotionShape).background(Color(MOTION_BACKGROUND)).border(1.dp, EisenColors.Border, MotionShape),
+        contentAlignment = Alignment.Center,
+    ) { Icon(Icons.Hourglass, contentDescription = null, tint = EisenColors.Rest, modifier = Modifier.size(size * 0.5f)) }
+}
+
+/**
+ * The frame to show: the middle one while not [moving] or while the system's animations are off,
+ * else one after the other, looping. Every figure that moves at the same time is on the same frame.
+ */
+@Composable
+private fun motionFrame(moving: Boolean): State<Int> {
+    val frame = remember { mutableIntStateOf(MOTION_STILL_FRAME) }
+    LaunchedEffect(moving) {
+        if (!moving) {
+            frame.intValue = MOTION_STILL_FRAME
+            return@LaunchedEffect
+        }
+        val scale = currentCoroutineContext()[MotionDurationScale]
+        val start = withFrameMillis { it }
+        while (true) {
+            if (scale != null && scale.scaleFactor == 0f) {
+                frame.intValue = MOTION_STILL_FRAME
+                snapshotFlow { scale.scaleFactor }.first { it != 0f }
+            }
+            // The frame clock stops while the app is in the background, and this waits for it.
+            val elapsed = withFrameMillis { it } - start
+            frame.intValue = ((elapsed / MOTION_FRAME_MS) % MOTION_FRAMES).toInt()
+            delay(MOTION_FRAME_MS - elapsed % MOTION_FRAME_MS)
+        }
+    }
+    return frame
+}
+
+private fun DrawScope.drawFrame(strip: ImageBitmap, frame: Int) {
+    val side = strip.height
+    drawImage(
+        strip,
+        srcOffset = IntOffset(frame * side, 0),
+        srcSize = IntSize(side, side),
+        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+        filterQuality = FilterQuality.Medium,
+    )
+}
+
+/**
+ * A WOD's picture: a slot for each of its movements ([bannerSlots]), centred and evenly spaced on the
+ * strips' dark ground: the figure, square, as high as [height] or narrower when four do not fit, or
+ * for a movement without one its still picture as a small tile. Still on the middle frame unless
+ * [playing], and then with the motion tile's rules. Nothing is drawn for a WOD without a single
+ * figure: check [bannerMotions] first. Decorative: the movements are named beside it.
+ */
+@Composable
+fun WodBanner(wod: Wod, height: Dp, find: (String) -> Exercise?, modifier: Modifier = Modifier, playing: Boolean = false) {
+    if (bannerMotions(wod).isEmpty()) return
+    val slots = bannerSlots(wod).map { id -> id to motionOf(id)?.let { stripNamed(it) } }
+    var visible by remember { mutableStateOf(false) }
+    val frame by motionFrame(playing && visible)
+    BoxWithConstraints(
+        modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(Color(MOTION_BACKGROUND))
+            .onVisibilityChanged(minFractionVisible = 0.01f) { visible = it }
+            .clearAndSetSemantics { },
+    ) {
+        val side = minOf(maxHeight, maxWidth / MAX_BANNER_FIGURES)
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            for ((id, strip) in slots) {
+                if (strip != null) Spacer(Modifier.size(side).drawBehind { drawFrame(strip, frame) })
+                else Box(Modifier.size(side), contentAlignment = Alignment.Center) {
+                    val exercise = find(id)
+                    ExerciseTile(exercise?.image, exercise?.name ?: "?", size = minOf(side, 40.dp))
+                }
+            }
+        }
+    }
 }

@@ -70,7 +70,11 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -85,7 +89,16 @@ import io.github.alexanderop.eisen.domain.bestText
 import io.github.alexanderop.eisen.domain.wodBest
 import io.github.alexanderop.eisen.domain.elm.RoundCard
 import io.github.alexanderop.eisen.domain.elm.earlierRuns
+import io.github.alexanderop.eisen.domain.elm.PaceLine
+import io.github.alexanderop.eisen.domain.elm.PaceTone
+import io.github.alexanderop.eisen.domain.elm.paceLine
+import io.github.alexanderop.eisen.domain.elm.resultGap
 import io.github.alexanderop.eisen.domain.elm.roundCard
+import io.github.alexanderop.eisen.domain.elm.runRest
+import io.github.alexanderop.eisen.domain.WodRest
+import io.github.alexanderop.eisen.domain.wodRound
+import androidx.compose.ui.graphics.graphicsLayer
+import io.github.alexanderop.eisen.domain.elm.wodButton
 import io.github.alexanderop.eisen.domain.elm.wasWodRecord
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -224,12 +237,7 @@ private fun TimerRunScreen(state: TimerState.Running, now: Long, dispatch: (Msg)
                 HoldToFinish(enabled = view.phase != TimerPhase.READY) { dispatch(Msg.Timer.Finish) }
                 Spacer(Modifier.height(10.dp))
             }
-            Button(
-                onClick = { dispatch(if (paused) Msg.Timer.Resume else Msg.Timer.Pause) },
-                modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp).height(controls),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = if (paused) EisenColors.Primary else EisenColors.Foreground, contentColor = EisenColors.OnPrimary),
-            ) { Text(if (paused) "Resume" else "Pause", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp) }
+            PauseButton(paused, controls, dispatch)
         }
     }
     if (state.ending) EndSheet(dispatch)
@@ -245,10 +253,16 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
     val run = state.run
     val paused = run.pausedAt != null
     val view = timerView(run.config, activeTime(run, now))
-    val color by animateColorAsState(phaseColor(view.phase, paused), tween(400), label = "phase")
+    // A rest of a For Time runs by itself: the screen is the rest's, in its colour.
+    val rest = runRest(run, view)
+    val color by animateColorAsState(if (rest != null && !paused) EisenColors.Rest else phaseColor(view.phase, paused), tween(400), label = "phase")
     val forTime = run.config.mode == TimerMode.FOR_TIME
     val tapped = forTime || run.config.mode == TimerMode.AMRAP
     val card = roundCard(run, view, app)
+    val pace = paceLine(run, wodBest(app.timerSessions, wod.id), view)
+    // "WORK · 2/4": the round, read from two metres. A rest names the round that comes in its card.
+    val round = wodRound(wod, run.taps, 1)
+    val rounds = forTime && wod.rounds > 1 && view.phase != TimerPhase.READY && rest == null
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
@@ -260,7 +274,8 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
     ) {
         val compact = maxHeight < 600.dp
         val controls = if (compact) 52.dp else 64.dp
-        val button = if (compact) 64.dp else (maxHeight * 0.14f).coerceIn(80.dp, 128.dp)
+        // The big button never shrinks below a thumb and keeps its distance from Pause: the ring gives way.
+        val button = if (compact) 80.dp else (maxHeight * 0.14f).coerceIn(88.dp, 128.dp)
         val gap = if (compact) 8.dp else 12.dp
         // A short screen keeps the room for the clock: its round card goes without pictures.
         val pictures = maxHeight >= 700.dp
@@ -283,13 +298,15 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
                 ) { Text("End", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             }
-            Text(
-                if (paused) "PAUSED" else phaseName(view.phase).uppercase(),
-                Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            PhaseWord(
+                when {
+                    paused -> "PAUSED"
+                    rest != null -> "REST"
+                    else -> phaseName(view.phase).uppercase()
+                },
+                round = if (rounds) "$round/${wod.rounds}" else null,
                 color = color,
-                fontSize = if (compact) 22.sp else 28.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.14.em,
+                size = if (compact) 22.sp else 28.sp,
             )
             // The ring and the time left stay together in the room the card and the buttons leave.
             // A For Time shows its cap in the ring, so it has no "Total left".
@@ -297,26 +314,103 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp), contentAlignment = Alignment.Center) {
                 val ring = minOf(maxWidth * 0.9f, maxHeight - if (total) 30.dp else 0.dp).coerceAtLeast(0.dp)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Dial(run, view, now, ring, color, paused, minDigits = 64f)
+                    Dial(run, view, now, ring, color, paused, minDigits = 64f, rest = rest)
                     if (total) BelowRing(run, view, compact, next = false)
                 }
+            }
+            if (pace != null) {
+                Spacer(Modifier.height(gap / 2))
+                PaceRow(pace)
             }
             Spacer(Modifier.height(gap))
             if (card != null) WodRoundCard(card, color, compact, pictures = pictures, playing = !paused) { app.findExercise(it) }
             Spacer(Modifier.height(gap))
             if (tapped) {
-                WodButton(wod, run.taps, card, button, color, enabled = !paused && view.phase != TimerPhase.READY, dispatch)
-                Spacer(Modifier.height(gap))
+                if (rest != null) SkipRest(button, enabled = !paused, dispatch)
+                else WodButton(wod, run.taps, app, button, color, enabled = !paused && view.phase != TimerPhase.READY, dispatch)
+                Spacer(Modifier.height(24.dp))
             }
-            Button(
-                onClick = { dispatch(if (paused) Msg.Timer.Resume else Msg.Timer.Pause) },
-                modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp).height(controls),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = if (paused) EisenColors.Primary else EisenColors.Foreground, contentColor = EisenColors.OnPrimary),
-            ) { Text(if (paused) "Resume" else "Pause", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp) }
+            PauseButton(paused, controls, dispatch)
         }
     }
     if (state.ending) EndSheet(dispatch, wod = true)
+}
+
+/** Pause in the dark tonal style, so the big button above it is the one thing in colour; Resume is lime. */
+@Composable
+private fun PauseButton(paused: Boolean, height: Dp, dispatch: (Msg) -> Unit) {
+    FilledTonalButton(
+        onClick = { dispatch(if (paused) Msg.Timer.Resume else Msg.Timer.Pause) },
+        modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp).height(height),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = if (paused) EisenColors.Primary else EisenColors.Muted,
+            contentColor = if (paused) EisenColors.OnPrimary else EisenColors.Foreground,
+        ),
+    ) { Text(if (paused) "Resume" else "Pause", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp) }
+}
+
+/**
+ * The phase word, and with several rounds the round beside it in the foreground colour: "WORK · 2/4".
+ * It pulses once when the round moves on.
+ */
+@Composable
+private fun PhaseWord(word: String, round: String?, color: Color, size: androidx.compose.ui.unit.TextUnit) {
+    val pulse = remember { Animatable(1f) }
+    var seen by remember { mutableStateOf(round) }
+    LaunchedEffect(round) {
+        if (round != null && seen != null && round != seen) {
+            pulse.animateTo(1.18f, tween(140))
+            pulse.animateTo(1f, tween(260))
+        }
+        seen = round
+    }
+    Text(
+        buildAnnotatedString {
+            append(word)
+            if (round != null) {
+                append(" · ")
+                withStyle(SpanStyle(color = EisenColors.Foreground)) { append(round) }
+            }
+        },
+        Modifier
+            .graphicsLayer { scaleX = pulse.value; scaleY = pulse.value }
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                if (round != null) contentDescription = "$word, round ${round.replace("/", " of ")}"
+            },
+        color = color,
+        fontSize = size,
+        fontWeight = FontWeight.Black,
+        letterSpacing = 0.14.em,
+        maxLines = 1,
+    )
+}
+
+/**
+ * In a rest the big button lets it end early, in the quiet style: the clock counts the rest anyway.
+ * "Back" stays beside it: the tap that started the rest may have been one too many.
+ */
+@Composable
+private fun SkipRest(height: Dp, enabled: Boolean, dispatch: (Msg) -> Unit) {
+    Row(Modifier.fillMaxWidth().widthIn(max = 520.dp).height(height), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        FilledTonalButton(
+            onClick = { dispatch(Msg.Timer.Untap) },
+            modifier = Modifier.width(64.dp).height(minOf(height, 56.dp).coerceAtLeast(48.dp)),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
+        ) {
+            Text("Back", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1, softWrap = false, modifier = Modifier.semantics { contentDescription = "Take back a step" })
+        }
+        FilledTonalButton(
+            onClick = { dispatch(Msg.Timer.SkipRest) },
+            enabled = enabled,
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            shape = RoundedCornerShape(22.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
+        ) { Text("Skip rest", fontWeight = FontWeight.Black, fontSize = 24.sp) }
+    }
 }
 
 /**
@@ -337,8 +431,10 @@ private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean, pictur
     val row = with(density) { if (pictures) maxOf(line.toDp(), PictureRow) else line.toDp() }
     val bigRow = with(density) { if (pictures) maxOf(bigLine.toDp(), PictureRow) else bigLine.toDp() }
     // The line before the current one stays in sight above it, so the lifter sees where they came from.
-    LaunchedEffect(current, row) {
+    // A rest's card of the coming round starts at its top.
+    LaunchedEffect(current, row, card.upNext) {
         if (current != null) scroll.animateScrollTo(with(density) { (row.toPx() * (current - 1).coerceAtLeast(0)).toInt() })
+        else if (card.upNext) scroll.animateScrollTo(0)
     }
     val shape = RoundedCornerShape(18.dp)
     Column(
@@ -364,7 +460,8 @@ private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean, pictur
             )
         }
         Box(Modifier.fillMaxWidth()) {
-            Column(Modifier.heightIn(max = row * 3 + bigRow).verticalScroll(scroll)) {
+            // A short screen keeps the room for the clock: three lines in sight, the rest scrolls.
+            Column(Modifier.heightIn(max = row * (if (compact) 2 else 3) + bigRow).verticalScroll(scroll)) {
                 card.lines.forEachIndexed { index, text ->
                     val done = current != null && index < current
                     val now = current == index
@@ -410,57 +507,74 @@ private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean, pictur
 }
 
 /**
- * The one big button of a WOD's run, in the phase colour, with a small button beside it that takes a
- * tap back. An AMRAP counts its rounds ("−1" beside it). A For Time moves on: "Round done" with
- * rounds, "Next" through the items of a single round, "Done" for a single movement. Its last tap
- * stops the clock.
+ * The colours of the distance to the best: lime ahead, amber behind, plain on pace.
+ * The first run, with nothing to beat, is muted.
+ */
+private fun paceColor(tone: PaceTone): Color = when (tone) {
+    PaceTone.AHEAD -> EisenColors.Primary
+    PaceTone.BEHIND -> EisenColors.Warn
+    PaceTone.LEVEL -> EisenColors.Foreground
+}
+
+/**
+ * "Best 12:40" (muted) with the live distance to it in a chip: "▲ 12s ahead", "▼ 8s behind", "On pace",
+ * so the colour is not the only signal. Where the chip does not fit beside the best, it goes on its own
+ * line under it. Not a live region: it changes every second.
  */
 @Composable
-private fun WodButton(wod: Wod, taps: Int, card: RoundCard?, height: Dp, color: Color, enabled: Boolean, dispatch: (Msg) -> Unit) {
-    val amrap = wod.timer.mode == TimerMode.AMRAP
-    val (title, label, spoken) = when {
-        amrap -> Triple(taps.toString(), "rounds done", "$taps ${if (taps == 1) "round" else "rounds"} done. Tap to count a round.")
-        wod.rounds > 1 -> Triple("Round done", "tap", "Round done")
-        wod.items.size > 1 -> {
-            val step = card?.current?.let { card.lines.getOrNull(it) } ?: ""
-            Triple("Next", step, "Next. Now: $step")
-        }
-        else -> Triple("Done", "tap when finished", "Done")
+private fun PaceRow(pace: PaceLine) {
+    val style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, fontFeatureSettings = "tnum")
+    val gap = pace.gap
+    val tone = paceColor(pace.tone)
+    val arrow = when (pace.tone) {
+        PaceTone.AHEAD -> "\u25B2 "
+        PaceTone.BEHIND -> "\u25BC "
+        PaceTone.LEVEL -> ""
     }
-    Row(Modifier.fillMaxWidth().widthIn(max = 520.dp).height(height), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(22.dp))
-                .background(if (enabled) color else EisenColors.Muted)
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = if (amrap) "Count a round" else title) { dispatch(Msg.Timer.Tap) }
-                .semantics { contentDescription = spoken }
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            val ink = if (enabled) EisenColors.OnPrimary else EisenColors.MutedForeground
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    color = ink,
-                    fontSize = if (amrap) (height.value * 0.5f).coerceAtMost(56f).sp else 26.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1,
-                    style = TextStyle(fontFeatureSettings = "tnum"),
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    label,
-                    color = ink.copy(alpha = 0.8f),
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
+    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        val measurer = rememberTextMeasurer()
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val oneLine = gap == null || with(density) {
+            val text = measurer.measure(pace.best, style).size.width + measurer.measure(arrow + gap, style).size.width
+            text.toDp() + 10.dp + 28.dp <= maxWidth
+        }
+        val best: @Composable () -> Unit = { Text(pace.best, style = style, color = EisenColors.MutedForeground, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        val chip: @Composable () -> Unit = {
+            if (gap != null) {
+                Box(
+                    Modifier
+                        .background(if (pace.tone == PaceTone.LEVEL) EisenColors.Muted else tone.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 14.dp, vertical = 3.dp)
+                        .semantics { contentDescription = gap },
+                ) { Text(arrow + gap, style = style, color = tone, maxLines = 1) }
             }
         }
+        if (oneLine) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            best()
+            chip()
+        } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            best()
+            chip()
+        }
+    }
+}
+
+/**
+ * The one big button of a WOD's run, in the phase colour, with a small button beside it that takes a
+ * tap back. An AMRAP counts its rounds ("−1" beside it). A For Time moves on item by item: "Next"
+ * with the item to do now, "Done" with the very last, whose tap stops the clock.
+ */
+@Composable
+private fun WodButton(wod: Wod, taps: Int, app: AppState, height: Dp, color: Color, enabled: Boolean, dispatch: (Msg) -> Unit) {
+    val amrap = wod.timer.mode == TimerMode.AMRAP
+    val (title, label, spoken) = if (amrap) {
+        Triple(taps.toString(), "rounds done", "$taps ${if (taps == 1) "round" else "rounds"} done. Tap to count a round.")
+    } else {
+        val next = wodButton(wod, taps, app)
+        Triple(next.big, next.small, next.spoken)
+    }
+    Row(Modifier.fillMaxWidth().widthIn(max = 520.dp).height(height), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Taking a tap back sits on the left, away from the thumb that taps the big button.
         FilledTonalButton(
             onClick = { dispatch(Msg.Timer.Untap) },
             enabled = taps > 0,
@@ -478,6 +592,40 @@ private fun WodButton(wod: Wod, taps: Int, card: RoundCard?, height: Dp, color: 
                 modifier = Modifier.semantics { contentDescription = if (amrap) "Take back a round" else "Take back a step" },
             )
         }
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(22.dp))
+                .background(if (enabled) color else EisenColors.Muted)
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = if (amrap) "Count a round" else title) { dispatch(Msg.Timer.Tap) }
+                .semantics { contentDescription = spoken }
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val ink = if (enabled) EisenColors.OnPrimary else EisenColors.MutedForeground
+            if (amrap) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    color = ink,
+                    fontSize = (height.value * 0.5f).coerceAtMost(56f).sp,
+                    lineHeight = (height.value * 0.56f).coerceAtMost(62f).sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    style = TextStyle(fontFeatureSettings = "tnum"),
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(label, color = ink.copy(alpha = 0.8f), fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            } else Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // What the tap ticks off, and under it what comes next.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Check, contentDescription = null, tint = ink, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(title, color = ink, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(label, color = ink.copy(alpha = 0.8f), fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 
@@ -487,6 +635,11 @@ private fun WodButton(wod: Wod, taps: Int, card: RoundCard?, height: Dp, color: 
  */
 private fun ringAt(run: TimerRun, time: Long): Float {
     val view = timerView(run.config, activeTime(run, time))
+    // In a rest the ring empties over the rest.
+    runRest(run, view)?.let { rest ->
+        val left = run.splits.last() + rest.total - view.elapsed / 1000.0
+        return (left / rest.total).toFloat().coerceIn(0f, 1f)
+    }
     val left = view.phaseLeft
     val total = view.phaseTotal
     val fraction = when {
@@ -499,12 +652,13 @@ private fun ringAt(run: TimerRun, time: Long): Float {
 }
 
 @Composable
-private fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Color, paused: Boolean, minDigits: Float = 0f) {
+private fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Color, paused: Boolean, minDigits: Float = 0f, rest: WodRest? = null) {
     val anchor = run.startedAt + run.paused
-    val ring = remember(run.id, view.phase, view.round) { Animatable(ringAt(run, now)) }
+    val resting = rest != null
+    val ring = remember(run.id, view.phase, view.round, resting) { Animatable(ringAt(run, now)) }
     // The clock moves a second at a time. In between the ring glides to where it will be at the next
     // tick, like the hold timer. Pure presentation: the digits follow [now].
-    LaunchedEffect(run.id, view.phase, view.round, now, paused) {
+    LaunchedEffect(run.id, view.phase, view.round, now, paused, resting) {
         if (paused) {
             ring.snapTo(ringAt(run, now))
             return@LaunchedEffect
@@ -519,12 +673,20 @@ private fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Col
 
     val left = view.phaseLeft
     val forTime = run.config.mode == TimerMode.FOR_TIME
+    val clock = formatClock((view.elapsed / 1000).toInt())
     val digits = when {
         view.phase == TimerPhase.READY -> ceilSeconds(left ?: 0).toString()
-        forTime -> formatClock((view.elapsed / 1000).toInt())
+        rest != null -> formatClock(rest.left)
+        forTime -> clock
         else -> formatClock(ceilSeconds(left ?: 0))
     }
-    val caption = if (view.phase != TimerPhase.READY && forTime && run.config.work > 0) "Cap ${holdText(run.config.work)}" else null
+    val cap = "Cap ${holdText(run.config.work)}".takeIf { run.config.work > 0 }
+    val caption = when {
+        // The rest has the big digits; the WOD's own clock goes on underneath.
+        rest != null -> listOfNotNull(clock, cap).joinToString(" · ")
+        view.phase != TimerPhase.READY && forTime -> cap
+        else -> null
+    }
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             // A soft glow of the phase colour behind the ring, so the phase reads from across the room.
@@ -556,7 +718,8 @@ private fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Col
                 style = TextStyle(fontFeatureSettings = "tnum"),
                 maxLines = 1,
             )
-            if (caption != null) Text(caption, color = EisenColors.MutedForeground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            // On a small ring the line under the digits stays inside it.
+            if (caption != null) Text(caption, color = EisenColors.MutedForeground, fontSize = if (size < 220.dp) 13.sp else 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
@@ -742,6 +905,7 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
     val tapped = countsRoundsByTap(session.config.mode) && !wodForTime
     val wodId = session.wodId
     val best = wodId?.let { wodBest(earlierRuns(sessions, session), it) }
+    val against = resultGap(session, best)
     val record = wodId != null && wasWodRecord(sessions, session)
     val outcome = timerOutcome(session)
     val accent = outcomeColor(outcome)
@@ -757,6 +921,17 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
     ) {
         val hero = if (maxHeight < 560.dp) 80.sp else 104.sp
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            // The last tap may have been one too many: it can be taken back while the result shows. Up
+            // here, away from where the big button was, so a second tap of the same thumb lands on nothing.
+            Box(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                if (undo) {
+                    TextButton(
+                        onClick = { dispatch(Msg.Timer.UndoFinish) },
+                        modifier = Modifier.align(Alignment.CenterStart).heightIn(min = 48.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    ) { Text("Not finished? Undo", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+                }
+            }
             Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 // A name as the lifter wrote it: "AMRAP 30s" is not "AMRAP 30S".
                 Text(
@@ -813,6 +988,16 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                         wod!!.rounds > 1 -> Text("${session.rounds} of ${wod.rounds} rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                     }
                 }
+                if (against != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        against.text,
+                        color = if (against.better) EisenColors.Primary else EisenColors.MutedForeground,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
                 // The best before this run, so a record shows what it beat.
                 if (best != null) {
                     Spacer(Modifier.height(8.dp))
@@ -830,13 +1015,6 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                     }
                 }
             }
-            // The last tap may have been one too many: it can be taken back while the result shows.
-            if (undo) {
-                TextButton(
-                    onClick = { dispatch(Msg.Timer.UndoFinish) },
-                    modifier = Modifier.heightIn(min = 48.dp).padding(bottom = 8.dp),
-                ) { Text("Not finished? Undo", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
-            }
             Row(Modifier.fillMaxWidth().widthIn(max = 520.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(
                     onClick = { dispatch(Msg.Timer.Again) },
@@ -850,6 +1028,12 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                     shape = RoundedCornerShape(16.dp),
                 ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
             }
+            // A run that was a test or went wrong is not a result: it leaves the history, with Undo.
+            TextButton(
+                onClick = { dispatch(Msg.Timer.DontCount) },
+                modifier = Modifier.padding(top = 4.dp).heightIn(min = 48.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = EisenColors.MutedForeground),
+            ) { Text("Don't count this run", fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
         }
     }
 }

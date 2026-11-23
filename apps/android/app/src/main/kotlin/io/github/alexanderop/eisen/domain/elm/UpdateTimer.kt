@@ -26,6 +26,7 @@ import io.github.alexanderop.eisen.domain.timerView
 import io.github.alexanderop.eisen.domain.TimerView
 import io.github.alexanderop.eisen.domain.Wod
 import io.github.alexanderop.eisen.domain.WodItem
+import io.github.alexanderop.eisen.domain.WodUnit
 import io.github.alexanderop.eisen.domain.FindExercise
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.itemAmount
@@ -40,6 +41,21 @@ import io.github.alexanderop.eisen.domain.roundItems
 import io.github.alexanderop.eisen.domain.roundLines
 import io.github.alexanderop.eisen.domain.wodRound
 import io.github.alexanderop.eisen.domain.wodRounds
+import io.github.alexanderop.eisen.domain.TimerOutcome
+import io.github.alexanderop.eisen.domain.bestText
+import io.github.alexanderop.eisen.domain.gapText
+import io.github.alexanderop.eisen.domain.liveGap
+import io.github.alexanderop.eisen.domain.roundsGap
+import io.github.alexanderop.eisen.domain.roundsGapText
+import io.github.alexanderop.eisen.domain.splitTime
+import io.github.alexanderop.eisen.domain.timerOutcome
+import io.github.alexanderop.eisen.domain.wodSteps
+import io.github.alexanderop.eisen.domain.WodRest
+import io.github.alexanderop.eisen.domain.isRest
+import io.github.alexanderop.eisen.domain.tapsPerRound
+import io.github.alexanderop.eisen.domain.wodRest
+import io.github.alexanderop.eisen.domain.TimerCue
+import io.github.alexanderop.eisen.domain.VOICE_AFTER_BEEP
 
 /*
  * The interval timers (Tabata, EMOM, AMRAP, For Time). What a run sounds like is worked out once,
@@ -52,6 +68,9 @@ const val PRESET_NAME_LENGTH = 40
 
 /** A second "+1 round" this soon after the last one is a bounce of the thumb, not a round. */
 const val TAP_GUARD_MILLIS = 800L
+
+/** The result ignores taps this long after it shows: the thumb that made the last tap may still be coming down. */
+const val RESULT_GUARD_MILLIS = 1_000L
 
 /** Long enough for "Workout complete" after the last beep before the service lets go. */
 const val TIMER_TAIL_MILLIS = 3_000L
@@ -81,6 +100,9 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         val (ended, cmds) = finishNaturally(model.copy(now = env.now), running.run, env)
         return ended and cmds
     }
+    val result = model.timer as? TimerState.Finished
+    val answer = msg is Msg.Timer.CorrectRounds || msg == Msg.Timer.Again || msg == Msg.Timer.UndoFinish || msg == Msg.Timer.Done || msg == Msg.Timer.DontCount
+    if (result != null && answer && env.now - result.at in 0 until RESULT_GUARD_MILLIS) return model.only()
     return when (msg) {
         is Msg.Timer.Open -> model.copy(timerSetup = TimerSetup(lastTimerConfig(model, msg.mode)), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
         is Msg.Timer.OpenPreset -> {
@@ -194,23 +216,35 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             if (!countsRoundsByTap(run.config.mode) || run.pausedAt != null || phase == TimerPhase.READY) return model.only()
             val wod = run.wod
             if (wod != null && wodDone(wod, run.taps)) return model.only()
+            // A rest is counted by the clock: its button is "Skip rest".
+            if (runRest(run, env.now) != null) return model.only()
             val last = running.tappedAt
             if (last != null && env.now - last in 0 until TAP_GUARD_MILLIS) return model.only()
-            val tapped = run.copy(taps = run.taps + 1)
-            val felt = if (model.state.settings.haptics) listOf(Cmd.Ui(UiEvent.Haptic(Feel.TAP))) else emptyList()
+            // A WOD keeps the time of every tap, so a later run can be measured against this one.
+            val tapped = run.copy(taps = run.taps + 1, splits = if (wod != null) run.splits + splitTime(run, env.now) else run.splits)
+            // The tap that ends a round of a For Time is felt more.
+            val roundDone = wod != null && wod.timer.mode == TimerMode.FOR_TIME && tapped.taps % tapsPerRound(wod) == 0
+            val felt = if (model.state.settings.haptics) listOf(Cmd.Ui(UiEvent.Haptic(if (roundDone) Feel.SUCCESS else Feel.TAP))) else emptyList()
             // The tap of the last step stops the clock: the run is complete now, and its result can take that tap back.
             if (wod != null && wodDone(wod, tapped.taps)) {
                 val session = timerSession(tapped, env.now, finished = true) ?: return model.only()
                 return fileRun(model, session, wod, env.now, undo = tapped) and listOf<Cmd>(Cmd.SaveTimer(null), Cmd.HideTimer) + felt
             }
             model.copy(timer = running.copy(run = tapped, tappedAt = env.now), now = env.now) and
-                listOf<Cmd>(Cmd.SaveTimer(tapped)) + noticeAfterTap(model, run, tapped, env.now) + felt
+                listOf<Cmd>(Cmd.SaveTimer(tapped)) + restCuesAfter(model, run, tapped, env.now) + noticeAfterTap(model, run, tapped, env.now) + felt
+        }
+        Msg.Timer.SkipRest -> {
+            val run = running?.run ?: return model.only()
+            if (runRest(run, env.now) == null) return model.only()
+            val skipped = run.copy(restSkipped = run.taps)
+            model.copy(timer = running.copy(run = skipped), now = env.now) and
+                listOf<Cmd>(Cmd.SaveTimer(skipped)) + restCuesAfter(model, run, skipped, env.now) + noticeAfterTap(model, run, skipped, env.now)
         }
         Msg.Timer.UndoFinish -> {
             val finished = model.timer as? TimerState.Finished ?: return model.only()
             val ended = finished.undo ?: return model.only()
             // The run carries on from its timestamps, so the clock shows the time that really passed.
-            val back = ended.copy(taps = maxOf(0, ended.taps - 1))
+            val back = undoneRun(ended)
             // Like a start: the run covers a rest begun meanwhile and a hold timer.
             val (stopped, stopCmds) = stopRest(model)
             stopped.withState { state -> state.copy(timerSessions = state.timerSessions.filter { it.id != finished.session.id }) }
@@ -220,8 +254,9 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         Msg.Timer.Untap -> {
             val run = running?.run ?: return model.only()
             if (!countsRoundsByTap(run.config.mode) || run.taps == 0) return model.only()
-            val untapped = run.copy(taps = run.taps - 1)
-            model.copy(timer = running.copy(run = untapped), now = env.now) and listOf<Cmd>(Cmd.SaveTimer(untapped)) + noticeAfterTap(model, run, untapped, env.now)
+            val untapped = undoneRun(run)
+            model.copy(timer = running.copy(run = untapped), now = env.now) and
+                listOf<Cmd>(Cmd.SaveTimer(untapped)) + restCuesAfter(model, run, untapped, env.now) + noticeAfterTap(model, run, untapped, env.now)
         }
         is Msg.Timer.CorrectRounds -> {
             val finished = model.timer as? TimerState.Finished ?: return model.only()
@@ -243,6 +278,18 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         }
         Msg.Timer.Done -> if (model.timer !is TimerState.Finished) model.only()
         else model.copy(timer = null, timerSetup = null, nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+        Msg.Timer.DontCount -> {
+            val finished = result ?: return model.only()
+            val closed = timer(Msg.Timer.Done, model, env).first
+            // Back to the WOD it was a run of, while it still exists.
+            val back = finished.wod?.let { findWod(model.state.wods, it.id) }
+                ?.let { closed.copy(wods = closed.wods.copy(detail = it.id)) } ?: closed
+            val index = model.state.timerSessions.indexOfFirst { it.id == finished.session.id }
+            if (index == -1) return back.only()
+            back.withState { it.copy(timerSessions = it.timerSessions.filter { saved -> saved.id != finished.session.id }) }
+                .copy(undo = back.undo.copy(deletedTimer = DeletedTimerSession(finished.session, index))) and
+                Cmd.Ui(UiEvent.Snackbar("Run not counted", actionLabel = "Undo", onAction = Msg.Timer.UndoDeleteSession, tag = TIMER_SNACKBAR))
+        }
         // Another run started meanwhile and owns the service now.
         is Msg.Timer.Release -> if (model.timerRun != null) model.only() else model and Cmd.HideTimer
         is Msg.Timer.DeleteSession -> {
@@ -311,6 +358,31 @@ private fun startTimer(model: Model, config: TimerConfig, name: String, env: Env
 internal fun startWod(model: Model, wod: Wod, env: Env): Next =
     if (model.timer is TimerState.Running) model.only() else startTimer(model, timerConfig(wod.timer), wodName(wod), env, wod)
 
+/** "Not finished? Undo" and "Back": the run as it was before its last tap, with that tap's time gone too, and no rest skipped. */
+fun undoneRun(run: TimerRun): TimerRun {
+    val taps = maxOf(0, run.taps - 1)
+    return run.copy(taps = taps, splits = run.splits.take(taps), restSkipped = null)
+}
+
+/** The rest a For Time WOD is in at [now], unless the lifter skipped it. Paused, it stands still. */
+fun runRest(run: TimerRun, now: Long): WodRest? = runRest(run, timerView(run.config, activeTime(run, now)))
+
+fun runRest(run: TimerRun, view: TimerView): WodRest? {
+    val wod = run.wod ?: return null
+    if (view.phase != TimerPhase.WORK || run.restSkipped == run.taps) return null
+    return wodRest(wod, run.splits, view.elapsed / 1000.0)
+}
+
+/** When the rest [run] is in at [now] ends, in milliseconds after Start, pauses not counted. */
+private fun restEndsAt(run: TimerRun, now: Long): Long? {
+    val rest = runRest(run, now) ?: return null
+    return LEAD_IN_MILLIS + ((run.splits.last() + rest.total) * 1000).toLong()
+}
+
+/** A tap, Back or "Skip rest" that starts or ends a rest plays its end, or no longer: the schedule follows. */
+private fun restCuesAfter(model: Model, before: TimerRun, after: TimerRun, now: Long): List<Cmd> =
+    if (after.pausedAt != null || restEndsAt(before, now) == restEndsAt(after, now)) emptyList() else listOf(schedule(model, after, now))
+
 /** A tap moves a WOD's round card, and the notification with it. */
 private fun noticeAfterTap(model: Model, before: TimerRun, after: TimerRun, now: Long): List<Cmd> {
     val notice = timerNotice(after, now, model.state)
@@ -325,7 +397,7 @@ private fun closeRun(model: Model, env: Env): Next =
 private fun fileRun(model: Model, session: TimerSession, wod: Wod?, now: Long, undo: TimerRun? = null): Model =
     model.withState { state ->
         if (state.timerSessions.any { it.id == session.id }) state else state.copy(timerSessions = listOf(session) + state.timerSessions)
-    }.copy(timer = TimerState.Finished(session, wod, undo), now = now)
+    }.copy(timer = TimerState.Finished(session, wod, undo, at = now), now = now)
 
 /**
  * The run ran out by itself: it is filed as completed with the full time, at the moment it ran out.
@@ -370,9 +442,19 @@ private fun phaseChanges(config: TimerConfig): List<Pair<Long, List<Long>>> {
 internal fun schedule(model: Model, run: TimerRun, now: Long): Cmd.ScheduleTimer {
     val active = activeTime(run, now)
     val zero = run.startedAt + run.paused
-    val sounds = timerCues(run.config, run.calls).filter { it.at >= active }.map { TimerSound(zero + it.at, it.sound) }
+    // The end of a rest sounds like the start of work: three short beeps and a long one, then "Go".
+    val restEnd = restEndsAt(run, now)
+    val restCues = if (restEnd == null) emptyList() else buildList {
+        if (run.calls.beeps) {
+            for (before in listOf(3, 2, 1)) add(TimerCue(restEnd - before * 1000L, "beep"))
+            add(TimerCue(restEnd, "beep-long"))
+        }
+        if (run.calls.phases) add(TimerCue(restEnd + VOICE_AFTER_BEEP, "go"))
+    }
+    val sounds = (timerCues(run.config, run.calls) + restCues).filter { it.at >= active }.sortedBy { it.at }.map { TimerSound(zero + it.at, it.sound) }
+    val changes = phaseChanges(run.config) + listOfNotNull(restEnd?.let { it to TIMER_WORK_VIBRATION })
     val vibrations = if (!model.state.settings.haptics) emptyList()
-    else phaseChanges(run.config).filter { it.first >= active }.map { (at, pattern) -> TimerVibration(zero + at, pattern) }
+    else changes.filter { it.first >= active }.sortedBy { it.first }.map { (at, pattern) -> TimerVibration(zero + at, pattern) }
     return Cmd.ScheduleTimer(sounds, vibrations, awakeUntil = timerEndsAt(run) + TIMER_TAIL_MILLIS)
 }
 
@@ -414,7 +496,7 @@ fun roundText(run: TimerRun, round: Int): String? = if (countsRoundsByTap(run.co
 /**
  * What a WOD's run shows under the ring: [heading], the one count of the round where there is one
  * ("Round 2 of 3"; an AMRAP counts on its button), and the [lines] of what to do. [current]: a For Time
- * of one round ticks its items off in order; the lines before it are done. [upNext]: a rest shows the
+ * ticks the items of its round off in order; the lines before it are done. [upNext]: a rest shows the
  * coming round, "Up next · Round 2 of 8". [exercises]: the exercise of each line, for its picture.
  */
 data class RoundCard(
@@ -433,15 +515,16 @@ fun roundCard(run: TimerRun, view: TimerView, state: AppState): RoundCard? {
     val round = wodRound(wod, run.taps, view.round)
     return when (wod.timer.mode) {
         TimerMode.AMRAP -> RoundCard(null, roundLines(wod, round, find, unit), exercises = roundExercises(wod, round, find))
+        // Every item keeps its line, so the one to do now is found by its place. The round is in the
+        // phase word; a rest shows what comes after it.
         TimerMode.FOR_TIME ->
-            if (wod.rounds > 1) RoundCard("Round $round of ${wod.rounds}", roundLines(wod, round, find, unit), exercises = roundExercises(wod, round, find))
-            // Every item keeps its line, so the one to do now is found by its place.
-            else RoundCard(
-                null,
-                wod.items.map { stepLine(wod, it, find, unit) },
-                current = wodStep(wod, run.taps),
+            if (runRest(run, view) != null) RoundCard(
+                if (wod.rounds > 1) "Up next · Round $round of ${wod.rounds}" else "Up next",
+                wod.items.map { stepLine(wod, it, round, find, unit) },
+                upNext = true,
                 exercises = wod.items.map { it.exerciseId },
             )
+            else RoundCard(null, wod.items.map { stepLine(wod, it, round, find, unit) }, current = wodStep(wod, run.taps), exercises = wod.items.map { it.exerciseId })
         else ->
             if (view.phase == TimerPhase.REST) {
                 val next = view.round + 1
@@ -454,8 +537,82 @@ fun roundCard(run: TimerRun, view: TimerView, state: AppState): RoundCard? {
 private fun roundExercises(wod: Wod, round: Int, find: FindExercise): List<String> =
     roundItems(wod, round).map { it.exerciseId }.filter { find(it) != null }
 
-private fun stepLine(wod: Wod, item: WodItem, find: FindExercise, unit: WeightUnit): String =
-    itemText(item, itemAmount(wod, item, 1), find(item.exerciseId)?.name ?: "Deleted exercise", unit)
+private fun stepLine(wod: Wod, item: WodItem, round: Int, find: FindExercise, unit: WeightUnit): String =
+    itemText(item, itemAmount(wod, item, round), find(item.exerciseId)?.name ?: "Deleted exercise", unit)
+
+/**
+ * The big button of a For Time WOD, which says what a tap means: [big] the item to do now, [small]
+ * what comes after it ("tap when done · then 20 × Sit-ups", "then rest 2:00", "then round 3", or
+ * "finishes the WOD"), [spoken] both for a screen reader.
+ */
+data class WodButton(val big: String, val small: String, val spoken: String)
+
+fun wodButton(wod: Wod, taps: Int, state: AppState): WodButton {
+    if (wod.items.isEmpty()) return WodButton("Done", "tap when finished", "Done")
+    val find = { id: String -> state.findExercise(id) }
+    val round = wodRound(wod, taps, 1)
+    val at = wodStep(wod, taps)
+    val line = stepLine(wod, wod.items[at], round, find, state.settings.unit)
+    if (taps >= (wodSteps(wod) ?: 0) - 1) return WodButton(line, "tap when done · finishes the WOD", "$line done. That finishes the WOD.")
+    val rest = wod.items.drop(at + 1).takeWhile(::isRest).sumOf { if (it.unit == WodUnit.SECONDS) it.amount else 0 }
+    val next = when {
+        rest > 0 -> "rest ${holdText(rest)}"
+        (taps + 1) % tapsPerRound(wod) == 0 -> "round ${round + 1}"
+        else -> stepLine(wod, wod.items[wodStep(wod, taps + 1)], round, find, state.settings.unit)
+    }
+    return WodButton(line, "tap when done · then $next", "$line done. Next: $next.")
+}
+
+enum class PaceTone { AHEAD, BEHIND, LEVEL }
+
+const val FIRST_RUN = "First run: this sets your best"
+
+/**
+ * The line between the clock and the round card of a For Time or an AMRAP. [best]: "Best 12:40",
+ * "Best 18 rounds", or "First run: this sets your best". [gap]: "12s ahead", "2 rounds behind", null
+ * while there is nothing to measure against.
+ */
+data class PaceLine(val best: String, val gap: String? = null, val tone: PaceTone = PaceTone.LEVEL)
+
+/**
+ * How [run] at [view] stands against [best], live. Null in an EMOM or a Tabata, which have nothing
+ * to beat. In the lead-in only the best: nothing has started yet. Paused, the view and so the gap stand still.
+ */
+fun paceLine(run: TimerRun, best: TimerSession?, view: TimerView): PaceLine? {
+    val mode = run.wod?.timer?.mode
+    if (mode != TimerMode.FOR_TIME && mode != TimerMode.AMRAP) return null
+    if (best == null) return PaceLine(FIRST_RUN)
+    val line = PaceLine("Best ${bestText(best)}")
+    if (view.phase == TimerPhase.READY) return line
+    val elapsed = view.elapsed / 1000.0
+    if (mode == TimerMode.FOR_TIME) {
+        val gap = liveGap(best, run.splits, elapsed) ?: return line
+        return line.copy(gap = gapText(gap), tone = if (gap < 0) PaceTone.AHEAD else if (gap > 0) PaceTone.BEHIND else PaceTone.LEVEL)
+    }
+    val rounds = roundsGap(best, run.taps, elapsed) ?: return line
+    return line.copy(gap = roundsGapText(rounds), tone = if (rounds > 0) PaceTone.AHEAD else if (rounds < 0) PaceTone.BEHIND else PaceTone.LEVEL)
+}
+
+/** A line under the result: [better] when it beat the best. */
+data class ResultGap(val text: String, val better: Boolean)
+
+/**
+ * Under the result of a finished run, measured against the best before it: "12s faster than your
+ * best", "1 round fewer than your best". Null without a best, or for a run that was not finished.
+ */
+fun resultGap(result: TimerSession, before: TimerSession?): ResultGap? {
+    if (before == null || timerOutcome(result) != TimerOutcome.COMPLETED) return null
+    if (result.config.mode == TimerMode.FOR_TIME) {
+        val diff = result.seconds - before.seconds
+        if (diff == 0) return ResultGap("Same time as your best", better = false)
+        return ResultGap("${holdText(kotlin.math.abs(diff))} ${if (diff < 0) "faster" else "slower"} than your best", better = diff < 0)
+    }
+    if (result.config.mode != TimerMode.AMRAP) return null
+    val diff = result.rounds - before.rounds
+    if (diff == 0) return ResultGap("As many rounds as your best", better = false)
+    val count = kotlin.math.abs(diff)
+    return ResultGap("$count ${if (count == 1) "round" else "rounds"} ${if (diff > 0) "more" else "fewer"} than your best", better = diff > 0)
+}
 
 /**
  * The run's notification at [now]: the timer's name, the phase and round, and a chronometer that counts
@@ -466,11 +623,21 @@ fun timerNotice(run: TimerRun, now: Long, state: AppState): TimerNotice {
     val view = timerView(run.config, activeTime(run, now))
     val paused = run.pausedAt != null
     val card = roundCard(run, view, state)
-    val round = if (card != null) card.heading else roundText(run, view.round)
-    val where = listOfNotNull(phaseName(view.phase), round.takeIf { view.phase != TimerPhase.READY }).joinToString(" · ")
+    val wod = run.wod
+    val rest = runRest(run, view)
+    val round = when {
+        card == null -> roundText(run, view.round)
+        card.heading == null && wod != null && wod.timer.mode == TimerMode.FOR_TIME && wod.rounds > 1 -> "Round ${wodRound(wod, run.taps, 1)} of ${wod.rounds}"
+        else -> card.heading
+    }
+    val phase = if (rest != null) "Rest" else phaseName(view.phase)
+    val where = listOfNotNull(phase, round.takeIf { view.phase != TimerPhase.READY }).joinToString(" · ")
+    // A rest counts down to its end, the For Time around it keeps counting up.
+    val restEnd = restEndsAt(run, now)
     val left = view.phaseLeft
     val base = when {
         paused -> null
+        restEnd != null -> run.startedAt + run.paused + restEnd
         left != null -> now + left
         else -> run.startedAt + run.paused + LEAD_IN_MILLIS
     }
@@ -478,7 +645,7 @@ fun timerNotice(run: TimerRun, now: Long, state: AppState): TimerNotice {
         title = run.name,
         text = if (paused) "Paused · $where" else where,
         base = base,
-        countDown = left != null,
+        countDown = restEnd != null || left != null,
         paused = paused,
         toggleLabel = if (paused) "Resume" else "Pause",
         endLabel = "End",

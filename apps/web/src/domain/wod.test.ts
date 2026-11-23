@@ -1,16 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { CATALOG, catalogExercise } from './exercises'
-import { DEFAULT_TIMER_CALLS, timerOutcome, timerSession, wodSteps, type TimerRun, type TimerSession } from './timer'
+import {
+  DEFAULT_TIMER_CALLS,
+  splitTime,
+  timerOutcome,
+  timerSession,
+  wodSteps,
+  type TimerRun,
+  type TimerSession,
+} from './timer'
 import {
   bestText,
   findWod,
+  gapText,
   isBodyweightWod,
   isLibraryWod,
+  isRest,
   isWodRecord,
+  liveGap,
   itemAmount,
   loadFrom,
   loadIn,
   roundLines,
+  roundsGap,
+  roundsGapText,
   sameWork,
   wod,
   wodBest,
@@ -19,6 +32,7 @@ import {
   wodImages,
   wodLines,
   wodName,
+  wodRest,
   wodRound,
   wodRounds,
   wodStep,
@@ -200,10 +214,13 @@ describe('wod', () => {
     expect(wodRounds(lib('wod-cindy'))).toBeNull()
     expect(wodRounds(lib('wod-chelsea'))).toBe(30)
     expect(wodRound(fran, 0, 1)).toBe(1)
-    expect(wodRound(fran, 2, 1)).toBe(3)
+    // Two items a round: the second tap finishes round one.
+    expect(wodRound(fran, 1, 1)).toBe(1)
+    expect(wodRound(fran, 2, 1)).toBe(2)
     expect(wodRound(fran, 5, 1)).toBe(3)
-    expect(wodDone(fran, 2)).toBe(false)
-    expect(wodDone(fran, 3)).toBe(true)
+    expect(wodRound(fran, 9, 1)).toBe(3)
+    expect(wodDone(fran, 5)).toBe(false)
+    expect(wodDone(fran, 6)).toBe(true)
     expect(wodRound(lib('wod-cindy'), 7, 1)).toBe(8)
     expect(wodDone(lib('wod-cindy'), 99)).toBe(false)
     expect(wodRound(lib('wod-chelsea'), 7, 12)).toBe(12)
@@ -213,7 +230,12 @@ describe('wod', () => {
     const murph = lib('wod-murph')
     expect(wodSteps(murph)).toBe(5)
     expect(wodSteps(lib('wod-grace'))).toBe(1)
-    expect(wodSteps(lib('wod-fran'))).toBe(3)
+    expect(wodSteps(lib('wod-fran'))).toBe(6)
+    expect(wodSteps(lib('wod-venus'))).toBe(12)
+    // Venus: three items a round. The fifth tap is the second item of round two.
+    expect(wodStep(lib('wod-venus'), 4)).toBe(1)
+    expect(wodRound(lib('wod-venus'), 4, 1)).toBe(2)
+    expect(wodStep(lib('wod-venus'), 12)).toBe(2)
     expect(wodSteps(lib('wod-cindy'))).toBeNull()
     expect(wodStep(murph, 0)).toBe(0)
     expect(wodStep(murph, 3)).toBe(3)
@@ -231,6 +253,39 @@ describe('wod', () => {
     expect(sameWork(fran, { ...fran, items: [{ ...fran.items[0], load: 30 }, fran.items[1]] })).toBe(false)
     const cindy = lib('wod-cindy')
     expect(sameWork(cindy, { ...cindy, timer: { ...cindy.timer, work: 600 } })).toBe(false)
+  })
+
+  it('lets the clock count a rest instead of asking for a tap', () => {
+    const zeus = lib('wod-zeus')
+    // Five movements and a rest a round: five taps, four rounds.
+    expect(wodSteps(zeus)).toBe(20)
+    expect(isRest(zeus.items[5])).toBe(true)
+    expect(wodStep(zeus, 4)).toBe(4)
+    // The fifth tap ends round one: on to the first movement of round two, past the rest.
+    expect(wodStep(zeus, 5)).toBe(0)
+    expect(wodRound(zeus, 5, 1)).toBe(2)
+    expect(wodDone(zeus, 19)).toBe(false)
+    expect(wodDone(zeus, 20)).toBe(true)
+
+    const five = [60, 120, 180, 240, 300]
+    // No rest in the middle of a round.
+    expect(wodRest(zeus, five.slice(0, 3), 185)).toBeNull()
+    // The fifth tap starts the two minutes by itself.
+    expect(wodRest(zeus, five, 300)).toEqual({ left: 120, total: 120 })
+    expect(wodRest(zeus, five, 361.5)).toEqual({ left: 59, total: 120 })
+    expect(wodRest(zeus, five, 420)).toBeNull()
+    // After the very last tap there is nothing to rest for.
+    const all = Array.from({ length: 20 }, (_, index) => (index + 1) * 60)
+    expect(wodRest(zeus, all, 1200)).toBeNull()
+    expect(wodRest(lib('wod-fran'), [40, 75], 76)).toBeNull()
+    expect(wodRest(lib('wod-cindy'), [60], 61)).toBeNull()
+
+    // Ares: two sprints, then a minute.
+    const ares = lib('wod-ares')
+    expect(wodSteps(ares)).toBe(20)
+    expect(wodRest(ares, [20, 40, 50, 60], 70)).toEqual({ left: 50, total: 60 })
+    expect(timerSession(run(zeus, 20), 10000 + 1300000, true)).toMatchObject({ completed: true, rounds: 4 })
+    expect(timerSession(run(zeus, 7), 10000 + 500000, false)).toMatchObject({ completed: false, rounds: 1 })
   })
 
   it('converts weights both ways', () => {
@@ -288,15 +343,16 @@ describe('wod', () => {
   })
 
   it('files a run of a workout under its id', () => {
-    expect(session(lib('wod-fran'), 292, 3, true, 'a')).toMatchObject({ wodId: 'wod-fran', seconds: 292, rounds: 3 })
+    expect(session(lib('wod-fran'), 292, 6, true, 'a')).toMatchObject({ wodId: 'wod-fran', seconds: 292, rounds: 3 })
     const plain = timerSession({ ...run(lib('wod-fran')), wod: undefined }, 20000, true)!
     expect('wodId' in plain).toBe(false)
   })
 
   it('counts a For Time only as finished with every step tapped off', () => {
     // The clock stopped after one of three rounds: saved, but not a time to beat.
-    const early = session(lib('wod-fran'), 3, 1, true, 'early')
+    const early = session(lib('wod-fran'), 3, 2, true, 'early')
     expect(early).toMatchObject({ completed: false, rounds: 1 })
+    expect(session(lib('wod-fran'), 3, 1, true, 'item')).toMatchObject({ completed: false, rounds: 0 })
     expect(timerOutcome(early)).toBe('stopped')
     expect(wodBest([early], 'wod-fran')).toBeNull()
     // A single round counts its items: all five ticked off is one round.
@@ -311,8 +367,8 @@ describe('wod', () => {
     const fran = lib('wod-fran')
     const cindy = lib('wod-cindy')
     const sessions = [
-      session(fran, 310, 3, true, 'slow'),
-      session(fran, 292, 3, true, 'fast'),
+      session(fran, 310, 6, true, 'slow'),
+      session(fran, 292, 6, true, 'fast'),
       session(fran, 120, 1, false, 'stopped'),
       session(fran, 600, 2, true, 'capped'),
       session(cindy, 1200, 14, true, 'c14'),
@@ -327,11 +383,58 @@ describe('wod', () => {
     expect(wodBest(sessions, 'wod-chelsea')).toBeNull()
     expect(wodBest(sessions, 'wod-grace')).toBeNull()
 
-    expect(isWodRecord(sessions, session(fran, 280, 3, true, 'new'))).toBe(true)
-    expect(isWodRecord(sessions, session(fran, 292, 3, true, 'same'))).toBe(false)
+    expect(isWodRecord(sessions, session(fran, 280, 6, true, 'new'))).toBe(true)
+    expect(isWodRecord(sessions, session(fran, 292, 6, true, 'same'))).toBe(false)
     expect(isWodRecord(sessions, session(fran, 100, 1, false, 'quit'))).toBe(false)
     expect(isWodRecord(sessions, session(cindy, 1200, 19, true, 'more'))).toBe(true)
     // A first run has nothing to beat.
-    expect(isWodRecord([], session(fran, 280, 3, true, 'first'))).toBe(false)
+    expect(isWodRecord([], session(fran, 280, 6, true, 'first'))).toBe(false)
+  })
+
+  it('keeps the time of every tap and files it with the run', () => {
+    const fran = lib('wod-fran')
+    expect(splitTime(run(fran), 10000 + 41260)).toBe(41.3)
+    // In the lead-in nothing has started.
+    expect(splitTime(run(fran), 4000)).toBe(0)
+    const done = timerSession({ ...run(fran, 6), splits: [40, 75, 120, 150, 190, 212.5] }, 10000 + 212500, true)!
+    expect(done.splits).toEqual([40, 75, 120, 150, 190, 212.5])
+    expect('splits' in timerSession(run(fran, 0), 30000, false)!).toBe(false)
+    const plain = timerSession({ ...run(fran, 2), wod: undefined, splits: [1, 2] }, 30000, true)!
+    expect('splits' in plain).toBe(false)
+  })
+
+  it('measures a run against the best while it is still going', () => {
+    const best = { ...session(lib('wod-fran'), 213, 6, true, 'best'), splits: [40, 75, 120, 150, 190, 212.5] }
+    // Level until the first item takes longer than it did in the best run.
+    expect(liveGap(best, [], 20)).toBe(0)
+    expect(liveGap(best, [], 47)).toBe(7)
+    // Tapped 5 s early: ahead by that, for as long as the next item stays within its time.
+    expect(liveGap(best, [35], 50)).toBe(-5)
+    expect(liveGap(best, [35], 75)).toBe(0)
+    expect(liveGap(best, [35], 83)).toBe(8)
+    // Behind at the last tap stays behind.
+    expect(liveGap(best, [40, 90], 95)).toBe(15)
+    // The finish: only the last tap counts.
+    // Whole seconds as the screen shows them: the best reads 3:33, this run 3:20.
+    expect(liveGap(best, [38, 70, 110, 140, 180, 200], 200)).toBe(-13)
+    // Nothing to measure against.
+    expect(liveGap(null, [10], 20)).toBeNull()
+    expect(liveGap(session(lib('wod-fran'), 213, 6, true, 'old'), [10], 20)).toBeNull()
+
+    expect(gapText(-12)).toBe('12s ahead')
+    expect(gapText(65)).toBe('1:05 behind')
+    expect(gapText(0)).toBe('On pace')
+  })
+
+  it('counts an AMRAP against the rounds the best run had by now', () => {
+    const best = { ...session(lib('wod-cindy'), 1200, 4, true, 'best'), splits: [60, 125, 200, 290] }
+    expect(roundsGap(best, 0, 30)).toBe(0)
+    expect(roundsGap(best, 0, 61)).toBe(-1)
+    expect(roundsGap(best, 3, 130)).toBe(1)
+    expect(roundsGap(best, 4, 300)).toBe(0)
+    expect(roundsGap(null, 2, 100)).toBeNull()
+    expect(roundsGapText(2)).toBe('2 rounds ahead')
+    expect(roundsGapText(-1)).toBe('1 round behind')
+    expect(roundsGapText(0)).toBe('On pace')
   })
 })

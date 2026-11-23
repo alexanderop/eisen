@@ -76,7 +76,7 @@ private const val MINUTE = 60 * SECOND
 private const val LEAD_IN = TIMER_LEAD_IN_SECONDS * SECOND
 
 /** A spoken line waits for the long beep at a change of phase to end. */
-private const val VOICE_AFTER_BEEP = 700L
+const val VOICE_AFTER_BEEP = 700L
 
 /** Room one spoken line needs before the next one starts. */
 private const val VOICE_GAP = 2500L
@@ -316,12 +316,17 @@ data class TimerSession(
     val finishedAt: Long,
     /** Seconds the timer ran, without the lead-in and without pauses. */
     val seconds: Int,
-    /** Rounds done: finished work blocks in tabata and emom, taps in the other two. */
+    /** Rounds done: finished work blocks in tabata and emom, taps in the other two, rounds fully ticked off in a For Time WOD. */
     val rounds: Int,
     /** False when the lifter stopped it before the end. A For Time the lifter finished is complete. */
     val completed: Boolean,
     /** The WOD this was a run of. Left out of the file for a plain timer, as the PWA leaves it out. */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val wodId: String? = null,
+    /**
+     * Seconds into the WOD at each tap, to one decimal, pauses and lead-in not counted.
+     * A later run is measured against them while it is still going. Left out when nothing was tapped.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val splits: List<Double>? = null,
 )
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
@@ -336,11 +341,19 @@ data class TimerRun(
     val pausedAt: Long? = null,
     /** Milliseconds spent in pauses that are over. */
     val paused: Long = 0,
-    /** Rounds the lifter tapped, in AMRAP and For Time. */
+    /** Rounds the lifter tapped, in AMRAP and For Time. In a For Time WOD every item of every round is a tap. */
     val taps: Int = 0,
     /** The WOD being done, copied in so the run still reads right when the WOD is edited or deleted. */
     val wod: Wod? = null,
+    /** Seconds into the WOD at each tap so far, one entry per tap. Only kept for a WOD. */
+    val splits: List<Double> = emptyList(),
+    /** "Skip rest" was tapped for the rest that came with this many taps. Back forgets it. */
+    val restSkipped: Int? = null,
 )
+
+/** Seconds into the work of a run, to one decimal: the time a tap at [now] is filed under. */
+fun splitTime(run: TimerRun, now: Long): Double =
+    Math.floor(timerView(run.config, activeTime(run, now)).elapsed / 100.0 + 0.5) / 10
 
 /** Milliseconds the run has been going, pauses not counted. */
 fun activeTime(run: TimerRun, now: Long): Long = maxOf(0, (run.pausedAt ?: now) - run.startedAt - run.paused)
@@ -348,13 +361,22 @@ fun activeTime(run: TimerRun, now: Long): Long = maxOf(0, (run.pausedAt ?: now) 
 /** True once the timer has run out by itself. An open For Time runs out at the limit. */
 fun isTimerOver(run: TimerRun, now: Long): Boolean = timerView(run.config, activeTime(run, now)).phase == TimerPhase.DONE
 
+/** The id of the catalog exercise that stands for a pause inside a WOD. */
+const val REST_EXERCISE = "rest"
+
 /**
- * Taps a For Time WOD takes from start to finish: one per round, or with a single round one per
- * item, ticked off in order. Null where the clock ends the run or the lifter counts freely.
+ * Items of one round that are ticked off with a tap: all but the rests, which the clock counts.
+ * At least 1, so a WOD of nothing but rests still has an end.
+ */
+fun tapsPerRound(workout: Wod): Int = maxOf(1, workout.items.count { it.exerciseId != REST_EXERCISE })
+
+/**
+ * Taps a For Time WOD takes from start to finish: one per item of every round, ticked off in
+ * order. Null where the clock ends the run or the lifter counts freely.
  */
 fun wodSteps(workout: Wod): Int? {
     if (workout.timer.mode != TimerMode.FOR_TIME) return null
-    return if (workout.rounds > 1) workout.rounds else workout.items.size
+    return workout.rounds * tapsPerRound(workout)
 }
 
 /**
@@ -368,8 +390,8 @@ fun timerSession(run: TimerRun, now: Long, finished: Boolean): TimerSession? {
     if (view.phase == TimerPhase.READY) return null
     val steps = run.wod?.let(::wodSteps)
     val allDone = steps == null || run.taps >= steps
-    // With a single round the taps count items, not rounds.
-    val single = steps != null && run.wod?.rounds == 1
+    // In a For Time WOD the taps count items: a round is done with its last item.
+    val perRound = if (steps == null) 0 else run.wod?.let(::tapsPerRound) ?: 0
     val tapped = if (countsRoundsByTap(run.config.mode)) run.taps else view.roundsDone
     return TimerSession(
         id = run.id,
@@ -378,9 +400,10 @@ fun timerSession(run: TimerRun, now: Long, finished: Boolean): TimerSession? {
         startedAt = run.startedAt,
         finishedAt = now,
         seconds = (view.elapsed.toDouble() / SECOND).roundToLong().toInt(),
-        rounds = if (single) (if (allDone) 1 else 0) else tapped,
+        rounds = if (perRound > 0) minOf(run.taps, steps ?: 0) / perRound else tapped,
         completed = finished && allDone,
         wodId = run.wod?.id,
+        splits = run.splits.takeIf { run.wod != null && it.isNotEmpty() }?.toList(),
     )
 }
 

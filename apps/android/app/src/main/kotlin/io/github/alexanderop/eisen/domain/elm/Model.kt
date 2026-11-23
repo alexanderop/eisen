@@ -128,9 +128,9 @@ sealed interface TimerState {
     /**
      * The result of the run that ended, with "Done" and "Again". [wod]: the WOD it was a run of, as it ran.
      * [undo]: the run as it was when its last tap stopped the clock, so "Not finished? Undo" can take
-     * that tap back and let it go on.
+     * that tap back and let it go on. [at]: when it showed; taps right after it are the thumb still on the button.
      */
-    data class Finished(val session: TimerSession, val wod: Wod? = null, val undo: TimerRun? = null) : TimerState
+    data class Finished(val session: TimerSession, val wod: Wod? = null, val undo: TimerRun? = null, val at: Long = 0) : TimerState
 }
 
 /** The two pages of the Timer tab, switched at its top. */
@@ -149,12 +149,16 @@ enum class WodFilter(val label: String) {
  * detail shows, one of the lifter's own or of the library. [draft]: the builder, over the detail or the list.
  * [pending]: a draft the process had when it ended, offered as "Continue editing" until it is
  * continued or discarded. The draft file always holds [draft], or else [pending].
+ * [query]: what is typed in the search field, kept while the process lives, also over a detail.
+ * [suggesting]: the suggestions under the field are open; never without something typed.
  */
 data class WodsModel(
     val filter: WodFilter = WodFilter.ALL,
     val detail: String? = null,
     val draft: WodDraft? = null,
     val pending: WodDraft? = null,
+    val query: String = "",
+    val suggesting: Boolean = false,
 )
 
 /**
