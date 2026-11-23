@@ -7,7 +7,7 @@ import { isLibraryWod, wodBest, wodFormat, wodLines, wodName, type Wod } from '.
 import { lastRun, runText } from '../domain/wodScreens'
 import { formatShortDate } from '../format'
 import { deleteWod, findExercise, state } from '../store'
-import ExerciseImage from './ExerciseImage.vue'
+import ExerciseMotion from './ExerciseMotion.vue'
 import TimerCalls from './TimerCalls.vue'
 import { Button, Card, ConfirmButton, ListRow, Sheet } from './ui'
 
@@ -29,6 +29,9 @@ const best = computed(() => wodBest(state.timerSessions, props.workout.id))
 const last = computed(() => lastRun(state.timerSessions, props.workout.id))
 
 const voiceOpen = ref(false)
+/** The movement shown large in a sheet, by its row's key. */
+const watching = ref<string>()
+const watched = computed(() => rows.value.find((row) => row.key === watching.value))
 
 function onDelete() {
   deleteWod(props.workout.id)
@@ -47,7 +50,9 @@ function onDelete() {
 
   <Card as="ul" class="moves">
     <li v-for="row in rows" :key="row.key" class="move">
-      <ExerciseImage :image="row.exercise.image" :name="row.exercise.name" :size="52" />
+      <button class="watch" :aria-label="`Watch ${row.exercise.name}`" @click="watching = row.key">
+        <ExerciseMotion :exercise="row.exercise" :size="56" />
+      </button>
       <span>{{ row.line }}</span>
     </li>
   </Card>
@@ -84,6 +89,12 @@ function onDelete() {
       <TimerCalls />
     </div>
     <Button class="w-full" @click="voiceOpen = false">Done</Button>
+  </Sheet>
+
+  <Sheet v-if="watched" :title="watched.exercise.name" @close="watching = undefined">
+    <ExerciseMotion class="mx-auto" :exercise="watched.exercise" :size="240" />
+    <p v-if="watched.line !== watched.exercise.name" class="watched-line">{{ watched.line }}</p>
+    <Button class="w-full" @click="watching = undefined">Done</Button>
   </Sheet>
 </template>
 
@@ -136,6 +147,11 @@ function onDelete() {
   line-height: 1.25;
 }
 
+.watch {
+  flex: none;
+  border-radius: 10px;
+}
+
 .move + .move {
   border-top: 1px solid var(--border);
 }
@@ -180,5 +196,11 @@ function onDelete() {
 
 .bleed {
   margin: 0 -16px;
+}
+
+.watched-line {
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  text-align: center;
 }
 </style>

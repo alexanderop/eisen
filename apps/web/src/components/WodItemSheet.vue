@@ -12,6 +12,7 @@ import {
   WOD_UNIT_LABELS,
 } from '../domain/wodScreens'
 import { findExercise, state } from '../store'
+import ExerciseMotion from './ExerciseMotion.vue'
 import { Button, ChipGroup, ListRow, Sheet, Wheel } from './ui'
 
 /** One movement of the builder's draft. Every change applies at once; "Done" only closes. */
@@ -68,6 +69,9 @@ function remove() {
 
 <template>
   <Sheet v-if="item" :title="exercise?.name ?? 'Movement'" @close="emit('close')">
+    <template v-if="exercise" #leading>
+      <ExerciseMotion :exercise="exercise" :size="96" />
+    </template>
     <ChipGroup :model-value="item.unit" :options="UNIT_OPTIONS" label="Counted in" @update:model-value="setUnit" />
 
     <p v-if="byScheme" class="note">The reps follow the scheme: {{ draft.scheme.join('-') }}.</p>

@@ -22,6 +22,7 @@ import {
   loadIn,
   MAX_SCHEME_LENGTH,
   MAX_WOD_NAME,
+  roundItems,
   roundLines,
   SCHEMES,
   sameWork,
@@ -360,6 +361,8 @@ export function roundHeading(workout: Wod, taps: number, view: TimerView): strin
 export interface CardLine {
   text: string
   state: 'plain' | 'done' | 'current'
+  /** For the line's picture. */
+  exerciseId: string
 }
 
 /**
@@ -367,18 +370,26 @@ export interface CardLine {
  * coming round. A single-round For Time shows every item, ticked off in order.
  */
 export function roundCard(workout: Wod, taps: number, view: TimerView, find: Find, unit: Unit): CardLine[] {
-  const plain = (text: string): CardLine => ({ text, state: 'plain' })
-  if (view.phase === 'rest') return roundLines(workout, view.round + 1, find, unit).map(plain)
+  const plain = (round: number): CardLine[] => {
+    const items = roundItems(workout, round).filter((item) => find(item.exerciseId))
+    return roundLines(workout, round, find, unit).map((text, index) => ({
+      text,
+      state: 'plain',
+      exerciseId: items[index].exerciseId,
+    }))
+  }
+  if (view.phase === 'rest') return plain(view.round + 1)
   if (workout.timer.mode === 'forTime' && workout.rounds === 1 && workout.items.length > 1) {
     return workout.items.map((item, index) => {
       const name = find(item.exerciseId)?.name ?? 'Deleted exercise'
       return {
         text: itemText(item, itemAmount(workout, item, 1), name, unit),
         state: index < taps ? 'done' : index === taps ? 'current' : 'plain',
+        exerciseId: item.exerciseId,
       }
     })
   }
-  return roundLines(workout, wodRound(workout, taps, view.round), find, unit).map(plain)
+  return plain(wodRound(workout, taps, view.round))
 }
 
 /** The big button of a For Time WOD: what a tap does now. */

@@ -37,6 +37,7 @@ import {
   wakeSound,
 } from '../timer'
 import { useWakeLock } from '../wakeLock'
+import ExerciseMotion from './ExerciseMotion.vue'
 import { Button } from './ui'
 
 useWakeLock()
@@ -149,15 +150,20 @@ const heading = computed(() =>
 )
 const lines = computed(() =>
   workout.value && run.value && view.value
-    ? roundCard(workout.value, run.value.taps, view.value, findExercise, state.settings.unit)
+    ? roundCard(workout.value, run.value.taps, view.value, findExercise, state.settings.unit).map((line) => ({
+        ...line,
+        exercise: findExercise(line.exerciseId),
+      }))
     : [],
 )
+/** A single round ticked off in order: only the item to do now moves. */
+const ticking = computed(() => lines.value.some((line) => line.state === 'current'))
 /** In a WOD the time left sits under the phase. A For Time has its cap in the ring already. */
 const wodTotal = computed(() => workout.value !== null && !forTime.value && totalLine.value !== '')
 /** What the ring has to leave room for: the card shows up to four lines and scrolls the rest. */
 const cardSpace = computed(() => ({
   '--shown': Math.min(4, Math.max(1, lines.value.length)),
-  '--current': lines.value.some((line) => line.state === 'current') ? 1 : 0,
+  '--current': ticking.value ? 1 : 0,
   '--heading': heading.value ? 1 : 0,
   '--total': wodTotal.value ? 1 : 0,
 }))
@@ -323,8 +329,17 @@ defineExpose({ back })
         <p v-if="heading" class="round-heading">{{ heading }}</p>
         <ul ref="linesList" class="round-lines" :class="{ more: moreBelow }" aria-live="polite">
           <li v-for="(line, index) in lines" :key="index" :class="line.state">
-            <Check v-if="line.state === 'done'" class="tick" :size="18" :stroke-width="3" aria-label="Done:" />
-            {{ line.text }}
+            <ExerciseMotion
+              v-if="line.exercise"
+              class="line-tile"
+              :exercise="line.exercise"
+              :size="40"
+              :playing="!paused && (!ticking || line.state === 'current')"
+            />
+            <span>
+              <Check v-if="line.state === 'done'" class="tick" :size="18" :stroke-width="3" aria-label="Done:" />
+              {{ line.text }}
+            </span>
           </li>
         </ul>
       </div>
@@ -802,8 +817,11 @@ header {
 .timer.wod .centre {
   container-type: size;
   --line: clamp(20px, 3.2dvh, 30px);
+  /* A line is as high as its text or its 40px picture with a little air, whichever is taller. */
+  --picture: 44px;
+  --row: max(1.2 * var(--line), var(--picture));
   --room: calc(
-    var(--phase) + var(--total) * 26px + var(--heading) * 24px + var(--shown) * 1.22 * var(--line) +
+    var(--phase) + var(--total) * 26px + var(--heading) * 24px + var(--shown) * (var(--row) + 0.02 * var(--line)) +
       var(--current) * 6.5px + 24px + 2 * clamp(6px, 1.6dvh, 16px)
   );
 }
@@ -852,7 +870,7 @@ header {
   position: relative;
   flex: 0 1 auto;
   min-height: 0;
-  max-height: calc(4 * 1.2 * var(--line) + var(--current) * 6.5px);
+  max-height: calc(4 * var(--row) + var(--current) * 6.5px);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -866,13 +884,22 @@ header {
 }
 
 .round-lines li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--row);
   padding: 0 4px;
+  text-align: left;
 }
 
 /* Ticked off in a single round: done ones step back, the one to do now stands out. */
 .round-lines .done {
   color: var(--muted-foreground);
   font-weight: 700;
+}
+
+.round-lines .done .line-tile {
+  opacity: 0.5;
 }
 
 .tick {
@@ -948,6 +975,20 @@ header {
 @media (max-height: 700px) {
   .timer.wod {
     gap: 10px;
+  }
+
+  /* No pictures on a short screen: the clock keeps its size. */
+  .timer.wod .centre {
+    --picture: 0px;
+  }
+
+  .line-tile {
+    display: none;
+  }
+
+  .round-lines li {
+    justify-content: center;
+    text-align: inherit;
   }
 
   .timer.wod .tap {

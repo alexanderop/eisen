@@ -5,6 +5,7 @@ import { Drawer, DrawerClose, DrawerContent, DrawerHeader, DrawerTitle } from '.
 /**
  * A dialog that rises from the bottom edge, in reach of the thumb.
  * Mount it to open it. It closes on a swipe down, the backdrop, the close button and Escape.
+ * The `leading` slot puts something before the title, like a picture of what it is about.
  */
 defineProps<{ title: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -21,7 +22,10 @@ function onOpen(open: boolean) {
       class="mx-auto max-w-[480px] text-base data-[swipe-direction=down]:max-h-[92dvh] data-[swipe-direction=down]:rounded-t-3xl"
     >
       <DrawerHeader class="flex-row items-center justify-between gap-3 px-4 pt-3 pb-4 text-left!">
-        <DrawerTitle class="text-xl font-extrabold">{{ title }}</DrawerTitle>
+        <div class="flex min-w-0 items-center gap-3">
+          <slot name="leading" />
+          <DrawerTitle class="text-xl font-extrabold">{{ title }}</DrawerTitle>
+        </div>
         <DrawerClose as-child>
           <Button
             size="icon"

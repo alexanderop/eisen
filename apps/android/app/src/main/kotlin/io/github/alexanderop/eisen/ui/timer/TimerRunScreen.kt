@@ -106,12 +106,18 @@ import io.github.alexanderop.eisen.domain.elm.TimerState
 import io.github.alexanderop.eisen.domain.elm.nextText
 import io.github.alexanderop.eisen.domain.elm.phaseName
 import io.github.alexanderop.eisen.domain.elm.roundText
+import io.github.alexanderop.eisen.domain.Exercise
+import io.github.alexanderop.eisen.domain.findExercise
 import io.github.alexanderop.eisen.ui.EisenColors
+import io.github.alexanderop.eisen.ui.ExerciseMotion
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.formatClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
+
+/** The height of a line of the round card with its picture: the 40dp tile and a little air. */
+private val PictureRow = 44.dp
 
 /** How long "Hold to finish" has to be held. */
 private const val HOLD_TO_FINISH_MS = 700
@@ -256,6 +262,8 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
         val controls = if (compact) 52.dp else 64.dp
         val button = if (compact) 64.dp else (maxHeight * 0.14f).coerceIn(80.dp, 128.dp)
         val gap = if (compact) 8.dp else 12.dp
+        // A short screen keeps the room for the clock: its round card goes without pictures.
+        val pictures = maxHeight >= 700.dp
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text(
@@ -294,7 +302,7 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
                 }
             }
             Spacer(Modifier.height(gap))
-            if (card != null) WodRoundCard(card, color, compact)
+            if (card != null) WodRoundCard(card, color, compact, pictures = pictures, playing = !paused) { app.findExercise(it) }
             Spacer(Modifier.height(gap))
             if (tapped) {
                 WodButton(wod, run.taps, card, button, color, enabled = !paused && view.phase != TimerPhase.READY, dispatch)
@@ -315,9 +323,10 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
  * What to do now, big and heavy enough to read from the floor. The heading, centred in the phase
  * colour, is the one count of the round. Ticking items off, the done ones are dimmed with a check and
  * the card scrolls to keep the current one in sight. More than four lines scroll inside the card.
+ * With [pictures] each line has its exercise moving at its left; ticking items off, only the current one moves.
  */
 @Composable
-private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean) {
+private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean, pictures: Boolean, playing: Boolean, find: (String) -> Exercise?) {
     val size = if (compact) 20.sp else 25.sp
     val line = if (compact) 25.sp else 31.sp
     val big = if (compact) 23.sp else 28.sp
@@ -325,9 +334,11 @@ private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean) {
     val scroll = rememberScrollState()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val current = card.current
+    val row = with(density) { if (pictures) maxOf(line.toDp(), PictureRow) else line.toDp() }
+    val bigRow = with(density) { if (pictures) maxOf(bigLine.toDp(), PictureRow) else bigLine.toDp() }
     // The line before the current one stays in sight above it, so the lifter sees where they came from.
-    LaunchedEffect(current) {
-        if (current != null) scroll.animateScrollTo(with(density) { (line.toPx() * (current - 1).coerceAtLeast(0)).toInt() })
+    LaunchedEffect(current, row) {
+        if (current != null) scroll.animateScrollTo(with(density) { (row.toPx() * (current - 1).coerceAtLeast(0)).toInt() })
     }
     val shape = RoundedCornerShape(18.dp)
     Column(
@@ -353,16 +364,20 @@ private fun WodRoundCard(card: RoundCard, color: Color, compact: Boolean) {
             )
         }
         Box(Modifier.fillMaxWidth()) {
-            Column(Modifier.heightIn(max = with(density) { (line * 3).toDp() + bigLine.toDp() }).verticalScroll(scroll)) {
+            Column(Modifier.heightIn(max = row * 3 + bigRow).verticalScroll(scroll)) {
                 card.lines.forEachIndexed { index, text ->
                     val done = current != null && index < current
                     val now = current == index
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.heightIn(min = if (pictures) PictureRow else 0.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (current != null) {
                             Box(Modifier.width(26.dp), contentAlignment = Alignment.CenterStart) {
                                 if (done) Icon(Icons.Check, contentDescription = "Done", tint = EisenColors.Primary, modifier = Modifier.size(20.dp))
                                 if (now) Box(Modifier.size(width = 5.dp, height = 22.dp).clip(RoundedCornerShape(3.dp)).background(color))
                             }
+                        }
+                        if (pictures) {
+                            ExerciseMotion(card.exercises.getOrNull(index)?.let(find), size = 40.dp, playing = playing && (current == null || now))
+                            Spacer(Modifier.width(12.dp))
                         }
                         Text(
                             text,

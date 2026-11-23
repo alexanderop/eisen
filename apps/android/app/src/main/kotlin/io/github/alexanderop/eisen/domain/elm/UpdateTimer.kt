@@ -36,6 +36,7 @@ import io.github.alexanderop.eisen.domain.wodStep
 import io.github.alexanderop.eisen.domain.findExercise
 import io.github.alexanderop.eisen.domain.findWod
 import io.github.alexanderop.eisen.domain.holdText
+import io.github.alexanderop.eisen.domain.roundItems
 import io.github.alexanderop.eisen.domain.roundLines
 import io.github.alexanderop.eisen.domain.wodRound
 import io.github.alexanderop.eisen.domain.wodRounds
@@ -414,9 +415,15 @@ fun roundText(run: TimerRun, round: Int): String? = if (countsRoundsByTap(run.co
  * What a WOD's run shows under the ring: [heading], the one count of the round where there is one
  * ("Round 2 of 3"; an AMRAP counts on its button), and the [lines] of what to do. [current]: a For Time
  * of one round ticks its items off in order; the lines before it are done. [upNext]: a rest shows the
- * coming round, "Up next · Round 2 of 8".
+ * coming round, "Up next · Round 2 of 8". [exercises]: the exercise of each line, for its picture.
  */
-data class RoundCard(val heading: String?, val lines: List<String>, val current: Int? = null, val upNext: Boolean = false)
+data class RoundCard(
+    val heading: String?,
+    val lines: List<String>,
+    val current: Int? = null,
+    val upNext: Boolean = false,
+    val exercises: List<String> = emptyList(),
+)
 
 /** The round card of [run] at [view], null for a plain timer. Exercises and the unit come from [state]. */
 fun roundCard(run: TimerRun, view: TimerView, state: AppState): RoundCard? {
@@ -425,16 +432,27 @@ fun roundCard(run: TimerRun, view: TimerView, state: AppState): RoundCard? {
     val unit = state.settings.unit
     val round = wodRound(wod, run.taps, view.round)
     return when (wod.timer.mode) {
-        TimerMode.AMRAP -> RoundCard(null, roundLines(wod, round, find, unit))
+        TimerMode.AMRAP -> RoundCard(null, roundLines(wod, round, find, unit), exercises = roundExercises(wod, round, find))
         TimerMode.FOR_TIME ->
-            if (wod.rounds > 1) RoundCard("Round $round of ${wod.rounds}", roundLines(wod, round, find, unit))
+            if (wod.rounds > 1) RoundCard("Round $round of ${wod.rounds}", roundLines(wod, round, find, unit), exercises = roundExercises(wod, round, find))
             // Every item keeps its line, so the one to do now is found by its place.
-            else RoundCard(null, wod.items.map { stepLine(wod, it, find, unit) }, current = wodStep(wod, run.taps))
+            else RoundCard(
+                null,
+                wod.items.map { stepLine(wod, it, find, unit) },
+                current = wodStep(wod, run.taps),
+                exercises = wod.items.map { it.exerciseId },
+            )
         else ->
-            if (view.phase == TimerPhase.REST) RoundCard("Up next · Round ${view.round + 1} of ${wod.timer.rounds}", roundLines(wod, view.round + 1, find, unit), upNext = true)
-            else RoundCard("Round $round of ${wod.timer.rounds}", roundLines(wod, round, find, unit))
+            if (view.phase == TimerPhase.REST) {
+                val next = view.round + 1
+                RoundCard("Up next · Round $next of ${wod.timer.rounds}", roundLines(wod, next, find, unit), upNext = true, exercises = roundExercises(wod, next, find))
+            } else RoundCard("Round $round of ${wod.timer.rounds}", roundLines(wod, round, find, unit), exercises = roundExercises(wod, round, find))
     }
 }
+
+/** The exercises of [roundLines], line for line. */
+private fun roundExercises(wod: Wod, round: Int, find: FindExercise): List<String> =
+    roundItems(wod, round).map { it.exerciseId }.filter { find(it) != null }
 
 private fun stepLine(wod: Wod, item: WodItem, find: FindExercise, unit: WeightUnit): String =
     itemText(item, itemAmount(wod, item, 1), find(item.exerciseId)?.name ?: "Deleted exercise", unit)

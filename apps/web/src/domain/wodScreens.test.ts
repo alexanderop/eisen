@@ -269,6 +269,22 @@ describe('the run screen', () => {
     ])
   })
 
+  it('names the exercise of every line, for its picture', () => {
+    const murph = lib('wod-murph')
+    expect(roundCard(murph, 0, view(murph, 60), find, 'kg').map((line) => line.exerciseId)).toEqual(
+      murph.items.map((item) => item.exerciseId),
+    )
+    const fran = lib('wod-fran')
+    expect(roundCard(fran, 1, view(fran, 60), find, 'kg').map((line) => line.exerciseId)).toEqual([
+      'thruster',
+      'pullups',
+    ])
+    const gone = { ...fran, items: [{ ...fran.items[0], exerciseId: 'deleted' }, fran.items[1]] }
+    expect(roundCard(gone, 0, view(gone, 60), find, 'kg')).toEqual([
+      { text: '21 × Pull-ups', state: 'plain', exerciseId: 'pullups' },
+    ])
+  })
+
   it('ends a For Time WOD complete only on the last tap, and Undo takes that tap back', () => {
     const fran = lib('wod-fran')
     const done = timerSession(runOf(fran, 3), 10000 + 300000, true)!

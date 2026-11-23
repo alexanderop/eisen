@@ -86,6 +86,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -138,6 +139,7 @@ import io.github.alexanderop.eisen.domain.elm.wodItemSummary
 import io.github.alexanderop.eisen.domain.elm.wodLoads
 import io.github.alexanderop.eisen.domain.elm.wodRows
 import io.github.alexanderop.eisen.ui.EisenColors
+import io.github.alexanderop.eisen.ui.ExerciseMotion
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.ReorderableColumnItem
@@ -353,6 +355,9 @@ internal fun WodDetail(model: Model, wod: Wod, dispatch: (Msg) -> Unit) {
     val best = wodBest(sessions, wod.id)
     val last = lastWodRun(sessions, wod.id)
     var voiceOpen by rememberSaveable { mutableStateOf(false) }
+    // The row whose movement shows large.
+    var shown by rememberSaveable { mutableStateOf<Int?>(null) }
+    val rows = wodRows(wod, find, unit)
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { dispatch(Msg.Wods.Close) }) { Icon(Icons.Back, contentDescription = "Back to the WODs") }
@@ -377,14 +382,21 @@ internal fun WodDetail(model: Model, wod: Wod, dispatch: (Msg) -> Unit) {
                 }
                 Text(timerSummary(wod.timer), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground)
             }
-            val rows = wodRows(wod, find, unit)
             Column(
                 Modifier.fillMaxWidth().clip(CardShape).background(EisenColors.Card).border(1.dp, EisenColors.Border, CardShape),
             ) {
                 rows.forEachIndexed { index, (exercise, line) ->
-                    if (index > 0) HorizontalDivider(color = EisenColors.Border, modifier = Modifier.padding(start = 76.dp))
-                    Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ExerciseTile(exercise.image, exercise.name, size = 48.dp)
+                    if (index > 0) HorizontalDivider(color = EisenColors.Border, modifier = Modifier.padding(start = 84.dp))
+                    // The whole row opens the movement large, so TalkBack reads its line as the button's name.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(role = Role.Button, onClickLabel = "Show the movement") { shown = index }
+                            .heightIn(min = 76.dp)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ExerciseMotion(exercise, size = 56.dp)
                         Spacer(Modifier.width(14.dp))
                         Text(line, fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 23.sp)
                     }
@@ -419,6 +431,39 @@ internal fun WodDetail(model: Model, wod: Wod, dispatch: (Msg) -> Unit) {
         }
     }
     if (voiceOpen) VoiceSheet(calls, dispatch, onClose = { voiceOpen = false })
+    val open = shown
+    val row = open?.let { rows.getOrNull(it) }
+    if (row != null) MotionSheet(row.first, row.second, onClose = { shown = null })
+    else if (open != null) SideEffect { shown = null }
+}
+
+/** One movement of a WOD large: the figure doing it, its name and its line ("21 × Thruster 43kg"). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MotionSheet(exercise: Exercise, line: String, onClose: () -> Unit) {
+    val sheet = rememberFullSheetState()
+    val scope = rememberCoroutineScope()
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheet, containerColor = EisenColors.Card) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ExerciseMotion(exercise, size = 240.dp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(exercise.name, Modifier.semantics { heading() }, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                // Under a scheme the line is the name alone.
+                if (line != exercise.name) {
+                    Text(line, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground, textAlign = TextAlign.Center)
+                }
+            }
+            Button(
+                onClick = { scope.launch { sheet.hide() }.invokeOnCompletion { onClose() } },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
+        }
+    }
 }
 
 @Composable
@@ -873,7 +918,7 @@ private fun ItemSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ExerciseTile(exercise?.image, exercise?.name ?: "?", size = 48.dp)
+                ExerciseMotion(exercise, size = 96.dp)
                 Spacer(Modifier.width(14.dp))
                 Text(
                     exercise?.name ?: "Deleted exercise",

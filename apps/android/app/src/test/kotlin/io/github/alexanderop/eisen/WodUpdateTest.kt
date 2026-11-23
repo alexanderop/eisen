@@ -69,6 +69,9 @@ class WodUpdateTest {
 
     /** The round card at [now]. */
     private fun Step.card(now: Long): RoundCard? = model.timerRun?.let { roundCard(it, timerView(it.config, activeTime(it, now)), state) }
+    private val franIds = listOf("thruster", "pullups")
+    private val cindyIds = listOf("pullups", "pushups", "airSquat")
+    private val murphIds = listOf("run", "pullups", "pushups", "airSquat", "run")
 
     /** The open builder with a new draft "d1". */
     private fun building(): Step = stepOf().send(Msg.Wods.New, id = "d1")
@@ -136,11 +139,11 @@ class WodUpdateTest {
 
     @Test fun `Fran moves on a round per tap, and the tap of the last round stops the clock`() {
         var step = startedWod("wod-fran")
-        assertEquals(RoundCard("Round 1 of 3", listOf("21 × Thruster 43kg", "21 × Pull-ups")), step.card(STARTED_AT))
+        assertEquals(RoundCard("Round 1 of 3", listOf("21 × Thruster 43kg", "21 × Pull-ups"), exercises = franIds), step.card(STARTED_AT))
         // Nothing counts in the lead-in.
         assertSame(step.model, step.send(Msg.Timer.Tap, now = STARTED_AT + 5_000).model)
         step = step.send(Msg.Timer.Tap, now = STARTED_AT + 60_000)
-        assertEquals(RoundCard("Round 2 of 3", listOf("15 × Thruster 43kg", "15 × Pull-ups")), step.card(STARTED_AT + 60_000))
+        assertEquals(RoundCard("Round 2 of 3", listOf("15 × Thruster 43kg", "15 × Pull-ups"), exercises = franIds), step.card(STARTED_AT + 60_000))
         val notice = step.cmds.filterIsInstance<Cmd.ShowTimer>().single().notice
         assertEquals("Work · Round 2 of 3", notice.text)
         assertEquals(listOf("15 × Thruster 43kg", "15 × Pull-ups"), notice.lines)
@@ -193,9 +196,9 @@ class WodUpdateTest {
     @Test fun `Murph ticks its items off one by one, and the tap on the last ends it`() {
         var step = startedWod("wod-murph")
         val lines = listOf("1.6 km Run", "100 × Pull-ups", "200 × Push-ups", "300 × Air Squat", "1.6 km Run")
-        assertEquals(RoundCard(null, lines, current = 0), step.card(STARTED_AT + 20_000))
+        assertEquals(RoundCard(null, lines, current = 0, exercises = murphIds), step.card(STARTED_AT + 20_000))
         for (tap in 1..2) step = step.send(Msg.Timer.Tap, now = STARTED_AT + tap * 60_000L)
-        assertEquals(RoundCard(null, lines, current = 2), step.card(STARTED_AT + 120_000))
+        assertEquals(RoundCard(null, lines, current = 2, exercises = murphIds), step.card(STARTED_AT + 120_000))
         // The notification names the one to do now.
         assertEquals(listOf("200 × Push-ups"), timerNotice(step.model.timerRun!!, STARTED_AT + 120_000, step.state).lines)
         step = step.send(Msg.Timer.Untap, now = STARTED_AT + 130_000)
@@ -209,12 +212,12 @@ class WodUpdateTest {
     @Test fun `Cindy counts rounds on its button only, Chelsea goes by the clock`() {
         var cindy = startedWod("wod-cindy")
         for (tap in 1..7) cindy = cindy.send(Msg.Timer.Tap, now = STARTED_AT + tap * 60_000L)
-        assertEquals(RoundCard(null, listOf("5 × Pull-ups", "10 × Push-ups", "15 × Air Squat")), cindy.card(STARTED_AT + 420_000))
+        assertEquals(RoundCard(null, listOf("5 × Pull-ups", "10 × Push-ups", "15 × Air Squat"), exercises = cindyIds), cindy.card(STARTED_AT + 420_000))
         assertEquals(7, cindy.model.timerRun!!.taps)
 
         val chelsea = startedWod("wod-chelsea")
         // The twelfth minute after the lead-in.
-        assertEquals(RoundCard("Round 12 of 30", listOf("5 × Pull-ups", "10 × Push-ups", "15 × Air Squat")), chelsea.card(STARTED_AT + 10_000 + 11 * 60_000 + 5_000))
+        assertEquals(RoundCard("Round 12 of 30", listOf("5 × Pull-ups", "10 × Push-ups", "15 × Air Squat"), exercises = cindyIds), chelsea.card(STARTED_AT + 10_000 + 11 * 60_000 + 5_000))
         assertIgnored(chelsea.send(Msg.Timer.Tick, now = STARTED_AT + 20_000), Msg.Timer.Tap)
     }
 
@@ -226,16 +229,27 @@ class WodUpdateTest {
             ),
         )
         val step = startedWod("own-tabata", stepOf(freshState().copy(wods = listOf(turns))))
-        assertEquals(RoundCard("Round 1 of 4", listOf("Max Burpee")), step.card(STARTED_AT + 15_000))
-        assertEquals(RoundCard("Up next · Round 2 of 4", listOf("20s Plank"), upNext = true), step.card(STARTED_AT + 35_000))
-        assertEquals(RoundCard("Round 2 of 4", listOf("20s Plank")), step.card(STARTED_AT + 45_000))
-        assertEquals(RoundCard("Round 3 of 4", listOf("Max Burpee")), step.card(STARTED_AT + 75_000))
+        assertEquals(RoundCard("Round 1 of 4", listOf("Max Burpee"), exercises = listOf("burpee")), step.card(STARTED_AT + 15_000))
+        assertEquals(RoundCard("Up next · Round 2 of 4", listOf("20s Plank"), upNext = true, exercises = listOf("plank")), step.card(STARTED_AT + 35_000))
+        assertEquals(RoundCard("Round 2 of 4", listOf("20s Plank"), exercises = listOf("plank")), step.card(STARTED_AT + 45_000))
+        assertEquals(RoundCard("Round 3 of 4", listOf("Max Burpee"), exercises = listOf("burpee")), step.card(STARTED_AT + 75_000))
         assertEquals("Rest · Up next · Round 2 of 4", timerNotice(step.model.timerRun!!, STARTED_AT + 35_000, step.state).text)
+    }
+
+    @Test fun `an exercise that no longer exists leaves the round card with its picture`() {
+        val gone = wod(
+            Wod(
+                "own-gone", "Gone", TimerConfig(TimerMode.AMRAP, work = 600, rest = 0, rounds = 1), 1, emptyList(),
+                listOf(WodItem("custom-gone", 10, WodUnit.REPS, 0.0), WodItem("burpee", 10, WodUnit.REPS, 0.0)),
+            ),
+        )
+        val step = startedWod("own-gone", stepOf(freshState().copy(wods = listOf(gone))))
+        assertEquals(RoundCard(null, listOf("10 × Burpee"), exercises = listOf("burpee")), step.card(STARTED_AT + 15_000))
     }
 
     @Test fun `Grace is one movement and one tap ends it`() {
         val grace = startedWod("wod-grace")
-        assertEquals(RoundCard(null, listOf("30 × Clean and Jerk 61kg"), current = 0), grace.card(STARTED_AT + 20_000))
+        assertEquals(RoundCard(null, listOf("30 × Clean and Jerk 61kg"), current = 0, exercises = listOf("cleanAndJerk")), grace.card(STARTED_AT + 20_000))
         assertEquals("Work", timerNotice(grace.model.timerRun!!, STARTED_AT + 20_000, grace.state).text)
         val done = grace.send(Msg.Timer.Tap, now = STARTED_AT + 210_000).model.timer as TimerState.Finished
         assertEquals(Triple(true, 1, 200), Triple(done.session.completed, done.session.rounds, done.session.seconds))
