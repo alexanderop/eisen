@@ -7,6 +7,15 @@ import {
   type Routine,
   type Workout,
 } from './program'
+import {
+  DEFAULT_TIMER_CALLS,
+  DEFAULT_TIMERS,
+  type TimerCalls,
+  type TimerConfig,
+  type TimerMode,
+  type TimerPreset,
+  type TimerSession,
+} from './timer'
 import type { Unit } from './units'
 
 export interface Settings {
@@ -24,10 +33,12 @@ export interface Settings {
    * it on a tap. Missing means on: states saved before the setting existed have no entry.
    */
   restFullScreen?: boolean
+  /** What the voice says during an interval timer. One setting for every timer. */
+  timerCalls: TimerCalls
 }
 
 export interface AppState {
-  version: 6
+  version: 7
   settings: Settings
   /**
    * Working weight per exercise id. A bodyweight exercise has an entry only while weight is
@@ -41,6 +52,12 @@ export interface AppState {
   active: Workout | null
   /** Finished workouts, newest first. */
   history: Workout[]
+  /** Saved interval timers, in the order they are shown. */
+  timerPresets: TimerPreset[]
+  /** Finished interval timers, newest first. */
+  timerSessions: TimerSession[]
+  /** The last config started per mode, so each mode opens the way the lifter left it. */
+  timerConfigs: Record<TimerMode, TimerConfig>
 }
 
 const ORIGINAL_IDS = ['hackSquat', 'bench', 'row', 'ohp', 'deadlift'] as const
@@ -57,7 +74,7 @@ function catalogProgress(ids: readonly string[], unit: Unit): Progress {
 export function freshState(unit: Unit = 'kg'): AppState {
   const routines = defaultRoutines()
   return {
-    version: 6,
+    version: 7,
     settings: {
       unit,
       bar: UNIT_DEFAULTS[unit].bar,
@@ -65,6 +82,7 @@ export function freshState(unit: Unit = 'kg'): AppState {
       restMissed: 300,
       sound: true,
       haptics: true,
+      timerCalls: { ...DEFAULT_TIMER_CALLS },
     },
     progress: catalogProgress(
       routines.flatMap((routine) => routine.slots.map((slot) => slot.exerciseId)),
@@ -75,6 +93,9 @@ export function freshState(unit: Unit = 'kg'): AppState {
     customExercises: [],
     active: null,
     history: [],
+    timerPresets: [],
+    timerSessions: [],
+    timerConfigs: structuredClone(DEFAULT_TIMERS),
   }
 }
 
@@ -187,6 +208,20 @@ export function migrate(value: unknown): unknown {
     }
   }
 
+  // Version 7 added the interval timers, their saved presets and their history.
+  if (data.version === 6) {
+    data = {
+      ...data,
+      version: 7,
+      settings: isObject(data.settings)
+        ? { ...data.settings, timerCalls: { ...DEFAULT_TIMER_CALLS } }
+        : data.settings,
+      timerPresets: [],
+      timerSessions: [],
+      timerConfigs: structuredClone(DEFAULT_TIMERS),
+    }
+  }
+
   return data
 }
 
@@ -205,12 +240,16 @@ function fiveDeadliftSets(routine: unknown): unknown {
 export function isAppState(value: unknown): value is AppState {
   return (
     isObject(value) &&
-    value.version === 6 &&
+    value.version === 7 &&
     Array.isArray(value.history) &&
+    Array.isArray(value.timerPresets) &&
+    Array.isArray(value.timerSessions) &&
+    isObject(value.timerConfigs) &&
     Array.isArray(value.routines) &&
     value.routines.length > 0 &&
     Array.isArray(value.customExercises) &&
     isObject(value.settings) &&
+    isObject(value.settings.timerCalls) &&
     isObject(value.progress)
   )
 }

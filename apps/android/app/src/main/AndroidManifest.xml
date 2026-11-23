@@ -5,9 +5,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- The rest countdown as a live chip in the status bar (Android 16). -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
-    <!-- While a rest counts down. Android only lets an app in this state start a sound. -->
+    <!-- While a rest counts down or an interval timer runs. Android only lets an app in this state start a sound. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- An interval timer keeps the phone awake while it runs, so its voice comes on the second with the screen off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- The end of a rest has to fire on the second, also with the screen off. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission
@@ -64,6 +66,16 @@
             android:name=".rest.RestService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Plays an interval timer's voice and beeps and shows its notification. -->
+        <service
+            android:name=".timer.TimerService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <receiver
+            android:name=".timer.TimerReceiver"
+            android:exported="false" />
 
         <!-- What Health Connect shows behind its "privacy policy" link. Android 13 and older open it by this action. -->
         <activity

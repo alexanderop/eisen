@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
 import androidx.health.connect.client.PermissionController
 import io.github.alexanderop.eisen.domain.Feel
+import io.github.alexanderop.eisen.domain.elm.HistoryView
 import io.github.alexanderop.eisen.domain.elm.Model
 import io.github.alexanderop.eisen.domain.elm.Msg
 import io.github.alexanderop.eisen.domain.elm.Tab
@@ -52,7 +53,8 @@ import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.history.HistoryScreen
 import io.github.alexanderop.eisen.ui.home.HomeScreen
-import io.github.alexanderop.eisen.ui.progress.ProgressScreen
+import io.github.alexanderop.eisen.ui.timer.TimerOverlay
+import io.github.alexanderop.eisen.ui.timer.TimerScreen
 import io.github.alexanderop.eisen.ui.rememberHaptics
 import io.github.alexanderop.eisen.ui.settings.SettingsScreen
 import io.github.alexanderop.eisen.ui.workout.WorkoutScreen
@@ -67,6 +69,7 @@ import java.io.File
 private const val SAVED_TAB = "tab"
 private const val SAVED_WORKOUT_OPEN = "workoutOpen"
 private const val SAVED_ROUTINE = "routine"
+private const val SAVED_HISTORY = "history"
 
 /**
  * The one activity. It turns what Android tells it (intents, start and stop, saved state) into Msgs,
@@ -82,7 +85,8 @@ class MainActivity : ComponentActivity() {
         // After the process ended, the model starts over; the tab and the open workout come back from here.
         savedInstanceState?.let { saved ->
             val tab = saved.getString(SAVED_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name } } ?: Tab.HOME
-            Eisen.dispatch(Msg.Nav.Restore(tab, saved.getBoolean(SAVED_WORKOUT_OPEN), saved.getString(SAVED_ROUTINE)))
+            val history = saved.getString(SAVED_HISTORY)?.let { name -> HistoryView.entries.firstOrNull { it.name == name } } ?: HistoryView.LOG
+            Eisen.dispatch(Msg.Nav.Restore(tab, saved.getBoolean(SAVED_WORKOUT_OPEN), saved.getString(SAVED_ROUTINE), history))
         }
         // The widget or a launcher shortcut may have opened the app to start a workout.
         WorkoutLaunch.message(intent, restored = savedInstanceState != null)?.let(Eisen.dispatch)
@@ -118,6 +122,7 @@ class MainActivity : ComponentActivity() {
         outState.putString(SAVED_TAB, nav.tab.name)
         outState.putBoolean(SAVED_WORKOUT_OPEN, nav.workoutOpen)
         outState.putString(SAVED_ROUTINE, nav.routine)
+        outState.putString(SAVED_HISTORY, nav.history.name)
     }
 }
 
@@ -125,8 +130,8 @@ private val Tab.label: String
     get() = when (this) {
         Tab.HOME -> "Home"
         Tab.WORKOUTS -> "Workouts"
+        Tab.TIMER -> "Timer"
         Tab.HISTORY -> "History"
-        Tab.PROGRESS -> "Progress"
         Tab.SETTINGS -> "Settings"
     }
 
@@ -134,8 +139,8 @@ private val Tab.icon: ImageVector
     get() = when (this) {
         Tab.HOME -> Icons.Home
         Tab.WORKOUTS -> Icons.Workouts
+        Tab.TIMER -> Icons.Timer
         Tab.HISTORY -> Icons.History
-        Tab.PROGRESS -> Icons.Progress
         Tab.SETTINGS -> Icons.Settings
     }
 
@@ -147,6 +152,14 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
     BackHandler(enabled = handlesBack(model)) { dispatch(Msg.Nav.Back) }
     // Above both branches: the discard question shows on the workout and on the home screen.
     WorkoutSessionHost(model.session, model.now, dispatch)
+
+    // An interval timer covers everything, a running workout too, which stays as it is underneath.
+    val timer = model.timer
+    if (timer != null) {
+        ShowOverLockScreen()
+        TimerOverlay(timer, model.now, dispatch)
+        return
+    }
 
     if (showsWorkout(model)) {
         ShowOverLockScreen()
@@ -185,8 +198,8 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
                 when (tab) {
                     Tab.HOME -> HomeScreen(model, dispatch)
                     Tab.WORKOUTS -> WorkoutsScreen(model, dispatch)
+                    Tab.TIMER -> TimerScreen(model, dispatch)
                     Tab.HISTORY -> HistoryScreen(model, dispatch)
-                    Tab.PROGRESS -> ProgressScreen(model)
                     Tab.SETTINGS -> SettingsScreen(model, dispatch)
                 }
             }
@@ -253,8 +266,8 @@ private suspend fun shareBackup(context: Context, name: String, json: String) {
 }
 
 /**
- * While the workout shows, it also shows on top of the lock screen: the next set is one
- * tap away without unlocking the phone. Every other screen stays behind the lock.
+ * While the workout or an interval timer shows, it also shows on top of the lock screen: the next
+ * set is one tap away without unlocking the phone. Every other screen stays behind the lock.
  */
 @Composable
 private fun ShowOverLockScreen() {

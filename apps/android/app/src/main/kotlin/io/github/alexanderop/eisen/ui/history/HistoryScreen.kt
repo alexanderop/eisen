@@ -67,7 +67,20 @@ import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.StateJson
+import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
+import io.github.alexanderop.eisen.domain.sessionSummary
+import io.github.alexanderop.eisen.domain.OUTCOME_LABELS
+import io.github.alexanderop.eisen.domain.TimerOutcome
+import io.github.alexanderop.eisen.domain.timerOutcome
+import io.github.alexanderop.eisen.domain.elm.HistoryView
+import io.github.alexanderop.eisen.ui.progress.ProgressScreen
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import io.github.alexanderop.eisen.domain.durationMinutes
 import io.github.alexanderop.eisen.domain.elm.Model
 import io.github.alexanderop.eisen.domain.elm.Msg
@@ -121,14 +134,80 @@ private val DraftSaver = Saver<Workout?, String>(
 private fun duration(workout: Workout): String = durationMinutes(workout)?.let { "$it min" } ?: ""
 
 /**
- * The finished workouts, newest first. Which card's menu, dialog or sheet is open and the corrections
- * typed into the edit sheet before "Save changes" stay here: nothing else depends on them.
+ * The History tab: a switch between the log of what was done and the charts of the progress made.
  */
 @Composable
 fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        Text(
+            "History",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = (-0.6).sp,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).semantics { heading() },
+        )
+        ViewSwitch(model.nav.history) { dispatch(Msg.Nav.ShowHistory(it)) }
+        when (model.nav.history) {
+            HistoryView.LOG -> HistoryLog(model, dispatch)
+            HistoryView.PROGRESS -> ProgressScreen(model, title = false)
+        }
+    }
+}
+
+@Composable
+private fun ViewSwitch(view: HistoryView, onChange: (HistoryView) -> Unit) {
+    val views = listOf(HistoryView.LOG to "Log", HistoryView.PROGRESS to "Progress")
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        views.forEachIndexed { index, (option, label) ->
+            SegmentedButton(
+                selected = view == option,
+                onClick = { onChange(option) },
+                shape = SegmentedButtonDefaults.itemShape(index, views.size),
+                icon = {},
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = EisenColors.Primary,
+                    activeContentColor = EisenColors.OnPrimary,
+                    inactiveContainerColor = EisenColors.Card,
+                    inactiveContentColor = EisenColors.MutedForeground,
+                    activeBorderColor = EisenColors.Primary,
+                    inactiveBorderColor = EisenColors.Border,
+                ),
+                label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            )
+        }
+    }
+}
+
+/** A line of the log: a finished workout or a finished interval timer, ordered by when they started. */
+private sealed interface LogItem {
+    val startedAt: Long
+    val key: String
+
+    class Lift(val workout: Workout, val records: Set<String>) : LogItem {
+        override val startedAt get() = workout.startedAt
+        override val key get() = "w:" + workout.id
+    }
+
+    class Interval(val session: TimerSession) : LogItem {
+        override val startedAt get() = session.startedAt
+        override val key get() = "t:" + session.id
+    }
+}
+
+/**
+ * The finished workouts and timers, newest first. Which card's menu, dialog or sheet is open and the
+ * corrections typed into the edit sheet before "Save changes" stay here: nothing else depends on them.
+ */
+@Composable
+private fun HistoryLog(model: Model, dispatch: (Msg) -> Unit) {
     val history = model.state.history
+    val timers = model.state.timerSessions
     // Per workout, the exercises that set a record on that day.
     val records = remember(history) { history.indices.map { recordIds(history, it) } }
+    val items = remember(history, records, timers) {
+        (history.mapIndexed { index, workout -> LogItem.Lift(workout, records[index]) } + timers.map { LogItem.Interval(it) })
+            .sortedByDescending { it.startedAt }
+    }
     var draft by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(null) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
     var sharing by rememberSaveable { mutableStateOf<String?>(null) }
@@ -143,38 +222,45 @@ fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "title") {
-            Text(
-                "History",
-                fontSize = 30.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.6).sp,
-                modifier = Modifier.semantics { heading() },
-            )
-        }
-        if (history.isEmpty()) {
+        if (items.isEmpty()) {
             item(key = "empty") {
                 EisenCard {
                     Text(
-                        "No workouts yet. Finish your first one and it shows up here.",
+                        "Nothing logged yet",
                         color = EisenColors.MutedForeground,
                         fontSize = 16.sp,
                     )
                 }
             }
         }
-        itemsIndexed(history, key = { _, workout -> workout.id }) { position, workout ->
-            SwipeToDelete(workout.name, onDelete = { deleteWithUndo(workout) }, modifier = Modifier.animateItem()) {
-                WorkoutCard(
-                    workout = workout,
-                    records = records.getOrElse(position) { emptySet() },
-                    onShare = { sharing = workout.id },
-                    onEdit = { draft = workout },
-                    onDelete = { deleting = workout.id },
-                )
+        items(items, key = { it.key }) { item ->
+            when (item) {
+                is LogItem.Lift -> {
+                    val workout = item.workout
+                    SwipeToDelete(workout.name, onDelete = { deleteWithUndo(workout) }, modifier = Modifier.animateItem()) {
+                        WorkoutCard(
+                            workout = workout,
+                            records = item.records,
+                            onShare = { sharing = workout.id },
+                            onEdit = { draft = workout },
+                            onDelete = { deleting = workout.id },
+                        )
+                    }
+                }
+                is LogItem.Interval -> {
+                    val session = item.session
+                    SwipeToDelete(session.name, onDelete = {
+                        if (timers.any { it.id == session.id }) {
+                            dispatch(Msg.Timer.DeleteSession(session.id))
+                            haptics.perform(Haptic.TAP)
+                        }
+                    }, modifier = Modifier.animateItem()) {
+                        TimerRow(session)
+                    }
+                }
             }
         }
     }
@@ -266,6 +352,35 @@ private fun EisenCard(content: @Composable ColumnScope.() -> Unit) {
         border = BorderStroke(1.dp, EisenColors.Border),
     ) {
         Column(Modifier.padding(16.dp), content = content)
+    }
+}
+
+private val StopwatchIcon = pathIcon("Stopwatch", "M10 2h4", "M12 14l3-3", "M4 14a8 8 0 1 0 16 0a8 8 0 1 0-16 0")
+
+/** A finished interval timer: compact, no detail screen. */
+@Composable
+private fun TimerRow(session: TimerSession) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = CardShape,
+        colors = CardDefaults.cardColors(containerColor = EisenColors.Card, contentColor = EisenColors.Foreground),
+        border = BorderStroke(1.dp, EisenColors.Border),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(EisenColors.Muted), contentAlignment = Alignment.Center) {
+                Icon(StopwatchIcon, contentDescription = null, tint = EisenColors.Primary, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(session.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
+                Text("${formatDate(session.startedAt)} · ${sessionSummary(session)}", fontSize = 13.sp, color = EisenColors.MutedForeground)
+            }
+            val outcome = timerOutcome(session)
+            if (outcome != TimerOutcome.COMPLETED) {
+                Spacer(Modifier.width(8.dp))
+                Text(OUTCOME_LABELS.getValue(outcome), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EisenColors.Warn)
+            }
+        }
     }
 }
 

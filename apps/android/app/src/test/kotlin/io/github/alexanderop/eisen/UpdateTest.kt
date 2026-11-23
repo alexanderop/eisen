@@ -52,6 +52,16 @@ import io.github.alexanderop.eisen.domain.elm.warmupKey
 import io.github.alexanderop.eisen.domain.encodeState
 import io.github.alexanderop.eisen.domain.freshState
 import io.github.alexanderop.eisen.domain.order
+import io.github.alexanderop.eisen.domain.MAX_OPEN_TIMER_SECONDS
+import io.github.alexanderop.eisen.domain.TimerCalls
+import io.github.alexanderop.eisen.domain.TimerConfig
+import io.github.alexanderop.eisen.domain.TimerMode
+import io.github.alexanderop.eisen.domain.countsRoundsByTap
+import io.github.alexanderop.eisen.domain.timerSeconds
+import io.github.alexanderop.eisen.domain.elm.HistoryView
+import io.github.alexanderop.eisen.domain.elm.TimerState
+import io.github.alexanderop.eisen.domain.elm.TAP_GUARD_MILLIS
+import io.github.alexanderop.eisen.domain.elm.timerRun
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -403,12 +413,12 @@ class UpdateTest {
     }
 
     @Test fun `a change of screen reads the clock, so Home and Progress date themselves with today`() {
-        val progress = stepOf().send(Msg.Nav.SelectTab(Tab.PROGRESS), now = 5_000)
-        assertEquals(Tab.PROGRESS, progress.model.nav.tab)
+        val progress = stepOf().send(Msg.Nav.SelectTab(Tab.HISTORY), now = 5_000)
+        assertEquals(Tab.HISTORY, progress.model.nav.tab)
         assertEquals(5_000, progress.model.now)
         assertTrue(progress.cmds.isEmpty())
         // Selecting the tab that shows reads it too.
-        assertEquals(6_000, progress.send(Msg.Nav.SelectTab(Tab.PROGRESS), now = 6_000).model.now)
+        assertEquals(6_000, progress.send(Msg.Nav.SelectTab(Tab.HISTORY), now = 6_000).model.now)
         val home = progress.send(Msg.Nav.Back, now = 9_000)
         assertEquals(Tab.HOME, home.model.nav.tab)
         assertEquals(9_000, home.model.now)
@@ -741,10 +751,14 @@ class UpdateTest {
         var held = 0
         var screens = 0
         var corrected = 0
+        var timed = 0
+        var filed = 0
+        var ranOut = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
-        for (seed in 1L..30L) {
+        // The timer's Msgs dilute the walk, so it takes more seeds to reach everything as often as before.
+        for (seed in 1L..80L) {
             val random = java.util.Random(seed)
             var step = stepOf(withHolds)
             var now = STARTED_AT
@@ -815,6 +829,48 @@ class UpdateTest {
                         assertTrue(where, logged in 1..(before.target ?: MAX_HELD_SECONDS))
                     }
                 }
+                // An interval timer: a run covers the rest and the hold timer, and its clock runs while it goes.
+                val run = after.model.timerRun
+                if (run != null) {
+                    assertNull(where, after.model.rest)
+                    assertNull(where, after.model.hold)
+                    assertEquals(where, run.pausedAt == null, Sub.TimerClock(run.startedAt + run.paused) in subscriptions(after.model))
+                } else {
+                    assertTrue(where, subscriptions(after.model).none { it is Sub.TimerClock })
+                }
+                // The run is kept in its file exactly when it changed, with that run.
+                val kept = after.cmds.filterIsInstance<Cmd.SaveTimer>()
+                assertEquals(where, if (run != step.model.timerRun) listOf(Cmd.SaveTimer(run)) else emptyList<Cmd>(), kept)
+                if (run != null && step.model.timerRun == null) timed++
+                // A round counts only when the one before is at least the tap guard ago.
+                val wasRunning = step.model.timer as? TimerState.Running
+                if (msg == Msg.Timer.Tap && run != null && wasRunning != null && run.taps > wasRunning.run.taps) {
+                    val last = wasRunning.tappedAt
+                    assertTrue(where, last == null || now - last >= TAP_GUARD_MILLIS)
+                }
+                // A corrected result is the same session as the one in the history.
+                val finishedTimer = after.model.timer as? TimerState.Finished
+                if (msg is Msg.Timer.CorrectRounds && finishedTimer != null && after.model != step.model) {
+                    assertTrue(where, finishedTimer.session.rounds >= 0)
+                    assertTrue(where, finishedTimer.session in after.state.timerSessions)
+                }
+                // The history of timers only grows by a run that ended, with numbers it can have.
+                if (msg is Msg.Timer && msg != Msg.Timer.UndoDeleteSession && after.state.timerSessions.size != step.state.timerSessions.size) {
+                    if (after.state.timerSessions.size > step.state.timerSessions.size) {
+                        val ended = step.model.timerRun
+                        val session = after.state.timerSessions.first()
+                        assertNotNull(where, ended)
+                        assertEquals(where, ended!!.id, session.id)
+                        assertEquals(where, TimerState.Finished(session), after.model.timer)
+                        assertTrue(where, session.seconds in 0..(timerSeconds(session.config) ?: MAX_OPEN_TIMER_SECONDS))
+                        assertTrue(where, session.finishedAt >= session.startedAt && session.rounds >= 0)
+                        if (!countsRoundsByTap(session.config.mode)) assertTrue(where, session.rounds <= session.config.rounds)
+                        filed++
+                        if (session.completed && msg != Msg.Timer.Finish) ranOut++
+                    } else {
+                        assertTrue(where, msg is Msg.Timer.DeleteSession)
+                    }
+                }
                 if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
                 if (after.model != step.model) changed++
                 step = after
@@ -825,6 +881,9 @@ class UpdateTest {
         assertTrue("only $held holds were logged by the timer", held >= 5)
         assertTrue("only $screens rest screens opened", screens >= 20)
         assertTrue("only $corrected sets were corrected", corrected >= 5)
+        assertTrue("only $timed timers started", timed >= 30)
+        assertTrue("only $filed timers were filed", filed >= 15)
+        assertTrue("only $ranOut timers ran out by themselves", ranOut >= 3)
     }
 
     /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */
@@ -850,6 +909,17 @@ class UpdateTest {
         val corrected = model.restScreen?.let { it.exercise to it.set }?.takeIf { random.nextInt(4) > 0 }
             ?: logged.takeIf { it.isNotEmpty() && random.nextBoolean() }?.let { pick(it) } ?: (exercise to set)
         val correct = { Msg.Workout(WorkoutEvent.CorrectReps(corrected.first, corrected.second, random.nextInt(8) - 1)) }
+        // While an interval timer runs, its own Msgs come most of the time: it covers everything else.
+        if (model.timer != null && random.nextInt(4) > 0) {
+            return pick(
+                listOf(
+                    Msg.Timer.Tick, Msg.Timer.Tick, Msg.Timer.Tick, Msg.Timer.Pause, Msg.Timer.Resume, Msg.Timer.Resume, Msg.Timer.End,
+                    Msg.Timer.KeepGoing, Msg.Timer.SaveAndEnd, Msg.Timer.Discard, Msg.Timer.Finish, Msg.Timer.Tap, Msg.Timer.Tap,
+                    Msg.Timer.Untap, Msg.Timer.CorrectRounds(1), Msg.Timer.CorrectRounds(-1),
+                    Msg.Timer.Done, Msg.Timer.Again, Msg.Nav.Back, Msg.Timer.Release(model.timerRun?.id ?: "gone"),
+                ),
+            )
+        }
         // While a hold timer is open, its own Msgs come half the time, as they would from the lifter and the clock.
         if (model.hold != null && random.nextBoolean()) return pick(listOf(Msg.Hold.SkipLeadIn, Msg.Hold.Stop, Msg.Hold.Cancel, Msg.Hold.Tick, Msg.Hold.Tick))
         val choices: List<() -> Msg> = listOf(
@@ -953,6 +1023,26 @@ class UpdateTest {
             { Msg.Health.Availability(pick(HealthAvailability.entries)) },
             { Msg.App.Foreground(random.nextBoolean()) },
             { Msg.App.Background },
+            { Msg.Timer.Open(pick(TimerMode.entries)) },
+            { Msg.Timer.Open(pick(TimerMode.entries)) },
+            { Msg.Timer.OpenPreset(state.timerPresets.getOrNull(index(state.timerPresets.size))?.id ?: "gone") },
+            { Msg.Timer.Edit(TimerConfig(model.timerSetup?.config?.mode ?: pick(TimerMode.entries), random.nextInt(90) - 5, random.nextInt(40), random.nextInt(5))) },
+            { Msg.Timer.CloseSetup },
+            { Msg.Timer.SetCalls(TimerCalls(random.nextInt(7) - 1, random.nextBoolean(), random.nextBoolean(), random.nextBoolean(), random.nextBoolean())) },
+            { Msg.Timer.PlaySample },
+            { Msg.Timer.SavePreset(pick(listOf("", "Finisher", "x".repeat(60)))) },
+            { Msg.Timer.UpdatePreset },
+            { Msg.Timer.EditName(pick(listOf("", "Burner", "y".repeat(60)))) },
+            { Msg.Timer.StartPreset(state.timerPresets.getOrNull(index(state.timerPresets.size))?.id ?: "gone") },
+            { Msg.Timer.DeletePreset(state.timerPresets.getOrNull(index(state.timerPresets.size))?.id ?: "gone") },
+            { Msg.Timer.UndoDeletePreset },
+            { Msg.Timer.Start },
+            { Msg.Timer.Start },
+            { Msg.Timer.Start },
+            { Msg.Timer.DeleteSession(state.timerSessions.getOrNull(index(state.timerSessions.size))?.id ?: "gone") },
+            { Msg.Timer.UndoDeleteSession },
+            { Msg.Timer.Tick },
+            { Msg.Nav.ShowHistory(pick(HistoryView.entries)) },
             { Msg.App.LaunchWorkout(if (random.nextBoolean()) null else routineId, random.nextInt(4) == 0, random.nextInt(4) == 0) },
         )
         return pick(choices)()

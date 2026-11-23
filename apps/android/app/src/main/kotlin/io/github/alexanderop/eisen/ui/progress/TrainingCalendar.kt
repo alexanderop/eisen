@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.domain.CalendarDay
+import io.github.alexanderop.eisen.domain.holdText
 import io.github.alexanderop.eisen.domain.durationMinutes
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Haptic
@@ -62,18 +63,21 @@ private val CORNER = 5.dp
 private fun local(pattern: String, time: Long): String =
     DateTimeFormatter.ofPattern(pattern, Locale.getDefault()).format(Instant.ofEpochMilli(time).atZone(ZoneId.systemDefault()))
 
-private fun describe(day: CalendarDay): String =
-    day.workouts.joinToString(" and ") { workout ->
+/** One line per workout or timer of the day: "Workout A, 50 min", "Tabata, 4:00". */
+private fun entries(day: CalendarDay): List<String> =
+    day.workouts.map { workout ->
         val minutes = durationMinutes(workout)
         if (minutes == null) workout.name else "${workout.name}, $minutes min"
-    }
+    } + day.timers.map { "${it.name}, ${holdText(it.seconds)}" }
+
+private fun describe(day: CalendarDay): String = entries(day).joinToString(", ")
 
 /** One square per day, a column per week, Monday on top. Days with a workout are lit. */
 @Composable
 fun TrainingCalendar(weeks: List<List<CalendarDay>>, modifier: Modifier = Modifier) {
     val haptics = rememberHaptics()
     var picked by rememberSaveable { mutableStateOf<Long?>(null) }
-    val selected = weeks.flatten().firstOrNull { it.time == picked && it.workouts.isNotEmpty() }
+    val selected = weeks.flatten().firstOrNull { it.time == picked && it.trained }
 
     // A month name over the first column of every month.
     val months = weeks.mapIndexed { index, week ->
@@ -139,8 +143,10 @@ fun TrainingCalendar(weeks: List<List<CalendarDay>>, modifier: Modifier = Modifi
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (selected != null) {
-                Text(formatDate(selected.time), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                Text(describe(selected), fontSize = 13.sp, color = EisenColors.MutedForeground)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(formatDate(selected.time), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    for (line in entries(selected)) Text(line, fontSize = 13.sp, color = EisenColors.MutedForeground)
+                }
             } else {
                 Text("Tap a lit day to see the workout.", fontSize = 13.sp, color = EisenColors.MutedForeground)
             }
@@ -150,7 +156,7 @@ fun TrainingCalendar(weeks: List<List<CalendarDay>>, modifier: Modifier = Modifi
 
 @Composable
 private fun Day(day: CalendarDay, picked: Boolean, onPick: () -> Unit, modifier: Modifier) {
-    val trained = day.workouts.isNotEmpty()
+    val trained = day.trained
     val square = modifier.aspectRatio(1f)
     if (!trained) {
         Box(square.drawBehind { drawDay(day, picked = false, trained = false) })

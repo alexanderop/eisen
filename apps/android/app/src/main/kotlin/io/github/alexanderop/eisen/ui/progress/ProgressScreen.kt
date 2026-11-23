@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.calendarWeeks
@@ -95,7 +96,7 @@ private val Gutter = Modifier.padding(horizontal = 16.dp)
  * what is drawn, so they stay local.
  */
 @Composable
-fun ProgressScreen(model: Model) {
+fun ProgressScreen(model: Model, title: Boolean = true) {
     val state = model.state
     val unit = state.settings.unit
     // Fixed while the screen is open, like the web view, so the calendar does not shift under a finger.
@@ -106,25 +107,29 @@ fun ProgressScreen(model: Model) {
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 20.dp, bottom = 24.dp),
+            .padding(top = if (title) 20.dp else 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            "Progress",
-            modifier = Gutter.semantics { heading() },
-            fontSize = 30.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = (-0.02).em,
-        )
+        if (title) {
+            Text(
+                "Progress",
+                modifier = Gutter.semantics { heading() },
+                fontSize = 30.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.02).em,
+            )
+        }
 
-        if (state.history.isEmpty()) {
+        if (state.history.isEmpty() && state.timerSessions.isEmpty()) {
             Section(Gutter) {
                 Text("Finish your first workout and your progress shows up here.", color = EisenColors.MutedForeground)
             }
             return@Column
         }
 
-        Consistency(state.history, now)
+        // A day with an interval timer is a training day. Volume and records stay with the workouts.
+        Consistency(state.history, state.timerSessions, now)
+        if (state.history.isEmpty()) return@Column
 
         var range by rememberSaveable { mutableStateOf(Range.THREE_MONTHS) }
         RangePicker(range, onChange = { range = it })
@@ -140,11 +145,11 @@ fun ProgressScreen(model: Model) {
 }
 
 @Composable
-private fun Consistency(history: List<Workout>, now: Long) {
-    val weeks = remember(history) { calendarWeeks(history, now, WEEKS) }
-    val counts = weeks.map { week -> week.sumOf { it.workouts.size } }
+private fun Consistency(history: List<Workout>, timers: List<TimerSession>, now: Long) {
+    val weeks = remember(history, timers) { calendarWeeks(history, now, WEEKS, timers = timers) }
+    val counts = weeks.map { week -> week.sumOf { it.workouts.size + it.timers.size } }
     val firstTrained = counts.indexOfFirst { it > 0 }
-    val streak = remember(history) { weekStreak(history.map { it.startedAt }, now) }
+    val streak = remember(history, timers) { weekStreak(history.map { it.startedAt } + timers.map { it.startedAt }, now) }
     // Weeks before the first workout do not pull the average down.
     val perWeek = if (firstTrained == -1) 0.0 else counts.sum().toDouble() / (counts.size - firstTrained)
 

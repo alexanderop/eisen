@@ -20,8 +20,10 @@ object EisenColors {
     val MutedForeground = Color(0xFF8D939F)
     val Border = Color(0xFF2B2F37)
     val Destructive = Color(0xFFFF6464)
-    /** Missed reps and deloads. */
+    /** Missed reps and deloads, and the "Get ready" of the interval timers. */
     val Warn = Color(0xFFFFB020)
+    /** The rest of an interval timer: calm, and told apart from work across the room. */
+    val Rest = Color(0xFF5BC8FF)
     /** Pale ground for the exercise images, which are dark on transparent. */
     val Tile = Color(0xFFECEEF1)
 }

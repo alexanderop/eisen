@@ -45,17 +45,28 @@ class CalendarDay(
     val today: Boolean,
     val future: Boolean,
     val workouts: List<Workout>,
-)
+    /** Interval timers done that day. A day with one counts as a training day. */
+    val timers: List<TimerSession> = emptyList(),
+) {
+    val trained: Boolean get() = workouts.isNotEmpty() || timers.isNotEmpty()
+}
 
 /** The last `weeks` weeks as columns of seven days, Monday first, ending with the current week. */
-fun calendarWeeks(history: List<Workout>, now: Long, weeks: Int, zone: ZoneId = ZoneId.systemDefault()): List<List<CalendarDay>> {
+fun calendarWeeks(
+    history: List<Workout>,
+    now: Long,
+    weeks: Int,
+    zone: ZoneId = ZoneId.systemDefault(),
+    timers: List<TimerSession> = emptyList(),
+): List<List<CalendarDay>> {
     val byDay = history.groupBy { dayOf(it.startedAt, zone) }
+    val timersByDay = timers.groupBy { dayOf(it.startedAt, zone) }
     val today = dayOf(now, zone)
     val first = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).minusWeeks((weeks - 1).toLong())
     return List(weeks) { week ->
         List(7) { day ->
             val date = first.plusDays((week * 7 + day).toLong())
-            CalendarDay(date.millis(zone), date == today, date > today, byDay[date] ?: emptyList())
+            CalendarDay(date.millis(zone), date == today, date > today, byDay[date] ?: emptyList(), timersByDay[date] ?: emptyList())
         }
     }
 }

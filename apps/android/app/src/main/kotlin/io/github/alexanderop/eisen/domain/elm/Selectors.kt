@@ -72,9 +72,12 @@ fun restScreenFits(model: Model, screen: RestScreen): Boolean {
     return log.id == screen.exerciseId && log.sets.getOrNull(screen.set) != null
 }
 
-/** True when [Msg.Nav.Back] does something: it closes a hold timer before the workout. Otherwise the back gesture leaves the app. */
+/**
+ * True when [Msg.Nav.Back] does something: it asks before it ends an interval timer, closes a hold timer
+ * before the workout. Otherwise the back gesture leaves the app.
+ */
 fun handlesBack(model: Model): Boolean =
-    showsWorkout(model) || (model.nav.tab == Tab.WORKOUTS && openRoutine(model) != null) || model.nav.tab != Tab.HOME
+    model.timer != null || showsWorkout(model) || (model.nav.tab == Tab.WORKOUTS && openRoutine(model) != null) || model.nav.tab != Tab.HOME
 
 /** A workout is running or waiting for an answer. Settings that would split its log are locked meanwhile. */
 fun workoutRunning(model: Model): Boolean = model.session.active != null

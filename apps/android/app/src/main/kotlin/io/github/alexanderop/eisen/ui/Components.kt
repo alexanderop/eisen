@@ -130,6 +130,13 @@ object Icons {
     val Workouts = pathIcon("Workouts", "M2 10h2v4H2zM5 7h3v10H5zM9 11h6v2H9zM16 7h3v10h-3zM20 10h2v4h-2z", filled = true)
     val History = pathIcon("History", "M5 4h14v3H5zM5 10.5h14v3H5zM5 17h14v3H5z", filled = true)
     val Progress = pathIcon("Progress", "M4 20V10h3.5v10zM10.25 20V4h3.5v16zM16.5 20v-7H20v7z", filled = true)
+    val Timer = pathIcon(
+        "Timer",
+        "M12 5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17zM12 7.5a6 6 0 1 0 0 12a6 6 0 1 0 0-12z",
+        "M9.5 1.5h5v2.2h-5z",
+        "M11 9.5h2v4.5h-2z",
+        filled = true,
+    )
     val Settings = pathIcon("Settings", "M4 6h9v2H4zM17 6h3v2h-3zM13 4.5h3v5h-3zM4 16h3v2H4zM11 16h9v2h-9zM7 14.5h3v5H7z", filled = true)
     val Minus = pathIcon("Minus", "M5 12h14")
     val Plus = pathIcon("Plus", "M5 12h14", "M12 5v14")

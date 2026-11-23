@@ -21,6 +21,8 @@ import io.github.alexanderop.eisen.domain.freshState
 import io.github.alexanderop.eisen.health.HealthSync
 import io.github.alexanderop.eisen.rest.Cues
 import io.github.alexanderop.eisen.rest.RestSystem
+import io.github.alexanderop.eisen.timer.TimerSounds
+import io.github.alexanderop.eisen.timer.TimerSystem
 import io.github.alexanderop.eisen.widget.HomeSurfaces
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -35,7 +37,7 @@ import io.github.alexanderop.eisen.domain.elm.init as initialModel
  * ```
  * Msg ──► update(msg, model, env) ──► Model ──► view(model, dispatch)
  *                                 └─► Cmds  ──► adapters (file, alarms, cues, Health Connect, widget, UI)
- * subscriptions(model) ──► Subs ──► sources that send Msgs (the rest clock)
+ * subscriptions(model) ──► Subs ──► sources that send Msgs (the rest, hold and interval timer clocks)
  * ```
  *
  * It holds the [model] as Compose state, runs [update] for every Msg passed to [dispatch], carries
@@ -84,6 +86,7 @@ object Eisen {
         app = context.applicationContext
         snackbars = Snackbars(app, dispatch)
         RestSystem.init(app)
+        TimerSystem.init(app)
         HealthSync.start(app, dispatch)
         val flags = Flags(
             state = StateFile.read(app),
@@ -91,6 +94,7 @@ object Eisen {
             healthEnabled = Prefs.healthEnabled(app),
             notifications = Notifications(granted = Prefs.notificationsGranted(app), asked = Prefs.notificationsAsked(app)),
             now = System.currentTimeMillis(),
+            savedTimer = TimerFile.read(app),
         )
         val (first, cmds) = initialModel(flags)
         model = first
@@ -149,6 +153,11 @@ object Eisen {
                 is Cmd.RefreshHomeSurfaces -> HomeSurfaces.refresh(app, cmd)
                 is Cmd.ReadBackup -> Backups.read(app, cmd.uri) { dispatch(Msg.Data.BackupRead(it)) }
                 is Cmd.WriteBackup -> Backups.write(app, cmd.uri, cmd.json) { dispatch(Msg.Data.BackupWritten(it)) }
+                is Cmd.SaveTimer -> TimerFile.write(app, cmd.run)
+                is Cmd.ScheduleTimer -> TimerSystem.schedule(cmd)
+                is Cmd.ShowTimer -> TimerSystem.show(cmd.notice)
+                Cmd.HideTimer -> TimerSystem.hide()
+                is Cmd.PlayTimerSound -> TimerSounds.play(app, cmd.sound)
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.
                 is Cmd.Ui -> when (val event = cmd.event) {
                     is UiEvent.Snackbar -> snackbars.show(event)
@@ -175,6 +184,7 @@ object Eisen {
     private fun start(sub: Sub): () -> Unit = when (sub) {
         is Sub.RestClock -> everySecond(sub.endsAt, Msg.Rest.Tick)
         is Sub.HoldClock -> everySecond(sub.startsAt, Msg.Hold.Tick)
+        is Sub.TimerClock -> everySecond(sub.anchor, Msg.Timer.Tick)
     }
 
     /** Sends [msg] each time a whole second counted from [anchor] passes. Returns what stops it. */

@@ -16,6 +16,12 @@ const PATTERNS = {
   holdStart: 60,
   /** A hold ran its full time. Long enough to feel with the phone on the floor. */
   holdEnd: [300, 120, 300, 120, 300],
+  /** An interval timer's work starts. */
+  timerWork: 80,
+  /** An interval timer's rest starts. */
+  timerRest: [80, 120, 80],
+  /** An interval timer is over. */
+  timerEnd: 600,
 } as const
 
 export type Haptic = keyof typeof PATTERNS

@@ -35,7 +35,7 @@ internal fun <T> List<T>.moved(from: Int, to: Int): List<T> {
 private fun <T> List<T>.replaced(index: Int, value: T): List<T> = mapIndexed { at, item -> if (at == index) value else item }
 
 /** The same model when nothing changed, so a Msg that does nothing hands back what it got. */
-private fun Model.withState(change: (AppState) -> AppState): Model {
+internal fun Model.withState(change: (AppState) -> AppState): Model {
     val next = change(state)
     return if (next == state) this else copy(state = next)
 }
@@ -315,7 +315,7 @@ internal fun health(msg: Msg.Health, model: Model): Next {
         Msg.Health.PermissionRequestFailed -> model.copy(health = health.copy(notice = "Could not open Health Connect.")).only()
         Msg.Health.SyncPast ->
             if (health.syncing) model.only()
-            else model.copy(health = health.copy(syncing = true, notice = "Syncing…")) and Cmd.Health(HealthJob.SyncPast(model.state.history))
+            else model.copy(health = health.copy(syncing = true, notice = "Syncing…")) and Cmd.Health(HealthJob.SyncPast(model.state.history, model.state.timerSessions))
         is Msg.Health.SyncedPast -> {
             val count = msg.count
             val notice = when {

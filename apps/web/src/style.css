@@ -33,6 +33,8 @@
   --radius: 14px;
 
   --warn: #ffb020;
+  /* The rest of an interval timer: calm, and far from lime and amber across a room. */
+  --rest: #5bc8ff;
   /* Pale ground for the exercise images, which are dark on transparent. */
   --tile: #eceef1;
 
@@ -96,6 +98,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-warn: var(--warn);
+  --color-rest: var(--rest);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

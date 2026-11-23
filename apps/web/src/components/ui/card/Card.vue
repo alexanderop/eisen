@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<PrimitiveProps & { class?: HTMLAttributes
     :as="as"
     :as-child="asChild"
     :class="cn(
-      'bg-card text-card-foreground rounded-[18px] border p-4',
+      'bg-card text-card-foreground border-border rounded-[18px] border p-4',
       as === 'button' && 'w-full text-left',
       props.class,
     )"

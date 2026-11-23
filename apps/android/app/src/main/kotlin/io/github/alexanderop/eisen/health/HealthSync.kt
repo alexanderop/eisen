@@ -6,6 +6,7 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.metadata.Metadata
+import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.elm.HealthAvailability
 import io.github.alexanderop.eisen.domain.elm.HealthJob
@@ -52,9 +53,9 @@ object HealthSync {
         when (job) {
             // Not queued behind a long sync: the switch should answer at once.
             is HealthJob.CheckPermission -> scope.launch { dispatch(Msg.Health.PermissionChecked(job.purpose, hasPermission())) }
-            is HealthJob.Upsert -> enqueue { guarded { upsert(job.workouts) } }
+            is HealthJob.Upsert -> enqueue { guarded { upsert(job.workouts, job.timers) } }
             is HealthJob.Delete -> enqueue { guarded { delete(job.ids) } }
-            is HealthJob.SyncPast -> enqueue { dispatch(Msg.Health.SyncedPast(guarded { upsert(job.workouts) })) }
+            is HealthJob.SyncPast -> enqueue { dispatch(Msg.Health.SyncedPast(guarded { upsert(job.workouts, job.timers) })) }
             // Answered at once: the activity asks before its first frame, so Settings never shows a stale row.
             HealthJob.CheckAvailability -> dispatch(Msg.Health.Availability(availability()))
         }
@@ -91,7 +92,7 @@ object HealthSync {
     }
 
     /** The number of records written, or null when Health Connect is not there. */
-    private suspend fun upsert(workouts: List<Workout>): Int? {
+    private suspend fun upsert(workouts: List<Workout>, timers: List<TimerSession>): Int? {
         val client = client() ?: return null
         if (!client.permissionController.getGrantedPermissions().containsAll(PERMISSIONS)) {
             dispatch(Msg.Health.Revoked)
@@ -103,6 +104,8 @@ object HealthSync {
         val records = workouts.mapNotNull { workout ->
             // A record Health Connect would refuse is skipped, not allowed to fail the whole batch.
             runCatching { sessionFields(workout, zone)?.let { record(workout.id, version, it) } }.getOrNull()
+        } + timers.mapNotNull { timer ->
+            runCatching { timerSessionFields(timer, zone)?.let { record(timer.id, version, it) } }.getOrNull()
         }
         for (batch in records.chunked(BATCH)) client.insertRecords(batch)
         return records.size
@@ -120,7 +123,7 @@ object HealthSync {
         endZoneOffset = fields.endOffset,
         // Sets are tapped in by hand, nothing is measured by a sensor.
         metadata = Metadata.manualEntry(clientRecordId = id, clientRecordVersion = version),
-        exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING,
+        exerciseType = fields.exerciseType,
         title = fields.title,
         notes = fields.notes.ifEmpty { null },
         segments = fields.segments.map { ExerciseSegment(it.start, it.end, it.type, it.repetitions) },

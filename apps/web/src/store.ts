@@ -26,6 +26,7 @@ import {
 import { lastSetReps } from './domain/records'
 import { withCorrectedReps } from './domain/rest'
 import { freshState, isAppState, migrate, type AppState } from './domain/state'
+import { timerConfig, type TimerConfig, type TimerPreset, type TimerSession } from './domain/timer'
 import type { Unit } from './domain/units'
 
 const STORAGE_KEY = 'eisen:v1'
@@ -63,7 +64,7 @@ export const warmupDone = ref(new Set<string>())
 /** What the last finished workout changed. Shown once on the home screen. */
 export const lastChanges = ref<Change[] | null>(null)
 
-function newId(): string {
+export function newId(): string {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
@@ -242,6 +243,43 @@ export function updateWorkout(id: string, exercises: ExerciseLog[]): void {
 
 export function deleteWorkout(id: string): void {
   state.history = state.history.filter((workout) => workout.id !== id)
+}
+
+/** Starting a timer makes its config the one its mode opens with next time. */
+export function rememberTimerConfig(config: TimerConfig): void {
+  state.timerConfigs[config.mode] = timerConfig(config)
+}
+
+export function addTimerSession(session: TimerSession): void {
+  if (state.timerSessions.some((entry) => entry.id === session.id)) return
+  state.timerSessions.unshift(session)
+}
+
+/** The rounds of a finished timer, corrected after the fact. */
+export function setTimerSessionRounds(id: string, rounds: number): void {
+  const session = state.timerSessions.find((entry) => entry.id === id)
+  if (session) session.rounds = Math.max(0, Math.round(rounds))
+}
+
+export function deleteTimerSession(id: string): void {
+  state.timerSessions = state.timerSessions.filter((session) => session.id !== id)
+}
+
+export function addTimerPreset(name: string, config: TimerConfig): TimerPreset {
+  const preset = { id: newId(), name: name.trim().slice(0, 40) || 'Timer', config: timerConfig(config) }
+  state.timerPresets.push(preset)
+  return preset
+}
+
+export function updateTimerPreset(id: string, name: string, config: TimerConfig): void {
+  const preset = state.timerPresets.find((entry) => entry.id === id)
+  if (!preset) return
+  preset.name = name.trim().slice(0, 40) || preset.name
+  preset.config = timerConfig(config)
+}
+
+export function deleteTimerPreset(id: string): void {
+  state.timerPresets = state.timerPresets.filter((preset) => preset.id !== id)
 }
 
 export function addRoutine(): Routine {

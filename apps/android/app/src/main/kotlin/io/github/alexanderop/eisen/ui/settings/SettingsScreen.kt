@@ -91,6 +91,7 @@ import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.formatClock
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
+import io.github.alexanderop.eisen.ui.timer.TimerCallsControls
 import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
@@ -265,6 +266,11 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
             SwitchRow(icon = HourglassIcon, label = "Full-screen rest timer", checked = settings.restFullScreen, onToggle = ::toggleRestFullScreen)
             SwitchRow(icon = VolumeIcon, label = "Sound when rest ends", checked = settings.sound, onToggle = ::toggleSound)
             SwitchRow(icon = VibrateIcon, label = "Vibrate on taps", checked = settings.haptics, onToggle = ::toggleHaptics)
+        }
+
+        // One setting for all interval timers, the same controls as the "Voice" sheet of a timer's setup.
+        Section("Timer voice") {
+            TimerCallsControls(settings.timerCalls, dispatch)
         }
 
         Section("Your data") {

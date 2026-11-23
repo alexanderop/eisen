@@ -1,4 +1,5 @@
 import type { Workout } from './program'
+import type { TimerSession } from './timer'
 
 /**
  * Round axis values that cover low to high, about `target` of them.
@@ -43,23 +44,49 @@ export interface CalendarDay {
   today: boolean
   future: boolean
   workouts: Workout[]
+  timers: TimerSession[]
+}
+
+function byDay<T extends { startedAt: number }>(entries: T[]): Map<number, T[]> {
+  const days = new Map<number, T[]>()
+  for (const entry of entries) {
+    const day = startOfDay(entry.startedAt).getTime()
+    days.set(day, [...(days.get(day) ?? []), entry])
+  }
+  return days
 }
 
 /** The last `weeks` weeks as columns of seven days, Monday first, ending with the current week. */
-export function calendarWeeks(history: Workout[], now: number, weeks: number): CalendarDay[][] {
-  const byDay = new Map<number, Workout[]>()
-  for (const workout of history) {
-    const day = startOfDay(workout.startedAt).getTime()
-    byDay.set(day, [...(byDay.get(day) ?? []), workout])
-  }
+export function calendarWeeks(
+  history: Workout[],
+  now: number,
+  weeks: number,
+  timers: TimerSession[] = [],
+): CalendarDay[][] {
+  const workoutDays = byDay(history)
+  const timerDays = byDay(timers)
   const today = startOfDay(now).getTime()
   const first = addDays(weekStart(now), -7 * (weeks - 1))
   return Array.from({ length: weeks }, (_, week) =>
     Array.from({ length: 7 }, (_, day) => {
       const time = addDays(first, week * 7 + day)
-      return { time, today: time === today, future: time > today, workouts: byDay.get(time) ?? [] }
+      return {
+        time,
+        today: time === today,
+        future: time > today,
+        workouts: workoutDays.get(time) ?? [],
+        timers: timerDays.get(time) ?? [],
+      }
     }),
   )
+}
+
+/**
+ * Trainings on a day: its workouts, or one when it only has interval timers.
+ * A timer makes a training day, but a finisher after a workout does not count twice.
+ */
+export function trainings(day: CalendarDay): number {
+  return day.workouts.length > 0 ? day.workouts.length : Math.min(1, day.timers.length)
 }
 
 /**

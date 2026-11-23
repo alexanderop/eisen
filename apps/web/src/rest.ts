@@ -109,9 +109,17 @@ export function beep(times: 1 | 3 = 3): void {
  */
 export async function unlockSound(): Promise<void> {
   if (!state.settings.sound) return
+  await loadVoices(audioContext())
+}
+
+/**
+ * The app's one audio context, shared by the rest and the interval timers, so one tap unlocks both.
+ * Call it from a tap handler the first time.
+ */
+export function audioContext(): AudioContext {
   audio ??= new AudioContext()
   void audio.resume()
-  await loadVoices(audio)
+  return audio
 }
 
 function signalEnd(): void {

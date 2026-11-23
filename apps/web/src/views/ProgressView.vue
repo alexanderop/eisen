@@ -3,7 +3,7 @@ import { Card, ChipGroup, Segmented } from '../components/ui'
 import { computed, ref, watch } from 'vue'
 import TimeChart, { type ChartPoint, type ChartSeries } from '../components/TimeChart.vue'
 import TrainingCalendar from '../components/TrainingCalendar.vue'
-import { calendarWeeks, weekStreak } from '../domain/chart'
+import { calendarWeeks, trainings, weekStreak } from '../domain/chart'
 import type { Equipment } from '../domain/exercises'
 import {
   holdText,
@@ -54,15 +54,16 @@ function inCurrentUnit(weight: number, unit: Unit, equipment: Equipment): number
 
 const WEEKS = 12
 const now = Date.now()
-const weeks = computed(() => calendarWeeks(state.history, now, WEEKS))
+const weeks = computed(() => calendarWeeks(state.history, now, WEEKS, state.timerSessions))
 const consistency = computed(() => {
-  const counts = weeks.value.map((week) => week.reduce((sum, day) => sum + day.workouts.length, 0))
+  const counts = weeks.value.map((week) => week.reduce((sum, day) => sum + trainings(day), 0))
   const firstTrained = counts.findIndex((count) => count > 0)
   const total = counts.reduce((sum, count) => sum + count, 0)
   return {
     thisWeek: counts[counts.length - 1],
+    // A day with only an interval timer is a training day too.
     streak: weekStreak(
-      state.history.map((workout) => workout.startedAt),
+      [...state.history, ...state.timerSessions].map((entry) => entry.startedAt),
       now,
     ),
     // Weeks before the first workout do not pull the average down.
@@ -242,9 +243,7 @@ const gained = computed(() =>
 </script>
 
 <template>
-  <h1 class="page-title">Progress</h1>
-
-  <Card v-if="state.history.length === 0" as="p" class="muted">
+  <Card v-if="state.history.length === 0 && state.timerSessions.length === 0" as="p" class="muted">
     Finish your first workout and your progress shows up here.
   </Card>
 
@@ -271,103 +270,106 @@ const gained = computed(() =>
       </dl>
     </Card>
 
-    <Segmented v-model="range" :options="RANGES" />
+    <!-- Only interval timers so far: nothing to chart yet. -->
+    <template v-if="state.history.length > 0">
+      <Segmented v-model="range" :options="RANGES" />
 
-    <Card v-if="lifts.length > 1" as="section">
-      <div class="row head">
-        <h2>All lifts</h2>
-        <span class="muted">{{ liftsAt === null ? 'Latest' : formatDate(liftsAt) }}</span>
-      </div>
-      <TimeChart
-        v-model:active="liftsAt"
-        :key="range"
-        :series="lifts"
-        :format="(value: number) => fmt(value)"
-        :format-time="formatShortDate"
-        label="Weight of every lift over time"
-      />
-      <ul class="legend">
-        <li v-for="row in liftRows" :key="row.id">
-          <span class="key" :style="{ background: row.color }" aria-hidden="true" />
-          <span class="name">{{ row.name }}</span>
-          <strong>{{ row.value }}</strong>
-        </li>
-      </ul>
-      <p v-if="weighted.length > SERIES_COLORS.length" class="muted note">
-        Showing the first {{ SERIES_COLORS.length }} exercises.
-      </p>
-    </Card>
-
-    <ChipGroup
-      v-if="selected"
-      :model-value="selected.id"
-      :options="options.map((option) => ({ value: option.id, label: option.name }))"
-      label="Exercise"
-      bleed
-      @update:model-value="picked = $event"
-    />
-
-    <Card v-if="selected" as="section">
-      <div class="row head">
-        <h2>{{ selected.name }}</h2>
-        <span class="muted">{{ current }}</span>
-      </div>
-      <p v-if="!shown" class="muted empty">No logged sets for this exercise in this time.</p>
-      <template v-else>
-        <div class="readout" role="status">
-          <strong class="value">{{ shown.value }}</strong>
-          <span class="sets">{{ shown.sets }}</span>
-          <span class="muted date">
-            {{ shown.date }}<template v-for="note in shown.notes" :key="note"> · {{ note }}</template>
-          </span>
+      <Card v-if="lifts.length > 1" as="section">
+        <div class="row head">
+          <h2>All lifts</h2>
+          <span class="muted">{{ liftsAt === null ? 'Latest' : formatDate(liftsAt) }}</span>
         </div>
         <TimeChart
-          v-model:active="pointAt"
-          :key="`${selected.id}-${range}`"
-          :series="series"
-          :format="formatAxis"
+          v-model:active="liftsAt"
+          :key="range"
+          :series="lifts"
+          :format="(value: number) => fmt(value)"
           :format-time="formatShortDate"
-          :label="`${selected.name} over time`"
-          events
+          label="Weight of every lift over time"
         />
-        <ul class="marks" aria-label="What the marks mean">
-          <li>
-            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" class="done" /></svg>
-            {{ timed ? 'Full hold' : 'All reps' }}
-          </li>
-          <li v-if="!bodyweight">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" class="missed" /></svg>
-            {{ timed ? 'Missed time' : 'Missed reps' }}
-          </li>
-          <li v-if="!bodyweight">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5,3.5 L13.5,3.5 L8,13.5 Z" class="done" /></svg>
-            Deload
-          </li>
-          <li>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <circle cx="8" cy="8" r="3" class="done" />
-              <circle cx="8" cy="8" r="6.5" class="halo" />
-            </svg>
-            Best ever
+        <ul class="legend">
+          <li v-for="row in liftRows" :key="row.id">
+            <span class="key" :style="{ background: row.color }" aria-hidden="true" />
+            <span class="name">{{ row.name }}</span>
+            <strong>{{ row.value }}</strong>
           </li>
         </ul>
-        <dl>
-          <div>
-            <dt>Workouts</dt>
-            <dd>{{ points.length }}</dd>
+        <p v-if="weighted.length > SERIES_COLORS.length" class="muted note">
+          Showing the first {{ SERIES_COLORS.length }} exercises.
+        </p>
+      </Card>
+
+      <ChipGroup
+        v-if="selected"
+        :model-value="selected.id"
+        :options="options.map((option) => ({ value: option.id, label: option.name }))"
+        label="Exercise"
+        bleed
+        @update:model-value="picked = $event"
+      />
+
+      <Card v-if="selected" as="section">
+        <div class="row head">
+          <h2>{{ selected.name }}</h2>
+          <span class="muted">{{ current }}</span>
+        </div>
+        <p v-if="!shown" class="muted empty">No logged sets for this exercise in this time.</p>
+        <template v-else>
+          <div class="readout" role="status">
+            <strong class="value">{{ shown.value }}</strong>
+            <span class="sets">{{ shown.sets }}</span>
+            <span class="muted date">
+              {{ shown.date }}<template v-for="note in shown.notes" :key="note"> · {{ note }}</template>
+            </span>
           </div>
-          <div>
-            <dt>Best ever</dt>
-            <dd>{{ record?.value ?? '–' }}</dd>
-            <dd v-if="record" class="when">{{ record.date }}</dd>
-          </div>
-          <div>
-            <dt>Gained</dt>
-            <dd>{{ gained >= 0 ? '+' : '' }}{{ format(gained) }}</dd>
-          </div>
-        </dl>
-      </template>
-    </Card>
+          <TimeChart
+            v-model:active="pointAt"
+            :key="`${selected.id}-${range}`"
+            :series="series"
+            :format="formatAxis"
+            :format-time="formatShortDate"
+            :label="`${selected.name} over time`"
+            events
+          />
+          <ul class="marks" aria-label="What the marks mean">
+            <li>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" class="done" /></svg>
+              {{ timed ? 'Full hold' : 'All reps' }}
+            </li>
+            <li v-if="!bodyweight">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" class="missed" /></svg>
+              {{ timed ? 'Missed time' : 'Missed reps' }}
+            </li>
+            <li v-if="!bodyweight">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5,3.5 L13.5,3.5 L8,13.5 Z" class="done" /></svg>
+              Deload
+            </li>
+            <li>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="3" class="done" />
+                <circle cx="8" cy="8" r="6.5" class="halo" />
+              </svg>
+              Best ever
+            </li>
+          </ul>
+          <dl>
+            <div>
+              <dt>Workouts</dt>
+              <dd>{{ points.length }}</dd>
+            </div>
+            <div>
+              <dt>Best ever</dt>
+              <dd>{{ record?.value ?? '–' }}</dd>
+              <dd v-if="record" class="when">{{ record.date }}</dd>
+            </div>
+            <div>
+              <dt>Gained</dt>
+              <dd>{{ gained >= 0 ? '+' : '' }}{{ format(gained) }}</dd>
+            </div>
+          </dl>
+        </template>
+      </Card>
+    </template>
   </template>
 </template>
 

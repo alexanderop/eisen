@@ -26,6 +26,8 @@ data class Settings(
     val haptics: Boolean,
     /** The rest opens as a full screen with the wheels. Off: only the small bar, which still opens it on a tap. */
     val restFullScreen: Boolean = true,
+    /** What the voice of the interval timers says. One setting for all of them. */
+    val timerCalls: TimerCalls = DEFAULT_TIMER_CALLS,
 )
 
 /** The same shape the PWA stores and exports, so a backup moves between the two apps. */
@@ -45,9 +47,15 @@ data class AppState(
     val active: Workout?,
     /** Finished workouts, newest first. */
     val history: List<Workout>,
+    /** Saved interval timers, in the order the Timer tab shows them. */
+    val timerPresets: List<TimerPreset> = emptyList(),
+    /** Finished interval timers, newest first. */
+    val timerSessions: List<TimerSession> = emptyList(),
+    /** The config each mode was last started with, so it opens the way the lifter left it. */
+    val timerConfigs: Map<TimerMode, TimerConfig> = DEFAULT_TIMERS,
 )
 
-const val STATE_VERSION = 6
+const val STATE_VERSION = 7
 
 private val ORIGINAL_IDS = listOf("hackSquat", "bench", "row", "ohp", "deadlift")
 
@@ -71,6 +79,9 @@ fun freshState(unit: WeightUnit = WeightUnit.KG): AppState {
         customExercises = emptyList(),
         active = null,
         history = emptyList(),
+        timerPresets = emptyList(),
+        timerSessions = emptyList(),
+        timerConfigs = DEFAULT_TIMERS,
     )
 }
 
@@ -204,6 +215,19 @@ fun migrate(value: JsonElement): JsonElement {
     if (data["version"].int() == 5) {
         data = data.with("version" to JsonPrimitive(6))
         data["settings"].obj()?.let { settings -> data = data.with("settings" to settings.with("haptics" to JsonPrimitive(true))) }
+    }
+
+    // Version 7 added the interval timers, their voice and the last config of each mode.
+    if (data["version"].int() == 6) {
+        data = data.with(
+            "version" to JsonPrimitive(7),
+            "timerPresets" to JsonArray(emptyList()),
+            "timerSessions" to JsonArray(emptyList()),
+            "timerConfigs" to StateJson.encodeToJsonElement(DEFAULT_TIMERS),
+        )
+        data["settings"].obj()?.let { settings ->
+            data = data.with("settings" to settings.with("timerCalls" to StateJson.encodeToJsonElement(DEFAULT_TIMER_CALLS)))
+        }
     }
 
     return data

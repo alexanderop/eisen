@@ -4,6 +4,10 @@ import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.Change
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Slot
+import io.github.alexanderop.eisen.domain.TimerConfig
+import io.github.alexanderop.eisen.domain.TimerPreset
+import io.github.alexanderop.eisen.domain.TimerRun
+import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.active
 import io.github.alexanderop.eisen.domain.freshState
@@ -12,7 +16,8 @@ import io.github.alexanderop.eisen.domain.freshState
  * Everything that decides what the app does, as one immutable value. Only [update] makes a new one.
  *
  * Only [state] is saved to the file the PWA shares. [rest], [health] and [notifications] are kept by
- * Android-only preferences (see `runtime/`). Everything else lives while the process lives.
+ * Android-only preferences, the running [timer] by a file of its own (see `runtime/`). Everything else
+ * lives while the process lives.
  */
 data class Model(
     /** The saved data. Its JSON shape and `STATE_VERSION` are shared with the PWA and must not change. */
@@ -36,6 +41,10 @@ data class Model(
     val hold: HoldTimer? = null,
     /** The exercise tapped last, which holds its place on the workout screen for a moment. */
     val settling: Settling? = null,
+    /** The setup of an interval timer open in the Timer tab. Null shows the modes and the saved timers. */
+    val timerSetup: TimerSetup? = null,
+    /** A running interval timer, or the result of the one that just ended. Shown over everything else. */
+    val timer: TimerState? = null,
     val nav: Navigation = Navigation(workoutOpen = state.active != null),
     /** What an Undo snackbar can still bring back. The discarded workout lives in [session]. */
     val undo: Undo = Undo(),
@@ -46,9 +55,9 @@ data class Model(
     /** True while the activity is on screen. Decides which [subscriptions] run. */
     val visible: Boolean = false,
     /**
-     * The clock as of the start, the last [Msg.Rest.Tick] or [Msg.Hold.Tick], [Msg.App.Foreground], change of
-     * screen ([Msg.Nav], a workout that starts, asks to discard or ends). Ticks keep it fresh every second only
-     * while a rest runs and the app shows, or while a hold timer is open. Views read the time only from here:
+     * The clock as of the start, the last [Msg.Rest.Tick], [Msg.Hold.Tick] or [Msg.Timer], [Msg.App.Foreground],
+     * change of screen ([Msg.Nav], a workout that starts, asks to discard or ends). Ticks keep it fresh every
+     * second only while a rest runs and the app shows, while a hold timer is open, or while an interval timer runs. Views read the time only from here:
      * the home screen's date and "last 7 days", the discard question's "N min", the Progress calendar, the timers.
      */
     val now: Long = 0,
@@ -91,10 +100,33 @@ data class RepsQuestion(val exercise: Int, val set: Int, val reps: Int)
  */
 data class Settling(val id: String, val since: Long)
 
-enum class Tab { HOME, WORKOUTS, HISTORY, PROGRESS, SETTINGS }
+/**
+ * The setup of an interval timer: the numbers on its wheels, not yet started. [presetId] is the saved
+ * timer it was opened from or saved as, which "Update preset" overwrites with [config] and [name],
+ * the name as it is being typed.
+ */
+data class TimerSetup(val config: TimerConfig, val presetId: String? = null, val name: String = "")
+
+/** The interval timer over everything else: running, or its result. Never both. */
+sealed interface TimerState {
+    /**
+     * [ending]: "End timer?" is asked. The run goes on meanwhile. [tappedAt]: the last "+1 round" that
+     * counted, so a second tap right after it (a bounce of a sweaty thumb) does not.
+     */
+    data class Running(val run: TimerRun, val ending: Boolean = false, val tappedAt: Long? = null) : TimerState
+
+    /** The result of the run that ended, with "Done" and "Again". */
+    data class Finished(val session: TimerSession) : TimerState
+}
+
+enum class Tab { HOME, WORKOUTS, TIMER, HISTORY, SETTINGS }
+
+/** The two-way switch at the top of the History tab: the list of what was done, or the charts. */
+enum class HistoryView { LOG, PROGRESS }
 
 data class Navigation(
     val tab: Tab = Tab.HOME,
+    val history: HistoryView = HistoryView.LOG,
     /** The lifter wants to see the workout. It only shows while there is one, see [showsWorkout]. */
     val workoutOpen: Boolean = false,
     /** The routine open in the editor of the Workouts tab. */
@@ -103,10 +135,19 @@ data class Navigation(
 
 data class DeletedWorkout(val workout: Workout, val index: Int)
 
+data class DeletedPreset(val preset: TimerPreset, val index: Int)
+
+data class DeletedTimerSession(val session: TimerSession, val index: Int)
+
 data class RemovedSlot(val routineId: String, val index: Int, val slot: Slot)
 
 /** Only the newest delete of each kind can be undone, like the snackbar that offers it. */
-data class Undo(val deletedWorkout: DeletedWorkout? = null, val removedSlot: RemovedSlot? = null)
+data class Undo(
+    val deletedWorkout: DeletedWorkout? = null,
+    val removedSlot: RemovedSlot? = null,
+    val deletedPreset: DeletedPreset? = null,
+    val deletedTimer: DeletedTimerSession? = null,
+)
 
 /**
  * Health Connect sync. [enabled] is the lifter's switch, kept in an Android-only preference.
@@ -150,6 +191,8 @@ data class Flags(
     val notifications: Notifications,
     /** The clock when the process started, so the first screen dates itself before anything ticks. */
     val now: Long = 0,
+    /** The interval timer that ran or was paused when the process ended. */
+    val savedTimer: TimerRun? = null,
 )
 
 /** The first model, and what has to happen right away. Elm's `init`. */
@@ -177,5 +220,6 @@ fun init(flags: Flags): Pair<Model, List<Cmd>> {
     if (flags.healthEnabled) cmds += Cmd.Health(HealthJob.CheckPermission(PermissionCheck.STARTUP))
     // After an install the shortcuts are published, after an update the widgets redrawn.
     cmds += refreshHomeSurfaces(restored.state)
-    return restored to cmds
+    val (timed, more) = restoreTimer(restored, flags.savedTimer, flags.now)
+    return timed to cmds + more
 }

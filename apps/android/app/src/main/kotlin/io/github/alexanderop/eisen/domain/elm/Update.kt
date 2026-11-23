@@ -41,6 +41,7 @@ fun update(msg: Msg, model: Model, env: Env): Next {
         is Msg.Settings -> settings(msg, model)
         is Msg.Data -> data(msg, model, env)
         is Msg.Hold -> hold(msg, model, env)
+        is Msg.Timer -> timer(msg, model, env)
         is Msg.Rest -> rest(msg, model, env)
         is Msg.Health -> health(msg, model)
         is Msg.App -> app(msg, model, env)
@@ -76,7 +77,8 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     }
     if (model.state !== before.state && model.state != before.state) {
         extra += Cmd.Save(model.state)
-        if (model.health.enabled && model.state.history !== before.state.history) extra += healthFollows(before.state, model.state)
+        val followed = model.state.history !== before.state.history || model.state.timerSessions !== before.state.timerSessions
+        if (model.health.enabled && followed) extra += healthFollows(before.state, model.state)
         val surfaces = refreshHomeSurfaces(model.state)
         if (surfaces != refreshHomeSurfaces(before.state)) extra += surfaces
     }
@@ -86,15 +88,19 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
 /**
  * Health Connect follows the history: a new or edited workout is written, a deleted one removed.
  * A finished workout is new in the history, so it is written here too. So is a restored backup.
+ * Finished interval timers are followed the same way.
  */
 internal fun healthFollows(before: AppState, after: AppState): List<Cmd> {
     val old = before.history.associateBy { it.id }
     val now = after.history.map { it.id }.toSet()
-    val removed = before.history.map { it.id }.filter { it !in now }
+    val oldTimers = before.timerSessions.associateBy { it.id }
+    val nowTimers = after.timerSessions.map { it.id }.toSet()
+    val removed = before.history.map { it.id }.filter { it !in now } + before.timerSessions.map { it.id }.filter { it !in nowTimers }
     val changed = after.history.filter { old[it.id] != it }
+    val changedTimers = after.timerSessions.filter { oldTimers[it.id] != it }
     return buildList {
         if (removed.isNotEmpty()) add(Cmd.Health(HealthJob.Delete(removed)))
-        if (changed.isNotEmpty()) add(Cmd.Health(HealthJob.Upsert(changed)))
+        if (changed.isNotEmpty() || changedTimers.isNotEmpty()) add(Cmd.Health(HealthJob.Upsert(changed, changedTimers)))
     }
 }
 
@@ -119,7 +125,8 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
     val cmds = mutableListOf<Cmd>()
     for (effect in result.effects) {
         when (effect) {
-            is Effect.StartRest -> {
+            // The interval timer covers the workout: no rest starts under it.
+            is Effect.StartRest -> if (next.timer !is TimerState.Running) {
                 val (rested, more) = startRest(next, effect.seconds, effect.note, env)
                 // Every rest opens its screen, also after one that was minimised.
                 val id = rested.session.active?.exercises?.getOrNull(effect.exercise)?.id
@@ -135,7 +142,7 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
             is Effect.AskReps -> next = next.copy(repsQuestion = RepsQuestion(effect.exercise, effect.set, effect.reps))
             is Effect.OpenHold -> {
                 val log = next.session.active?.exercises?.getOrNull(effect.exercise)
-                if (log != null) {
+                if (log != null && next.timer !is TimerState.Running) {
                     val hold = HoldTimer(effect.exercise, effect.set, log.id, log.targetReps, startsAt = env.now + HOLD_LEAD_IN_SECONDS * 1000L)
                     next = next.copy(hold = hold, now = env.now, nav = next.nav.copy(workoutOpen = true))
                 }
@@ -234,22 +241,28 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
     val nav = model.nav
     val next = when (msg) {
         is Msg.Nav.SelectTab -> nav.copy(tab = msg.tab)
+        is Msg.Nav.ShowHistory -> nav.copy(history = msg.view)
         Msg.Nav.OpenWorkout -> nav.copy(workoutOpen = true)
         Msg.Nav.CloseWorkout -> nav.copy(workoutOpen = false)
         is Msg.Nav.OpenRoutine -> if (model.state.routines.any { it.id == msg.id }) nav.copy(routine = msg.id) else nav
         Msg.Nav.CloseRoutine -> nav.copy(routine = null)
+        // The interval timer over everything asks before it ends, its result goes back to the Timer tab.
         // A hold timer closes first, without logging, and the rest screen goes down to the bar. Then the
-        // workout (it keeps running), then the routine editor, then any tab goes home.
+        // workout (it keeps running), then the routine editor or the timer's setup, then any tab goes home.
         Msg.Nav.Back -> when {
+            model.timer is TimerState.Running -> return timer(if ((model.timer as TimerState.Running).ending) Msg.Timer.KeepGoing else Msg.Timer.End, model, env)
+            model.timer is TimerState.Finished -> return timer(Msg.Timer.Done, model, env)
             model.hold != null -> return model.copy(hold = null).only()
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
+            nav.tab == Tab.TIMER && model.timerSetup != null -> return timer(Msg.Timer.CloseSetup, model, env)
             nav.tab != Tab.HOME -> nav.copy(tab = Tab.HOME)
             else -> nav
         }
         is Msg.Nav.Restore -> Navigation(
             tab = msg.tab,
+            history = msg.history,
             workoutOpen = msg.workoutOpen,
             routine = msg.routine?.takeIf { id -> model.state.routines.any { it.id == id } },
         )

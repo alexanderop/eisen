@@ -3,6 +3,9 @@ package io.github.alexanderop.eisen.domain.elm
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.Slot
+import io.github.alexanderop.eisen.domain.TimerCalls
+import io.github.alexanderop.eisen.domain.TimerConfig
+import io.github.alexanderop.eisen.domain.TimerMode
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.Workout as FinishedWorkout
@@ -42,6 +45,9 @@ sealed interface Msg {
 
     sealed interface Nav : Msg {
         data class SelectTab(val tab: Tab) : Nav
+
+        /** The "Log" and "Progress" switch at the top of the History tab. */
+        data class ShowHistory(val view: HistoryView) : Nav
         data object OpenWorkout : Nav
         data object CloseWorkout : Nav
         data class OpenRoutine(val id: String) : Nav
@@ -51,7 +57,7 @@ sealed interface Msg {
         data object Back : Nav
 
         /** What the activity saved before Android ended the process. */
-        data class Restore(val tab: Tab, val workoutOpen: Boolean, val routine: String?) : Nav
+        data class Restore(val tab: Tab, val workoutOpen: Boolean, val routine: String?, val history: HistoryView = HistoryView.LOG) : Nav
     }
 
     sealed interface Home : Msg {
@@ -175,6 +181,86 @@ sealed interface Msg {
 
         /** A second of the hold passed, see [subscriptions]. */
         data object Tick : Hold
+    }
+
+    /**
+     * The interval timers: their setup, the run over everything else and its result, the saved timers and
+     * the finished ones in the history. The buttons on the run's notification end up here too.
+     * A Msg about a run, setup or result that is not there changes nothing.
+     */
+    sealed interface Timer : Msg {
+        /** A mode card: its setup opens with the config it was last started with. */
+        data class Open(val mode: TimerMode) : Timer
+
+        /** A saved timer: the setup opens filled in, and "Update preset" can overwrite it. */
+        data class OpenPreset(val id: String) : Timer
+
+        /** The play button of a saved timer: its setup opens and it starts at once. */
+        data class StartPreset(val id: String) : Timer
+
+        /** The name field of a setup that belongs to a saved timer. Saved by [UpdatePreset]. */
+        data class EditName(val name: String) : Timer
+
+        /** A wheel of the setup settled. Brought into the limits of the mode. */
+        data class Edit(val config: TimerConfig) : Timer
+        data object CloseSetup : Timer
+
+        /** The voice sheet or the "Timer voice" settings. A run that is going keeps what it started with. */
+        data class SetCalls(val calls: TimerCalls) : Timer
+
+        /** "Play sample": says "Halfway" so the lifter can set the volume. */
+        data object PlaySample : Timer
+
+        /** Saves the setup as a new timer. A blank [name] gets the mode and its summary. */
+        data class SavePreset(val name: String) : Timer
+
+        /** Overwrites the saved timer the setup was opened from: its numbers and its name. */
+        data object UpdatePreset : Timer
+
+        /** A swipe: gone at once, with Undo. */
+        data class DeletePreset(val id: String) : Timer
+        data object UndoDeletePreset : Timer
+
+        /** "Start" in the setup: ends a running rest and closes a hold timer. */
+        data object Start : Timer
+
+        /** "Again" on the result: the same timer straight into its lead-in. */
+        data object Again : Timer
+        data object Pause : Timer
+        data object Resume : Timer
+
+        /** "End" and the back gesture: asks first, except during the lead-in, where it just closes. */
+        data object End : Timer
+
+        /** The answers to "End timer?". [SaveAndEnd] is also the "End" on the notification, which cannot ask. */
+        data object KeepGoing : Timer
+        data object SaveAndEnd : Timer
+        data object Discard : Timer
+
+        /** "Finish" in For Time: the lifter is done, the run counts as completed. */
+        data object Finish : Timer
+
+        /** "+1 round" in AMRAP and For Time. A second one within [TAP_GUARD_MILLIS] is a bounce and does not count. */
+        data object Tap : Timer
+
+        /** "−1" next to the count: takes back a round counted by mistake. */
+        data object Untap : Timer
+
+        /** "−" and "+" on the result of AMRAP and For Time: corrects the rounds of the saved session by [by]. */
+        data class CorrectRounds(val by: Int) : Timer
+
+        /** A second of the run passed, see [subscriptions]. Ends the run once it ran out. */
+        data object Tick : Timer
+
+        /** "Done" on the result: back to the Timer tab. */
+        data object Done : Timer
+
+        /** The last cues of run [id] had time to play. Lets the timer's service go if no other run started. */
+        data class Release(val id: String) : Timer
+
+        /** A swipe on a finished timer in the history: gone at once, with Undo. */
+        data class DeleteSession(val id: String) : Timer
+        data object UndoDeleteSession : Timer
     }
 
     /** The rest timer. Its alarms and the buttons on its notification end up here too. */

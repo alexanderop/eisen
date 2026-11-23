@@ -8,6 +8,8 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import io.github.alexanderop.eisen.domain.AppState
+import io.github.alexanderop.eisen.domain.StateJson
+import io.github.alexanderop.eisen.domain.TimerRun
 import io.github.alexanderop.eisen.domain.decodeState
 import io.github.alexanderop.eisen.domain.elm.RestState
 import io.github.alexanderop.eisen.domain.encodeState
@@ -36,6 +38,34 @@ internal object StateFile {
                 val draft = File(target.parentFile, target.name + ".tmp")
                 draft.writeText(encodeState(state))
                 if (!draft.renameTo(target)) target.writeText(encodeState(state))
+            }
+        }
+    }
+}
+
+/**
+ * The running interval timer, in a small file next to the state. Not part of the state or of backups:
+ * it only brings a run back after the process ended.
+ */
+internal object TimerFile {
+    private const val NAME = "timer-run.json"
+    private val writer = Executors.newSingleThreadExecutor()
+
+    fun read(context: Context): TimerRun? =
+        runCatching { StateJson.decodeFromString(TimerRun.serializer(), File(context.filesDir, NAME).readText()) }.getOrNull()
+
+    /** Off the main thread, in order. Null deletes the file. */
+    fun write(context: Context, run: TimerRun?) {
+        val target = File(context.filesDir, NAME)
+        writer.execute {
+            runCatching {
+                if (run == null) {
+                    target.delete()
+                } else {
+                    val draft = File(target.parentFile, target.name + ".tmp")
+                    draft.writeText(StateJson.encodeToString(TimerRun.serializer(), run))
+                    if (!draft.renameTo(target)) target.writeText(StateJson.encodeToString(TimerRun.serializer(), run))
+                }
             }
         }
     }

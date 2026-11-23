@@ -19,6 +19,7 @@ import { applyUpdate, build, checkForUpdate, checkResult, updateReady } from '..
 import { Button, ListRow, Sheet, Stepper } from '../components/ui'
 import { computed, ref } from 'vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
+import TimerCalls from '../components/TimerCalls.vue'
 import { stepFor, UNIT_DEFAULTS } from '../domain/program'
 import type { Unit } from '../domain/units'
 import { ADDED_WEIGHT_HINT, fmt, fmtAdded, fmtLoad } from '../format'
@@ -260,6 +261,11 @@ function onReset() {
         :checked="state.settings.haptics"
         @click="toggle('haptics')"
       />
+    </section>
+
+    <section>
+      <h2>Timer voice</h2>
+      <TimerCalls />
     </section>
 
     <section>

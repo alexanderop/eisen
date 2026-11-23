@@ -13,15 +13,21 @@ sealed interface Sub {
 
     /** Sends [Msg.Hold.Tick] each time a whole second counted from [startsAt] passes. */
     data class HoldClock(val startsAt: Long) : Sub
+
+    /** Sends [Msg.Timer.Tick] each time a whole second of the run counted from [anchor] passes. */
+    data class TimerClock(val anchor: Long) : Sub
 }
 
 /**
  * Which sources run for [model]: the countdown clock while a rest runs and the app shows, the hold
  * clock while a hold timer is open. That one also runs while the app is away, so a hold that ends
- * meanwhile is logged and heard on time as long as the process lives.
+ * meanwhile is logged and heard on time as long as the process lives. So does the interval timer's
+ * clock while a run goes (not while it is paused): its service keeps the process and the phone awake.
  */
 fun subscriptions(model: Model): Set<Sub> = buildSet {
     val rest = model.rest
     if (rest != null && model.visible) add(Sub.RestClock(rest.endsAt))
     model.hold?.let { add(Sub.HoldClock(it.startsAt)) }
+    val run = (model.timer as? TimerState.Running)?.run
+    if (run != null && run.pausedAt == null) add(Sub.TimerClock(run.startedAt + run.paused))
 }

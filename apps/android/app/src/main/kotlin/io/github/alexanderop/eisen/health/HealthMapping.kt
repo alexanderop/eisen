@@ -1,10 +1,14 @@
 package io.github.alexanderop.eisen.health
 
 import androidx.health.connect.client.records.ExerciseSegment
+import androidx.health.connect.client.records.ExerciseSessionRecord
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.loadText
 import io.github.alexanderop.eisen.domain.repsText
+import io.github.alexanderop.eisen.domain.sessionSummary
+import io.github.alexanderop.eisen.domain.timerSummary
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -21,6 +25,7 @@ data class SessionFields(
     val title: String,
     val notes: String,
     val segments: List<SegmentFields>,
+    val exerciseType: Int = ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING,
 )
 
 /**
@@ -115,5 +120,26 @@ fun sessionFields(workout: Workout, zone: ZoneId): SessionFields? {
         title = workout.name,
         notes = workoutNotes(workout),
         segments = segments,
+    )
+}
+
+/**
+ * The record for a finished interval timer: a HIIT session named like the timer, from Start to the end,
+ * with what it was and what was done in the notes. Null when its end is not after its start.
+ */
+fun timerSessionFields(session: TimerSession, zone: ZoneId): SessionFields? {
+    if (session.finishedAt <= session.startedAt) return null
+    val start = Instant.ofEpochMilli(session.startedAt)
+    val end = Instant.ofEpochMilli(session.finishedAt)
+    val done = if (session.completed) "" else ", stopped early"
+    return SessionFields(
+        start = start,
+        startOffset = zone.rules.getOffset(start),
+        end = end,
+        endOffset = zone.rules.getOffset(end),
+        title = session.name,
+        notes = "${session.config.mode.title} ${timerSummary(session.config)}: ${sessionSummary(session)}$done",
+        segments = emptyList(),
+        exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING,
     )
 }

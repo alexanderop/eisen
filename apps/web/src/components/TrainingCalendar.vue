@@ -2,10 +2,11 @@
 import { computed, ref } from 'vue'
 import type { CalendarDay } from '../domain/chart'
 import { durationMinutes } from '../domain/share'
+import { sessionSummary } from '../domain/timer'
 import { formatDate } from '../format'
 import { haptic } from '../haptics'
 
-/** One square per day, a column per week, Monday on top. Days with a workout are lit. */
+/** One square per day, a column per week, Monday on top. Days with a workout or a timer are lit. */
 const props = defineProps<{ weeks: CalendarDay[][] }>()
 
 const monthFormat = new Intl.DateTimeFormat(undefined, { month: 'short' })
@@ -24,21 +25,27 @@ const weekdays = computed(() => props.weeks[0].map((day) => weekdayFormat.format
 
 const picked = ref<number | null>(null)
 const selected = computed(
-  () => props.weeks.flat().find((day) => day.time === picked.value && day.workouts.length > 0) ?? null,
+  () => props.weeks.flat().find((day) => day.time === picked.value && trained(day)) ?? null,
 )
+
+function trained(day: CalendarDay): boolean {
+  return day.workouts.length > 0 || day.timers.length > 0
+}
 
 function pick(day: CalendarDay) {
   picked.value = day.time === picked.value ? null : day.time
   haptic('tap')
 }
 
-function describe(day: CalendarDay): string {
-  return day.workouts
-    .map((workout) => {
+/** One line per workout or timer of the day. */
+function entries(day: CalendarDay): string[] {
+  return [
+    ...day.workouts.map((workout) => {
       const minutes = durationMinutes(workout)
       return minutes === null ? workout.name : `${workout.name}, ${minutes} min`
-    })
-    .join(' and ')
+    }),
+    ...day.timers.map((session) => `${session.name}, ${sessionSummary(session)}`),
+  ]
 }
 </script>
 
@@ -55,10 +62,10 @@ function describe(day: CalendarDay): string {
         <template v-for="week in weeks" :key="week[0].time">
           <template v-for="day in week" :key="day.time">
             <button
-              v-if="day.workouts.length > 0"
+              v-if="trained(day)"
               class="day trained"
               :class="{ today: day.today, picked: day.time === picked }"
-              :aria-label="`${formatDate(day.time)}: ${describe(day)}`"
+              :aria-label="`${formatDate(day.time)}: ${entries(day).join('; ')}`"
               :aria-pressed="day.time === picked"
               @click="pick(day)"
             />
@@ -70,7 +77,7 @@ function describe(day: CalendarDay): string {
     <p class="readout" role="status">
       <template v-if="selected">
         <strong>{{ formatDate(selected.time) }}</strong>
-        <span class="muted">{{ describe(selected) }}</span>
+        <span v-for="(entry, index) in entries(selected)" :key="index" class="muted entry">{{ entry }}</span>
       </template>
       <span v-else class="muted">Tap a lit day to see the workout.</span>
     </p>
@@ -157,8 +164,8 @@ function describe(day: CalendarDay): string {
 
 .readout {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  flex-direction: column;
+  gap: 2px;
   min-height: 20px;
   margin-top: 6px;
   font-size: 13px;

@@ -2,6 +2,8 @@ package io.github.alexanderop.eisen.domain.elm
 
 import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.Feel
+import io.github.alexanderop.eisen.domain.TimerRun
+import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
 
 /**
@@ -58,9 +60,47 @@ sealed interface Cmd {
     /** Writes [json] into a picked file and answers with [Msg.Data.BackupWritten]. */
     data class WriteBackup(val uri: String, val json: String) : Cmd
 
+    /** Keeps the running interval timer in a file of its own, so it survives the end of the process. Null deletes it. */
+    data class SaveTimer(val run: TimerRun?) : Cmd
+
+    /**
+     * Replaces what the interval timer's service plays: [sounds] and [vibrations] at their times on the wall
+     * clock. A sound more than [TIMER_CUE_LATE_MILLIS] late is skipped, not played late. The phone is kept
+     * awake until [awakeUntil]; null lets it sleep. Empty lists silence the timer at once (a pause).
+     */
+    data class ScheduleTimer(val sounds: List<TimerSound>, val vibrations: List<TimerVibration>, val awakeUntil: Long?) : Cmd
+
+    /** Starts (or updates) the interval timer's foreground service with its notification. */
+    data class ShowTimer(val notice: TimerNotice) : Cmd
+
+    /** Stops the interval timer's service, its sounds and its notification. */
+    data object HideTimer : Cmd
+
+    /** Plays one sound of the timers now, the way a run would. */
+    data class PlayTimerSound(val sound: String) : Cmd
+
     /** Something the screen shows or does once. See [UiEvent]. */
     data class Ui(val event: UiEvent) : Cmd
 }
+
+/** A sound of an interval timer at [at] on the wall clock: "beep", "beep-long" or a recording in `voice/timer`. */
+data class TimerSound(val at: Long, val sound: String)
+
+data class TimerVibration(val at: Long, val pattern: List<Long>)
+
+/** The ongoing notification of an interval timer. [base] is the chronometer's time, null while paused. */
+data class TimerNotice(
+    val title: String,
+    val text: String,
+    val base: Long?,
+    val countDown: Boolean,
+    val paused: Boolean,
+    val toggleLabel: String,
+    val endLabel: String,
+)
+
+/** A cue of an interval timer that comes this late (the phone was asleep) is skipped. */
+const val TIMER_CUE_LATE_MILLIS = 1_500L
 
 /**
  * What the UI does once instead of showing it from the model: a snackbar, a haptic, a system dialog.
@@ -102,12 +142,14 @@ sealed interface HealthJob {
     /** Answers with [Msg.Health.PermissionChecked]. */
     data class CheckPermission(val purpose: PermissionCheck) : HealthJob
 
-    /** Writes (or rewrites) these workouts. A missing permission answers with [Msg.Health.Revoked]. */
-    data class Upsert(val workouts: List<Workout>) : HealthJob
+    /** Writes (or rewrites) these workouts and timers. A missing permission answers with [Msg.Health.Revoked]. */
+    data class Upsert(val workouts: List<Workout>, val timers: List<TimerSession> = emptyList()) : HealthJob
+
+    /** Workouts and timers alike, by id. */
     data class Delete(val ids: List<String>) : HealthJob
 
     /** [Upsert] that answers with [Msg.Health.SyncedPast]. */
-    data class SyncPast(val workouts: List<Workout>) : HealthJob
+    data class SyncPast(val workouts: List<Workout>, val timers: List<TimerSession> = emptyList()) : HealthJob
 
     /** Asks Android whether Health Connect is installed and usable. Answers with [Msg.Health.Availability]. */
     data object CheckAvailability : HealthJob
