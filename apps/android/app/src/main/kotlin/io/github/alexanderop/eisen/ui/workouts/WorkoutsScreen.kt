@@ -1,6 +1,5 @@
 package io.github.alexanderop.eisen.ui.workouts
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,11 +28,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -46,7 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -70,12 +63,30 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.Exercise
+import io.github.alexanderop.eisen.domain.DEFAULT_HOLD_SECONDS
+import io.github.alexanderop.eisen.domain.HOLD_STEP_SECONDS
+import io.github.alexanderop.eisen.domain.MAX_HOLD_SECONDS
 import io.github.alexanderop.eisen.domain.MAX_REPS
+import io.github.alexanderop.eisen.domain.MIN_HOLD_SECONDS
+import io.github.alexanderop.eisen.domain.holdText
+import io.github.alexanderop.eisen.domain.targetText
 import io.github.alexanderop.eisen.domain.MAX_SETS
 import io.github.alexanderop.eisen.domain.Routine
 import io.github.alexanderop.eisen.domain.Slot
+import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.elm.AddTarget
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.exerciseNamed
+import io.github.alexanderop.eisen.domain.elm.exercises
+import io.github.alexanderop.eisen.domain.elm.findExercise
+import io.github.alexanderop.eisen.domain.elm.nextRoutine
+import io.github.alexanderop.eisen.domain.elm.openRoutine
+import io.github.alexanderop.eisen.domain.elm.progressOf
+import io.github.alexanderop.eisen.domain.elm.settings
+import io.github.alexanderop.eisen.domain.elm.workoutRunning
 import io.github.alexanderop.eisen.domain.kindLabel
 import io.github.alexanderop.eisen.ui.ColumnReorderState
 import io.github.alexanderop.eisen.ui.EisenColors
@@ -98,7 +109,6 @@ import io.github.alexanderop.eisen.ui.rememberHaptics
 import io.github.alexanderop.eisen.ui.reorderContainer
 import io.github.alexanderop.eisen.ui.reorderHandle
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.launch
 
 private val ArrowUp = pathIcon("ArrowUp", "m5 12 7-7 7 7", "M12 19V5")
 private val ArrowDown = pathIcon("ArrowDown", "M12 5v14", "m19 12-7 7-7-7")
@@ -114,51 +124,28 @@ private val Grip = pathIcon(
 
 private val OnDestructive = Color(0xFF2B0A0A)
 
-private const val NAME_LENGTH = 30
-
-/** The workouts in the order they rotate in, and an editor for one of them. */
+/**
+ * The workouts in the order they rotate in, and an editor for the one in `model.nav.routine`.
+ * The back gesture closes the editor through the root (`Msg.Nav.Back`); the Undo of a removed
+ * exercise comes from `update` and shows in the app's one SnackbarHost.
+ */
 @Composable
-fun WorkoutsScreen() {
-    var editingId by rememberSaveable { mutableStateOf<String?>(null) }
-    val editing = Store.state.routines.firstOrNull { it.id == editingId }
-    // Out here and not in the editor, so Undo still works after going back to the list.
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    fun offerUndo(routineId: String, index: Int, slot: Slot) {
-        val name = Store.findExercise(slot.exerciseId)?.name ?: "Deleted exercise"
-        scope.launch {
-            // A second remove replaces the first snackbar, so only the newest one can be undone.
-            snackbar.currentSnackbarData?.dismiss()
-            val result = snackbar.showSnackbar("Removed $name", actionLabel = "Undo", duration = SnackbarDuration.Short)
-            if (result == SnackbarResult.ActionPerformed) Store.insertSlot(routineId, index, slot)
-        }
-    }
-
+fun WorkoutsScreen(model: Model, dispatch: (Msg) -> Unit) {
+    val editing = openRoutine(model)
     Box(Modifier.fillMaxSize()) {
         if (editing != null) {
-            // Back closes the editor first, like the "Workouts" button at the top.
-            BackHandler { editingId = null }
             // A fresh scroll position and closed exercises for every workout opened.
             key(editing.id) {
-                RoutineEditor(editing, onClose = { editingId = null }, onRemoved = { index, slot -> offerUndo(editing.id, index, slot) })
+                RoutineEditor(model, editing, dispatch)
             }
         } else {
-            RoutineList(onOpen = { editingId = it })
-        }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).keyboardPadding().padding(horizontal = 8.dp)) { data ->
-            Snackbar(
-                data,
-                containerColor = EisenColors.Border,
-                contentColor = EisenColors.Foreground,
-                actionColor = EisenColors.Primary,
-            )
+            RoutineList(model, dispatch)
         }
     }
 }
 
-private fun summary(routine: Routine): String {
-    val names = routine.slots.mapNotNull { Store.findExercise(it.exerciseId)?.name }
+private fun summary(model: Model, routine: Routine): String {
+    val names = routine.slots.mapNotNull { findExercise(model, it.exerciseId)?.name }
     return if (names.isNotEmpty()) names.joinToString(" · ") else "No exercises yet"
 }
 
@@ -169,13 +156,14 @@ private fun moveActions(index: Int, count: Int, move: (from: Int, to: Int) -> Un
 }
 
 @Composable
-private fun RoutineList(onOpen: (String) -> Unit) {
-    val nextId = Store.nextRoutine.id
-    val routines = Store.state.routines
+private fun RoutineList(model: Model, dispatch: (Msg) -> Unit) {
+    val nextId = nextRoutine(model).id
+    val routines = model.state.routines
     val scroll = rememberScrollState()
+    val move = { from: Int, to: Int -> dispatch(Msg.Routines.Move(from, to)) }
     val reorder = rememberColumnReorderState(
         keys = routines.map { it.id },
-        onMove = { from, to -> Store.moveRoutine(from, to) },
+        onMove = move,
         scrollState = scroll,
     )
     Column(
@@ -205,8 +193,8 @@ private fun RoutineList(onOpen: (String) -> Unit) {
                         Modifier
                             .fillMaxWidth()
                             .longPressToReorder(reorder, routine.id, enabled = routines.size > 1)
-                            .semantics { customActions = moveActions(index, routines.size, Store::moveRoutine) },
-                        onClick = { onOpen(routine.id) },
+                            .semantics { customActions = moveActions(index, routines.size, move) },
+                        onClick = { dispatch(Msg.Nav.OpenRoutine(routine.id)) },
                     ) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -214,14 +202,15 @@ private fun RoutineList(onOpen: (String) -> Unit) {
                                 if (routine.id == nextId) PillBadge("Next")
                                 Icon(Icons.ChevronRight, contentDescription = null, tint = EisenColors.Primary)
                             }
-                            Text(summary(routine), color = EisenColors.MutedForeground, fontSize = 13.sp)
+                            Text(summary(model, routine), color = EisenColors.MutedForeground, fontSize = 13.sp)
                         }
                     }
                 }
             }
         }
         FilledTonalButton(
-            onClick = { onOpen(Store.addRoutine().id) },
+            // Opens the new workout in the editor.
+            onClick = { dispatch(Msg.Routines.Add()) },
             modifier = Modifier.fillMaxWidth().height(ButtonHeight),
             shape = MaterialTheme.shapes.medium,
             colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
@@ -231,46 +220,54 @@ private fun RoutineList(onOpen: (String) -> Unit) {
     }
 }
 
-/** "5 × 5 · 80kg · Barbell" or "3 × max · BW + 10kg · Bodyweight". Plain bodyweight has no load to show. */
-private fun detail(slot: Slot): String {
-    val exercise = Store.findExercise(slot.exerciseId) ?: return ""
-    val scheme = "${slot.sets} × ${slot.reps ?: "max"}"
+/**
+ * "5 × 5 · 80kg · Barbell", "3 × max · BW + 10kg · Bodyweight" or "3 × 1:00 · Bodyweight".
+ * Plain bodyweight has no load to show.
+ */
+private fun detail(slot: Slot, exercise: Exercise?, weight: Double, unit: WeightUnit): String {
+    if (exercise == null) return ""
+    val scheme = "${slot.sets} × ${targetText(slot.reps, exercise.timed)}"
     val kind = kindLabel(exercise.id, exercise.equipment)
-    val weight = Store.progressOf(exercise.id).weight
     return if (exercise.equipment == Equipment.BODYWEIGHT && weight == 0.0) "$scheme · $kind"
-    else "$scheme · ${fmtLoad(exercise.equipment, weight)} · $kind"
+    else "$scheme · ${fmtLoad(exercise.equipment, weight, unit)} · $kind"
 }
 
 @Composable
-private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (index: Int, slot: Slot) -> Unit) {
+private fun RoutineEditor(model: Model, routine: Routine, dispatch: (Msg) -> Unit) {
+    // Which sheet shows and which card is open are presentation: nothing else depends on them.
     var picking by rememberSaveable { mutableStateOf(false) }
     // The exercise whose sets and reps are being changed. One at a time keeps the list short.
     var openSlot by rememberSaveable { mutableStateOf<String?>(null) }
+    // The name of an exercise just created in the picker. Its id comes from `update`, so the card
+    // opens once the exercise shows up in this workout.
+    var created by rememberSaveable { mutableStateOf<String?>(null) }
     val focus = LocalFocusManager.current
-    val haptics = rememberHaptics()
     val scroll = rememberScrollState()
+    val moveSlot = { from: Int, to: Int -> dispatch(Msg.Routines.MoveSlot(routine.id, from, to)) }
     // A slot is known by its exercise: a workout holds every exercise at most once.
     val reorder = rememberColumnReorderState(
         keys = routine.slots.map { it.exerciseId },
-        onMove = { from, to -> Store.moveSlotTo(routine.id, from, to) },
+        onMove = moveSlot,
         scrollState = scroll,
     )
 
-    // By exercise, not by index: a swipe and the button can both fire for the same card, and the
-    // second must not take the slot that moved into its place.
+    // By exercise, not by index: `update` ignores a second remove of the same card. It offers Undo.
     fun remove(exerciseId: String) {
-        val slots = Store.state.routines.firstOrNull { it.id == routine.id }?.slots ?: return
-        val index = slots.indexOfFirst { it.exerciseId == exerciseId }
-        if (index == -1) return
-        Store.removeSlot(routine.id, index)
         if (openSlot == exerciseId) openSlot = null
-        haptics.perform(Haptic.TAP)
-        onRemoved(index, slots[index])
+        dispatch(Msg.Routines.RemoveSlot(routine.id, exerciseId))
+    }
+
+    val createdId = created?.let { name -> exerciseNamed(model, name)?.id }
+    LaunchedEffect(createdId, routine.slots) {
+        if (createdId != null && routine.slots.any { it.exerciseId == createdId }) {
+            openSlot = createdId
+            created = null
+        }
     }
 
     // An empty name would leave a blank card. Leaving the editor counts as leaving the field.
     DisposableEffect(routine.id) {
-        onDispose { fixName(routine.id) }
+        onDispose { dispatch(Msg.Routines.CommitName(routine.id)) }
     }
 
     Column(
@@ -285,7 +282,7 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         TextButton(
-            onClick = onClose,
+            onClick = { dispatch(Msg.Nav.CloseRoutine) },
             modifier = Modifier.heightIn(min = 48.dp),
             contentPadding = PaddingValues(start = 4.dp, end = 12.dp),
         ) {
@@ -296,8 +293,8 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
 
         OutlinedTextField(
             value = routine.name,
-            onValueChange = { Store.renameRoutine(routine.id, it.take(NAME_LENGTH)) },
-            modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) fixName(routine.id) },
+            onValueChange = { dispatch(Msg.Routines.Rename(routine.id, it)) },
+            modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) dispatch(Msg.Routines.CommitName(routine.id)) },
             label = { Text("Name") },
             singleLine = true,
             shape = MaterialTheme.shapes.small,
@@ -319,6 +316,11 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
                             routine = routine,
                             index = index,
                             slot = slot,
+                            exercise = findExercise(model, slot.exerciseId),
+                            weight = progressOf(model, slot.exerciseId).weight,
+                            unit = model.settings.unit,
+                            onUpdate = { dispatch(Msg.Routines.UpdateSlot(routine.id, index, it)) },
+                            onMove = moveSlot,
                             open = openSlot == slot.exerciseId,
                             reorder = reorder,
                             onToggle = { openSlot = if (openSlot == slot.exerciseId) null else slot.exerciseId },
@@ -336,7 +338,7 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
         ) {
             Text("Add exercise", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
-        if (Store.state.active != null) {
+        if (workoutRunning(model)) {
             Text(
                 "Changes apply from the next workout. The one in progress stays as it is.",
                 modifier = Modifier.fillMaxWidth(),
@@ -345,7 +347,7 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
                 textAlign = TextAlign.Center,
             )
         }
-        val routines = Store.state.routines
+        val routines = model.state.routines
         if (routines.size > 1) {
             // The list's hold-and-drag without a gesture.
             val position = routines.indexOfFirst { it.id == routine.id }
@@ -353,20 +355,18 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
                 Text("Place in the rotation", color = EisenColors.MutedForeground, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MoveButton("Move up", ArrowUp, enabled = position > 0, modifier = Modifier.weight(1f)) {
-                        Store.moveRoutine(position, position - 1)
+                        dispatch(Msg.Routines.Move(position, position - 1))
                     }
                     MoveButton("Move down", ArrowDown, enabled = position < routines.lastIndex, modifier = Modifier.weight(1f)) {
-                        Store.moveRoutine(position, position + 1)
+                        dispatch(Msg.Routines.Move(position, position + 1))
                     }
                 }
             }
             ConfirmButton(
                 label = "Delete workout",
                 confirmLabel = "Tap again to delete",
-                onConfirm = {
-                    Store.removeRoutine(routine.id)
-                    onClose()
-                },
+                // Closes the editor too.
+                onConfirm = { dispatch(Msg.Routines.Remove(routine.id)) },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -374,20 +374,22 @@ private fun RoutineEditor(routine: Routine, onClose: () -> Unit, onRemoved: (ind
 
     if (picking) {
         ExercisePickerSheet(
+            exercises = exercises(model),
             exclude = routine.slots.map { it.exerciseId }.toSet(),
             onPick = { id ->
-                Store.addSlot(routine.id, id)
+                dispatch(Msg.Routines.AddSlot(routine.id, id))
                 openSlot = id
                 picking = false
             },
             onDismiss = { picking = false },
+            onCreate = { name, equipment, timed ->
+                dispatch(Msg.Exercises.AddCustom(name, equipment, addTo = AddTarget.Routine(routine.id), timed = timed))
+                created = name
+                picking = false
+            },
+            onDelete = { id -> dispatch(Msg.Exercises.DeleteCustom(id)) },
         )
     }
-}
-
-private fun fixName(routineId: String) {
-    val routine = Store.state.routines.firstOrNull { it.id == routineId } ?: return
-    if (routine.name.isBlank()) Store.renameRoutine(routineId, "Workout")
 }
 
 /**
@@ -435,15 +437,19 @@ private fun SlotCard(
     routine: Routine,
     index: Int,
     slot: Slot,
+    exercise: Exercise?,
+    weight: Double,
+    unit: WeightUnit,
+    onUpdate: (Slot) -> Unit,
+    onMove: (from: Int, to: Int) -> Unit,
     open: Boolean,
     reorder: ColumnReorderState,
     onToggle: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val exercise = Store.findExercise(slot.exerciseId)
-    fun update(next: Slot) = Store.updateSlot(routine.id, index, next)
+    fun update(next: Slot) = onUpdate(next)
     val canMove = routine.slots.size > 1
-    val actions = moveActions(index, routine.slots.size) { from, to -> Store.moveSlotTo(routine.id, from, to) } +
+    val actions = moveActions(index, routine.slots.size, onMove) +
         CustomAccessibilityAction("Remove from workout") { onRemove(); true }
 
     EisenCard(Modifier.fillMaxWidth()) {
@@ -472,7 +478,7 @@ private fun SlotCard(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(exercise?.name ?: "Deleted exercise", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text(detail(slot), color = EisenColors.MutedForeground, fontSize = 13.sp)
+                Text(detail(slot, exercise, weight, unit), color = EisenColors.MutedForeground, fontSize = 13.sp)
             }
             Spacer(Modifier.width(12.dp))
             Icon(if (open) Icons.ChevronUp else Icons.ChevronDown, contentDescription = null, tint = EisenColors.Primary)
@@ -486,21 +492,33 @@ private fun SlotCard(
                     Text("Sets", modifier = Modifier.weight(1f), color = EisenColors.MutedForeground)
                     IntStepper(slot.sets, { update(slot.copy(sets = it)) }, label = "sets", min = 1, max = MAX_SETS)
                 }
+                // A timed exercise is held for seconds instead of done for reps.
+                val timed = exercise?.timed == true
                 Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Reps", modifier = Modifier.weight(1f), color = EisenColors.MutedForeground)
+                    Text(if (timed) "Hold" else "Reps", modifier = Modifier.weight(1f), color = EisenColors.MutedForeground)
                     val reps = slot.reps
-                    if (reps != null) {
-                        IntStepper(reps, { update(slot.copy(reps = it)) }, label = "reps", min = 1, max = MAX_REPS)
-                    } else {
-                        Text("As many as possible", fontWeight = FontWeight.Bold)
+                    when {
+                        reps == null -> Text(if (timed) "As long as possible" else "As many as possible", fontWeight = FontWeight.Bold)
+                        timed -> IntStepper(
+                            reps,
+                            { update(slot.copy(reps = it)) },
+                            label = "seconds to hold",
+                            step = HOLD_STEP_SECONDS,
+                            min = MIN_HOLD_SECONDS,
+                            max = MAX_HOLD_SECONDS,
+                            format = ::holdText,
+                            typedSuffix = "s",
+                        )
+                        else -> IntStepper(reps, { update(slot.copy(reps = it)) }, label = "reps", min = 1, max = MAX_REPS)
                     }
                 }
                 val max = slot.reps == null
+                val fixed = if (timed) DEFAULT_HOLD_SECONDS else 5
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .heightIn(min = 48.dp)
-                        .toggleable(value = max, role = Role.Checkbox) { update(slot.copy(reps = if (max) 5 else null)) },
+                        .toggleable(value = max, role = Role.Checkbox) { update(slot.copy(reps = if (max) fixed else null)) },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -515,7 +533,7 @@ private fun SlotCard(
                         ),
                     )
                     Text(
-                        "Max reps instead of a fixed number",
+                        if (timed) "Max hold instead of a fixed time" else "Max reps instead of a fixed number",
                         color = if (max) EisenColors.Foreground else EisenColors.MutedForeground,
                         fontSize = 14.sp,
                     )

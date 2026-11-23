@@ -10,7 +10,9 @@ import {
   defaultRoutines,
   defaultSlot,
   emptyWeight,
+  holdText,
   loadText,
+  longestHold,
   nextReps,
   nextRoutineId,
   outcome,
@@ -22,8 +24,28 @@ import {
   type Routine,
   type Workout,
 } from './program'
-import { lastLogged, recordIds, recordOf, recordValue } from './records'
-import { decodeShared, encodeShared, sharedFromHash, sharedStats, sharedUrl, toShared, workoutMarkdown } from './share'
+import { lastLogged, lastSetReps, recordIds, recordOf, recordValue } from './records'
+import {
+  adjustedRestEnd,
+  nextOpenSet,
+  repsWheel,
+  restSetLog,
+  setSummary,
+  weightWheel,
+  wheelWeightText,
+  withCorrectedReps,
+} from './rest'
+import {
+  decodeShared,
+  encodeShared,
+  repsText,
+  sharedFromHash,
+  sharedStats,
+  sharedUrl,
+  toShared,
+  workoutMarkdown,
+  type SharedWorkout,
+} from './share'
 import { freshState, isAppState, migrate } from './state'
 
 function initialProgress(): Progress {
@@ -342,6 +364,12 @@ describe('records', () => {
     expect(lastLogged(history, 'bench')).toBeNull()
   })
 
+  it('finds what one set got last time, skipping workouts that left it open', () => {
+    expect(lastSetReps(history, 'hackSquat', 4)).toBe(3)
+    expect(lastSetReps(history, 'hackSquat', 7)).toBeNull()
+    expect(lastSetReps(history, 'bench', 0)).toBeNull()
+  })
+
   it('counts a weight as a record only when every rep was done and it beats what came before', () => {
     expect(history.map((_, index) => recordIds(history, index).has('hackSquat'))).toEqual([
       false,
@@ -555,5 +583,270 @@ describe('added weight on bodyweight exercises', () => {
   it('counts only the added weight of a bodyweight exercise in the volume', () => {
     // The app does not know what the lifter weighs: 10kg × 28 reps, the body itself is not counted.
     expect(sharedStats(toShared(weighted()))).toEqual({ volume: 280, sets: 3, reps: 28 })
+  })
+})
+
+describe('timed exercises', () => {
+  const plank = catalogExercise('plank')!
+  const carry = catalogExercise('farmersCarry')!
+  const core: Routine = {
+    id: 'core',
+    name: 'Core',
+    slots: [defaultSlot(plank), defaultSlot(carry), { exerciseId: 'bench', sets: 3, reps: 5 }],
+  }
+  const coreWorkout = (sets: Record<string, (number | null)[]>, progress: Progress = {}) => {
+    const workout = createWorkout(core, catalogExercise, progress, 'kg', 0, 'core-1')
+    for (const log of workout.exercises) log.sets = sets[log.id] ?? log.sets
+    workout.finishedAt = 12 * 60000
+    return workout
+  }
+
+  it('adds the nine holds to the catalog, marked as timed', () => {
+    const timed = CATALOG.filter((exercise) => exercise.timed).map((exercise) => exercise.id)
+    expect(timed).toEqual([
+      'wallSit',
+      'gluteBridgeHold',
+      'deadHang',
+      'supermanHold',
+      'farmersCarry',
+      'plank',
+      'sidePlank',
+      'hollowHold',
+      'lSit',
+    ])
+    expect(catalogExercise('lSit')).toEqual({
+      id: 'lSit',
+      name: 'L-Sit',
+      group: 'Core',
+      equipment: 'bodyweight',
+      start: 0,
+      increment: 0,
+      image: 'l-sit',
+      timed: true,
+    })
+    expect(carry).toMatchObject({ group: 'Arms', equipment: 'weight', start: 20, increment: 2 })
+    expect('timed' in catalogExercise('squat')!).toBe(false)
+  })
+
+  it('makes a custom exercise timed only when asked', () => {
+    expect(customExercise('c', 'Wall Hold', 'bodyweight', true).timed).toBe(true)
+    expect('timed' in customExercise('c', 'Curl', 'weight')).toBe(false)
+  })
+
+  it('writes holds as seconds under a minute and as minutes from one on', () => {
+    expect([5, 45, 59, 60, 90, 125, 600].map(holdText)).toEqual([
+      '5s',
+      '45s',
+      '59s',
+      '1:00',
+      '1:30',
+      '2:05',
+      '10:00',
+    ])
+  })
+
+  it('starts a timed exercise with three holds of a minute, whatever its equipment', () => {
+    expect(defaultSlot(plank)).toEqual({ exerciseId: 'plank', sets: 3, reps: 60 })
+    expect(defaultSlot(carry)).toEqual({ exerciseId: 'farmersCarry', sets: 3, reps: 60 })
+  })
+
+  it('copies timed into the log and leaves it out for other exercises', () => {
+    const workout = coreWorkout({})
+    expect(workout.exercises.map((log) => log.timed)).toEqual([true, true, undefined])
+    expect('timed' in workout.exercises[2]).toBe(false)
+    expect(workout.exercises[0]).toMatchObject({ targetReps: 60, sets: [null, null, null], weight: 0 })
+  })
+
+  it('counts every hold at the target as success and a short one as a miss', () => {
+    const [full, short] = [coreWorkout({ plank: [60, 60, 60] }), coreWorkout({ plank: [60, 45, null] })]
+    expect(outcome(full.exercises[0])).toBe('success')
+    expect(outcome(short.exercises[0])).toBe('fail')
+    const max = createLog(plank, { exerciseId: 'plank', sets: 2, reps: null }, {}, 'kg')
+    max.sets = [75, null]
+    expect(outcome(max)).toBe('success')
+  })
+
+  it('never changes a timed bodyweight exercise and adds weight to a full carry', () => {
+    const progress: Progress = { farmersCarry: { weight: 20, fails: 0, increment: 2 } }
+    const workout = coreWorkout({ plank: [60, 60, 60], farmersCarry: [60, 60, 60] }, progress)
+    const { progress: next, changes } = applyProgression(progress, workout, 20)
+    expect(next).toEqual({ farmersCarry: { weight: 22, fails: 0, increment: 2 } })
+    expect(changes.map((change) => change.id)).toEqual(['farmersCarry'])
+
+    const missed = coreWorkout({ farmersCarry: [60, 50, 60] }, progress)
+    expect(applyProgression(progress, missed, 20).progress.farmersCarry).toEqual({
+      weight: 20,
+      fails: 1,
+      increment: 2,
+    })
+  })
+
+  it('keeps added weight on a timed bodyweight exercise', () => {
+    const log = createLog(plank, defaultSlot(plank), { plank: { weight: 10, fails: 0, increment: 0 } }, 'kg')
+    expect(log.weight).toBe(10)
+  })
+
+  it('counts the longest single hold as the record of a timed bodyweight exercise', () => {
+    const workout = coreWorkout({ plank: [60, 75, null], farmersCarry: [60, 60, 60] })
+    expect(longestHold(workout.exercises[0])).toBe(75)
+    expect(recordValue(workout.exercises[0], 'kg')).toBe(75)
+    expect(recordValue(coreWorkout({}).exercises[0], 'kg')).toBeNull()
+    expect(recordValue(workout.exercises[1], 'kg')).toBe(20)
+    const longer = coreWorkout({ plank: [80, 30, 30] })
+    expect(recordIds([longer, workout], 0).has('plank')).toBe(true)
+    expect(recordIds([workout, longer], 0).has('plank')).toBe(false)
+  })
+
+  it('writes holds into the Markdown as time', () => {
+    expect(repsText({ timed: true, targetReps: 60, sets: [60, 60, 60] })).toBe('3×1:00')
+    expect(repsText({ timed: true, targetReps: 60, sets: [60, 45, null] })).toBe('1:00, 45s, –')
+    expect(repsText({ timed: true, targetReps: null, sets: [95, 40] })).toBe('1:35, 40s')
+    const workout = coreWorkout({ plank: [60, 45, null], farmersCarry: [60, 60, 60], bench: [5, 5, 5] })
+    expect(workoutMarkdown(workout, 'Mon, Nov 23').split('\n').slice(4)).toEqual([
+      '- **Plank** BW: 1:00, 45s, –',
+      "- **Farmer's Carry** 20kg: 3×1:00",
+      '- **Bench Press** 80kg: 3×5',
+    ])
+  })
+
+  it('counts holds as sets but adds them to neither reps nor volume', () => {
+    const workout = coreWorkout({ plank: [60, 45, null], farmersCarry: [60, 60, 60], bench: [5, 5, 5] })
+    expect(sharedStats(toShared(workout))).toEqual({ volume: 80 * 15, sets: 8, reps: 15 })
+  })
+
+  const vector: SharedWorkout = {
+    name: 'Core',
+    unit: 'kg',
+    startedAt: 29000000 * 60000,
+    minutes: 12,
+    exercises: [
+      { name: 'Plank', bodyweight: true, weight: 0, targetReps: 60, sets: [60, 45, null], record: false, timed: true },
+      { name: 'Bench Press', bodyweight: false, weight: 80, targetReps: 5, sets: [5, 5, 5], record: false },
+    ],
+  }
+
+  it('marks a timed exercise in a link with a seventh element and keeps others at six', () => {
+    const code = encodeShared(vector)
+    const json = new TextDecoder().decode(
+      Uint8Array.from(atob(code.replaceAll('-', '+').replaceAll('_', '/')), (char) => char.charCodeAt(0)),
+    )
+    expect(json).toBe(
+      '[1,"Core",0,29000000,12,[["Plank",1,0,60,0,[60,45,-1],1],["Bench Press",0,80,5,0,[5,5,5]]]]',
+    )
+    const decoded = decodeShared(code)
+    expect(decoded).toEqual(vector)
+    expect(decoded && 'timed' in decoded.exercises[1]).toBe(false)
+  })
+
+  it('lets a timed exercise in a link have long targets and holds, and nothing else', () => {
+    const encode = (exercise: unknown[]) => btoa(JSON.stringify([1, 'A', 0, 1, 1, [exercise]]))
+    expect(decodeShared(encode(['Plank', 1, 0, 600, 0, [3600, -1], 1]))?.exercises[0]).toMatchObject({
+      targetReps: 600,
+      sets: [3600, null],
+      timed: true,
+    })
+    expect(decodeShared(encode(['Plank', 1, 0, 601, 0, [60], 1]))).toBeNull()
+    expect(decodeShared(encode(['Plank', 1, 0, 60, 0, [3601], 1]))).toBeNull()
+    expect(decodeShared(encode(['Squat', 0, 80, 60, 0, [5]]))).toBeNull()
+    expect(decodeShared(encode(['Squat', 0, 80, 5, 0, [1000]]))).toBeNull()
+  })
+})
+
+describe('rest screen', () => {
+  const benchSet = { exerciseId: 'bench', exerciseIndex: 1, setIndex: 1 }
+
+  it('shows the set that started the rest while it is still logged where it was', () => {
+    const workout = workoutWith({ bench: [5, 4, null, null, null] })
+    expect(restSetLog(workout, benchSet)?.name).toBe('Bench Press')
+    expect(restSetLog(workout, { ...benchSet, setIndex: 2 })).toBeNull()
+    expect(restSetLog(null, benchSet)).toBeNull()
+    expect(restSetLog(workout, null)).toBeNull()
+  })
+
+  it('lets go of the set once its exercise is removed or moved', () => {
+    const removed = workoutWith({ bench: [5, 4, null, null, null] })
+    removed.exercises.splice(1, 1)
+    expect(restSetLog(removed, benchSet)).toBeNull()
+    const moved = workoutWith({ bench: [5, 4, null, null, null] })
+    moved.exercises.push(...moved.exercises.splice(1, 1))
+    expect(restSetLog(moved, benchSet)).toBeNull()
+    expect(restSetLog(moved, { ...benchSet, exerciseIndex: 3 })?.id).toBe('bench')
+  })
+
+  it('counts a set of 0 reps as logged', () => {
+    expect(restSetLog(workoutWith({ bench: [5, 0, null, null, null] }), benchSet)?.id).toBe('bench')
+  })
+
+  it('offers barbell weights from the empty bar up to 400kg in plate steps', () => {
+    const wheel = weightWheel('barbell', 'kg', 20, 80)
+    expect(wheel.slice(0, 3)).toEqual([20, 22.5, 25])
+    expect(wheel.at(-1)).toBe(400)
+    expect(wheel).toContain(80)
+  })
+
+  it('starts machines and weights one step up and goes past 900lb', () => {
+    expect(weightWheel('machine', 'kg', 20, 80)[0]).toBe(2.5)
+    expect(weightWheel('weight', 'kg', 20, 12).slice(0, 2)).toEqual([1, 2])
+    const lb = weightWheel('barbell', 'lb', 45, 135)
+    expect(lb.slice(0, 2)).toEqual([45, 50])
+    expect(lb.at(-1)).toBe(900)
+  })
+
+  it('starts a bodyweight exercise at no added weight, which reads BW', () => {
+    expect(weightWheel('bodyweight', 'kg', 20, 0).slice(0, 3)).toEqual([0, 1, 2])
+    expect(wheelWeightText(true, 0)).toBe('BW')
+    expect(wheelWeightText(true, 10)).toBe('10')
+    expect(wheelWeightText(false, 82.5)).toBe('82.5')
+  })
+
+  it('always offers the current weight, off the steps or above the top', () => {
+    const off = weightWheel('barbell', 'kg', 20, 81)
+    expect(off.slice(off.indexOf(80), off.indexOf(80) + 3)).toEqual([80, 81, 82.5])
+    expect(weightWheel('barbell', 'kg', 20, 15)[0]).toBe(15)
+    expect(weightWheel('barbell', 'kg', 20, 450).at(-1)).toBe(450)
+  })
+
+  it('offers 0 up to the target reps, or up to 100 for a max-reps set', () => {
+    expect(repsWheel(5, 4)).toEqual([0, 1, 2, 3, 4, 5])
+    expect(repsWheel(null, 12)).toHaveLength(101)
+    expect(repsWheel(null, 120).at(-1)).toBe(120)
+  })
+
+  it('corrects one logged set and never clears it', () => {
+    expect(withCorrectedReps([5, 5, null], 1, 3)).toEqual([5, 3, null])
+    expect(withCorrectedReps([5, 5, null], 1, 0)).toEqual([5, 0, null])
+    expect(withCorrectedReps([5, 5, null], 1, -2)).toEqual([5, 0, null])
+    expect(withCorrectedReps([5, 5, null], 2, 4)).toEqual([5, 5, null])
+  })
+
+  it('sums up a set in the load text', () => {
+    const workout = workoutWith({ bench: [5, 4, null, null, null], dips: [8, null, null] })
+    expect(setSummary(workout.exercises[1], 1, 'kg')).toBe('80kg × 4')
+    expect(setSummary(workout.exercises[3], 0, 'kg')).toBe('BW × 8')
+    workout.exercises[3].weight = 10
+    expect(setSummary(workout.exercises[3], 0, 'kg')).toBe('BW + 10kg × 8')
+    const plank = createLog(catalogExercise('plank')!, defaultSlot(catalogExercise('plank')!), {}, 'kg')
+    plank.sets = [60, null, null]
+    expect(setSummary(plank, 0, 'kg')).toBe('BW × 1:00')
+  })
+
+  it('names the next open set, the first after this one if there is one', () => {
+    const log = workoutWith({ bench: [5, 5, null, null, null] }).exercises[1]
+    expect(nextOpenSet(log, 1)).toBe(2)
+    log.sets = [null, 5, 5, null, null]
+    expect(nextOpenSet(log, 2)).toBe(3)
+    log.sets = [null, 5, 5, 5, 5]
+    expect(nextOpenSet(log, 4)).toBe(0)
+    log.sets = [5, 5, 5, 5, 5]
+    expect(nextOpenSet(log, 4)).toBeNull()
+  })
+
+  it('makes a rest longer or shorter by seconds, never ending it before now', () => {
+    expect(adjustedRestEnd(90_000, 30_000, 15)).toBe(105_000)
+    expect(adjustedRestEnd(90_000, 30_000, -15)).toBe(75_000)
+    expect(adjustedRestEnd(40_000, 30_000, -15)).toBe(30_000)
+    // Over: shorter changes nothing, longer counts from now.
+    expect(adjustedRestEnd(20_000, 30_000, -15)).toBe(20_000)
+    expect(adjustedRestEnd(20_000, 30_000, 15)).toBe(45_000)
   })
 })

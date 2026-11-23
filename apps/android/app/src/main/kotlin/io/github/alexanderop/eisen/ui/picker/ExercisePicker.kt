@@ -35,7 +35,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +50,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
@@ -61,7 +63,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.CUSTOM_GROUP
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Exercise
@@ -72,6 +73,7 @@ import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.pathIcon
 import kotlinx.coroutines.launch
+import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
 private val SearchIcon = pathIcon("Search", "m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 1 0 0-16z")
 
@@ -89,18 +91,30 @@ private class Section(val group: String, val items: List<Exercise>)
 
 /**
  * A bottom sheet to pick an exercise from the catalog or to create an own one.
+ * [exercises] is everything that can be picked, the lifter's own ones included.
  * [exclude] holds the ids that are already in the list and cannot be picked again.
+ * [onCreate] gets a name that is not blank, the kind and whether it is held for time; the caller
+ * creates the exercise (or finds the one with that name) and adds it where the picker was opened. [onDelete] removes one of the lifter's own.
+ * The sheet closes itself before [onPick] and [onCreate] are called.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExercisePickerSheet(exclude: Set<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+fun ExercisePickerSheet(
+    exercises: List<Exercise>,
+    exclude: Set<String>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, equipment: Equipment, timed: Boolean) -> Unit,
+    onDelete: (id: String) -> Unit,
+) {
     // Full height right away: the list is long and the search field needs room above the keyboard.
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     var creating by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
     var equipment by rememberSaveable { mutableStateOf(Equipment.BARBELL) }
+    var timed by rememberSaveable { mutableStateOf(false) }
 
     // Slide the sheet away first, then tell the caller, so it does not vanish mid-frame.
     fun close(then: () -> Unit) {
@@ -138,17 +152,24 @@ fun ExercisePickerSheet(exclude: Set<String>, onPick: (String) -> Unit, onDismis
                     onName = { name = it.take(NAME_LENGTH) },
                     equipment = equipment,
                     onEquipment = { equipment = it },
+                    timed = timed,
+                    onTimed = { timed = it },
                     onCreate = {
-                        Store.addCustomExercise(name, equipment)?.let { exercise -> close { onPick(exercise.id) } }
+                        val typed = name
+                        val kind = equipment
+                        val held = timed
+                        if (typed.isNotBlank()) close { onCreate(typed, kind, held) }
                     },
                     onBack = { creating = false },
                 )
             } else {
                 PickList(
+                    exercises = exercises,
                     exclude = exclude,
                     query = query,
                     onQuery = { query = it },
                     onPick = { id -> close { onPick(id) } },
+                    onDelete = onDelete,
                     onCreate = {
                         name = query.trim()
                         creating = true
@@ -160,9 +181,16 @@ fun ExercisePickerSheet(exclude: Set<String>, onPick: (String) -> Unit, onDismis
 }
 
 @Composable
-private fun PickList(exclude: Set<String>, query: String, onQuery: (String) -> Unit, onPick: (String) -> Unit, onCreate: () -> Unit) {
+private fun PickList(
+    exercises: List<Exercise>,
+    exclude: Set<String>,
+    query: String,
+    onQuery: (String) -> Unit,
+    onPick: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onCreate: () -> Unit,
+) {
     var filter by rememberSaveable { mutableStateOf(ALL) }
-    val exercises = Store.exercises
     val hasCustom = exercises.any { it.group == CUSTOM_GROUP }
     val filters = (listOf(ALL) + ORDER).filter { it != CUSTOM_GROUP || hasCustom }
     // Deleting the last own exercise removes the "Yours" chip. Fall back to all instead of an empty list.
@@ -254,6 +282,7 @@ private fun PickList(exclude: Set<String>, query: String, onQuery: (String) -> U
                         focus.clearFocus()
                         onPick(exercise.id)
                     },
+                    onDelete = { onDelete(exercise.id) },
                 )
             }
         }
@@ -271,7 +300,7 @@ private fun PickList(exclude: Set<String>, query: String, onQuery: (String) -> U
 }
 
 @Composable
-private fun PickRow(exercise: Exercise, added: Boolean, onPick: () -> Unit) {
+private fun PickRow(exercise: Exercise, added: Boolean, onPick: () -> Unit, onDelete: () -> Unit) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(
@@ -286,7 +315,11 @@ private fun PickRow(exercise: Exercise, added: Boolean, onPick: () -> Unit) {
                 ExerciseTile(exercise.image, exercise.name)
                 Text(exercise.name, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 Text(
-                    if (added) "Added" else kindLabel(exercise.id, exercise.equipment),
+                    when {
+                        added -> "Added"
+                        exercise.timed -> "${kindLabel(exercise.id, exercise.equipment)} · Timed"
+                        else -> kindLabel(exercise.id, exercise.equipment)
+                    },
                     color = EisenColors.MutedForeground,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(end = 4.dp),
@@ -296,7 +329,7 @@ private fun PickRow(exercise: Exercise, added: Boolean, onPick: () -> Unit) {
                 ConfirmButton(
                     label = "Delete",
                     confirmLabel = "Confirm",
-                    onConfirm = { Store.deleteCustomExercise(exercise.id) },
+                    onConfirm = onDelete,
                     ghost = true,
                     height = 48.dp,
                 )
@@ -312,6 +345,8 @@ private fun CreateForm(
     onName: (String) -> Unit,
     equipment: Equipment,
     onEquipment: (Equipment) -> Unit,
+    timed: Boolean,
+    onTimed: (Boolean) -> Unit,
     onCreate: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -369,6 +404,21 @@ private fun CreateForm(
                     }
                 }
             }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .toggleable(value = timed, role = Role.Switch, onValueChange = onTimed),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Timed", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text("Held for time, like a plank", color = EisenColors.MutedForeground, fontSize = 13.sp)
+            }
+            // The row is the toggle, so the switch itself takes no clicks of its own.
+            Switch(checked = timed, onCheckedChange = null)
         }
         Spacer(Modifier.size(0.dp))
         Button(

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import {
-  extendRest,
+  adjustRest,
   formatClock,
+  openRestScreen,
   rest,
   restFraction,
+  restLog,
   restOver,
   restOvertime,
   restRemaining,
@@ -26,11 +28,19 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
   <aside v-if="rest.active" class="timer" :class="stage" role="timer" aria-live="off">
     <div class="wash" :style="{ width: `${left}%` }" />
     <div class="body">
-      <div class="clock">
-        {{ restOver ? `+${formatClock(restOvertime)}` : formatClock(restRemaining) }}
-      </div>
-      <p class="note">{{ restOver ? 'Rest is over. Start your next set.' : rest.note }}</p>
-      <button v-if="!restOver" class="extend" @click="extendRest(30)">+30s</button>
+      <!-- The bar is the minimised rest screen: tapping it opens the screen again. -->
+      <component
+        :is="restLog ? 'button' : 'div'"
+        class="open"
+        :aria-label="restLog ? 'Open the rest timer' : undefined"
+        @click="restLog && openRestScreen()"
+      >
+        <div class="clock">
+          {{ restOver ? `+${formatClock(restOvertime)}` : formatClock(restRemaining) }}
+        </div>
+        <p class="note">{{ restOver ? 'Rest is over. Start your next set.' : rest.note }}</p>
+      </component>
+      <button v-if="!restOver" class="extend" @click="adjustRest(30)">+30s</button>
       <Button size="icon" variant="secondary" class="bg-card text-muted-foreground" aria-label="Dismiss timer" @click="stopRest()">
         ✕
       </Button>
@@ -59,6 +69,15 @@ const left = computed(() => (restOver.value ? 100 : (1 - restFraction.value) * 1
   align-items: center;
   gap: 12px;
   padding: 8px 12px 8px 16px;
+}
+
+.open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
 }
 
 .clock {

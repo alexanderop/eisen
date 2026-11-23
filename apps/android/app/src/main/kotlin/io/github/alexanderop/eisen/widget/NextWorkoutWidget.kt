@@ -15,83 +15,39 @@ import android.widget.RemoteViews
 import androidx.core.os.BundleCompat
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.R
-import io.github.alexanderop.eisen.data.Store
-import io.github.alexanderop.eisen.ui.fmtLoad
-
-/** One exercise as the home screen's "Next up" card shows it. [load] is "80kg", "BW" or "BW + 10kg". */
-private class Row(val name: String, val sets: Int, val reps: Int?, val load: String)
-
-/** What the widget shows: the running workout, or the next one as it is set up right now. */
-private class Content(
-    val running: Boolean,
-    /** The workout the button starts. Null while one runs, or when there is no workout at all. */
-    val routineId: String?,
-    val name: String,
-    val rows: List<Row>,
-    val logged: Int,
-    val total: Int,
-)
-
-private fun content(): Content {
-    val state = Store.state
-    val active = state.active
-    if (active != null) {
-        val sets = active.exercises.flatMap { it.sets }
-        return Content(
-            running = true,
-            routineId = null,
-            name = active.name,
-            rows = active.exercises.map { log ->
-                Row(log.name, log.sets.size, log.targetReps, fmtLoad(log.equipment, log.weight))
-            },
-            logged = sets.count { it != null },
-            total = sets.size,
-        )
-    }
-    // Store.nextRoutine assumes at least one workout. A broken import must not take the widget down with it.
-    val next = state.routines.firstOrNull { it.id == state.nextRoutineId } ?: state.routines.firstOrNull()
-        ?: return Content(running = false, routineId = null, name = "Eisen", rows = emptyList(), logged = 0, total = 0)
-    val rows = next.slots.mapNotNull { slot ->
-        val exercise = Store.findExercise(slot.exerciseId) ?: return@mapNotNull null
-        Row(
-            exercise.name,
-            slot.sets,
-            slot.reps,
-            fmtLoad(exercise.equipment, Store.progressOf(exercise.id).weight),
-        )
-    }
-    return Content(running = false, routineId = next.id, name = next.name, rows = rows, logged = 0, total = 0)
-}
+import io.github.alexanderop.eisen.domain.elm.WidgetContent
+import io.github.alexanderop.eisen.runtime.Eisen
 
 /**
  * The "Next workout" home-screen widget. It shows what the home screen's "Next up" card shows,
- * with a button that starts that workout, or resumes the one that runs.
+ * with a button that starts that workout, or resumes the one that runs. It draws the
+ * [WidgetContent] that `update` computed (see `domain/elm/HomeSurfaces.kt`): the button sends an
+ * intent that `MainActivity` turns into `Msg.App.LaunchWorkout`.
  */
 class NextWorkoutWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        // The process may have been started only for the widget.
-        Store.init(context.applicationContext)
-        val content = content()
+        // The process may have been started only for the widget: init sends the first content.
+        Eisen.init(context.applicationContext)
+        val content = HomeSurfaces.latest?.widget ?: return
         for (id in ids) render(context, manager, id, content)
     }
 
     override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, newOptions: Bundle) {
-        Store.init(context.applicationContext)
-        render(context, manager, id, content())
+        Eisen.init(context.applicationContext)
+        val content = HomeSurfaces.latest?.widget ?: return
+        render(context, manager, id, content)
     }
 
     companion object {
-        fun updateAll(context: Context) {
+        fun updateAll(context: Context, content: WidgetContent) {
             val manager = context.getSystemService(AppWidgetManager::class.java) ?: return
             val ids = manager.getAppWidgetIds(ComponentName(context, NextWorkoutWidget::class.java))
-            if (ids.isEmpty()) return
-            val content = content()
             for (id in ids) render(context, manager, id, content)
         }
     }
 }
 
-private fun render(context: Context, manager: AppWidgetManager, id: Int, content: Content) {
+private fun render(context: Context, manager: AppWidgetManager, id: Int, content: WidgetContent) {
     val options = manager.getAppWidgetOptions(id)
     val sizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         BundleCompat.getParcelableArrayList<SizeF>(options, AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java).orEmpty()
@@ -114,7 +70,7 @@ private fun legacyHeight(context: Context, options: Bundle): Float {
     return if (height > 0) height.toFloat() else 110f
 }
 
-private fun build(context: Context, content: Content, heightDp: Float): RemoteViews {
+private fun build(context: Context, content: WidgetContent, heightDp: Float): RemoteViews {
     val views = RemoteViews(context.packageName, R.layout.widget_next_workout)
     views.setOnClickPendingIntent(android.R.id.background, openApp(context))
     views.setTextViewText(R.id.widget_eyebrow, (if (content.running) "Workout running" else "Next up").uppercase())
@@ -127,9 +83,7 @@ private fun build(context: Context, content: Content, heightDp: Float): RemoteVi
         views.setViewVisibility(R.id.widget_status, View.GONE)
     }
 
-    // A workout without exercises cannot start, like the disabled button on the home screen.
-    val canStart = content.running || (content.routineId != null && content.rows.isNotEmpty())
-    if (canStart) {
+    if (content.canStart) {
         views.setTextViewText(R.id.widget_button, if (content.running) "Resume" else "Start")
         views.setOnClickPendingIntent(R.id.widget_button, startWorkout(context, content.routineId))
         views.setViewVisibility(R.id.widget_button, View.VISIBLE)
@@ -151,7 +105,7 @@ private fun build(context: Context, content: Content, heightDp: Float): RemoteVi
     for (row in content.rows.take(shown)) {
         val item = RemoteViews(context.packageName, R.layout.widget_row)
         item.setTextViewText(R.id.widget_row_name, row.name)
-        item.setTextViewText(R.id.widget_row_sets, "${row.sets}×${row.reps ?: "max"}")
+        item.setTextViewText(R.id.widget_row_sets, row.scheme)
         item.setTextViewText(R.id.widget_row_weight, row.load)
         views.addView(R.id.widget_rows, item)
     }

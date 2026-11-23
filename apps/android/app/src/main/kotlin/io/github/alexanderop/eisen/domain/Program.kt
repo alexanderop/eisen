@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.domain
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
@@ -9,7 +11,7 @@ import kotlin.math.max
 data class Slot(
     val exerciseId: String,
     val sets: Int,
-    /** null = as many reps as possible. */
+    /** null = as many reps as possible. For a timed exercise the hold in seconds, null = as long as possible. */
     val reps: Int?,
 )
 
@@ -19,6 +21,28 @@ data class Routine(val id: String, val name: String, val slots: List<Slot>)
 
 const val MAX_SETS = 10
 const val MAX_REPS = 30
+
+/** The longest hold a timed exercise can aim for, in seconds. */
+const val MAX_HOLD_SECONDS = 600
+const val HOLD_STEP_SECONDS = 5
+const val MIN_HOLD_SECONDS = 5
+const val DEFAULT_HOLD_SECONDS = 60
+
+/** "Get ready": time to put the phone down and get into position before a hold starts. */
+const val HOLD_LEAD_IN_SECONDS = 5
+
+/** A hold as long as possible stops itself here. */
+const val MAX_HELD_SECONDS = 3600
+
+/** A hold as text: "45s" under a minute, "1:30" from a minute on. */
+fun holdText(seconds: Int): String =
+    if (seconds < 60) "${seconds}s" else "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+
+/** A logged set as the lifter reads it: "5" reps, or "1:00" held for a timed exercise. */
+fun setText(count: Int, timed: Boolean): String = if (timed) holdText(count) else count.toString()
+
+/** A target: "5" reps, "1:00" to hold, or "max" for as many reps or as long as possible. */
+fun targetText(target: Int?, timed: Boolean): String = target?.let { setText(it, timed) } ?: "max"
 
 fun defaultRoutines(): List<Routine> = listOf(
     Routine(
@@ -32,10 +56,13 @@ fun defaultRoutines(): List<Routine> = listOf(
 )
 
 /** Sets and reps a newly added exercise starts with. */
-fun defaultSlot(exercise: Exercise): Slot = when (exercise.equipment) {
-    Equipment.BODYWEIGHT -> Slot(exercise.id, 3, null)
-    Equipment.WEIGHT -> Slot(exercise.id, 3, 10)
-    else -> Slot(exercise.id, 5, 5)
+fun defaultSlot(exercise: Exercise): Slot = when {
+    exercise.timed -> Slot(exercise.id, 3, DEFAULT_HOLD_SECONDS)
+    else -> when (exercise.equipment) {
+        Equipment.BODYWEIGHT -> Slot(exercise.id, 3, null)
+        Equipment.WEIGHT -> Slot(exercise.id, 3, 10)
+        else -> Slot(exercise.id, 5, 5)
+    }
 }
 
 class UnitDefaults(
@@ -60,6 +87,33 @@ private fun increments(unit: WeightUnit): List<Double> =
 fun stepFor(equipment: Equipment, unit: WeightUnit): Double =
     if (equipment == Equipment.WEIGHT || equipment == Equipment.BODYWEIGHT) (if (unit == WeightUnit.KG) 1.0 else 2.5)
     else unitDefaults(unit).step
+
+/** The heaviest weight the rest screen's weight wheel goes up to, at least. */
+fun wheelTop(unit: WeightUnit): Double = if (unit == WeightUnit.KG) 400.0 else 900.0
+
+/**
+ * The weights the rest screen's wheel offers, lightest first: from the empty bar (one step for a
+ * machine or a weight, nothing added for a bodyweight exercise) up to [wheelTop], one step of
+ * [stepFor] apart. [current] is always among them, also when it is off that grid or above the top.
+ */
+fun weightChoices(equipment: Equipment, unit: WeightUnit, bar: Double, current: Double): List<Double> {
+    val step = stepFor(equipment, unit)
+    val lightest = when (equipment) {
+        Equipment.BARBELL -> bar
+        Equipment.BODYWEIGHT -> 0.0
+        else -> step
+    }
+    val count = ((maxOf(wheelTop(unit), current) - lightest) / step + 1e-9).toInt()
+    // Rounded to the cent, so 20 + 3 × 2.5 is 27.5 and not 27.499999.
+    val grid = (0..count).map { Math.round((lightest + it * step) * 100) / 100.0 }
+    return if (current in grid) grid else (grid + current).sorted()
+}
+
+/** The most reps the wheel offers for a max-reps set. */
+const val MAX_CORRECTED_REPS = 100
+
+/** The counts the rest screen's reps wheel offers: 0 up to the target, or up to 100 for a max-reps set, and [current]. */
+fun repsChoices(target: Int?, current: Int): IntRange = 0..maxOf(target ?: MAX_CORRECTED_REPS, current)
 
 /** Warmup weights on a machine use whole plates: nobody loads 1.25s onto a sled to warm up. */
 fun warmupStep(equipment: Equipment, unit: WeightUnit): Double {
@@ -111,6 +165,7 @@ fun convertProgress(entry: ExerciseProgress, equipment: Equipment, from: WeightU
     increment = if (equipment == Equipment.BODYWEIGHT) entry.increment else nearest(convert(entry.increment, from, to), increments(to)),
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ExerciseLog(
     val id: String,
@@ -123,6 +178,8 @@ data class ExerciseLog(
     val targetReps: Int?,
     /** null = set not logged yet. */
     val sets: List<Int?>,
+    /** Copied from the exercise: [targetReps] and [sets] count seconds held. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val timed: Boolean = false,
 )
 
 @Serializable
@@ -151,6 +208,7 @@ fun createLog(exercise: Exercise, slot: Slot, progress: Progress, unit: WeightUn
     else (progress[exercise.id] ?: startProgress(exercise, unit)).weight,
     targetReps = slot.reps,
     sets = List(slot.sets) { null },
+    timed = exercise.timed,
 )
 
 /** Slots whose exercise no longer exists are left out. */
@@ -171,7 +229,7 @@ fun createWorkout(
     exercises = routine.slots.mapNotNull { slot -> find(slot.exerciseId)?.let { createLog(it, slot, progress, unit) } },
 )
 
-/** One tap on a set: empty -> all reps -> one fewer each tap -> 0 -> empty. */
+/** One tap on a set: empty -> all reps -> one fewer each tap -> 0 -> empty. Not for timed sets, which a timer logs. */
 fun nextReps(current: Int?, target: Int): Int? = when (current) {
     null -> target
     0 -> null
@@ -196,13 +254,17 @@ fun nextRoutineId(routines: List<Routine>, finishedId: String, current: String):
 
 fun totalReps(log: ExerciseLog): Int = log.sets.sumOf { it ?: 0 }
 
+/** The longest single hold of a timed exercise in seconds, 0 when none is logged. */
+fun longestHold(log: ExerciseLog): Int = log.sets.maxOfOrNull { it ?: 0 } ?: 0
+
 class Progression(val progress: Progress, val changes: List<Change>)
 
 /**
  * Progressive overload: all reps done -> add weight next time.
  * Missed reps -> repeat the weight. Three misses in a row -> drop 10%.
  * Bodyweight and max-reps exercises have no target weight to progress. Weight added to a
- * bodyweight exercise only changes when the lifter changes it.
+ * bodyweight exercise only changes when the lifter changes it. A timed exercise with a weight
+ * (a farmer's carry) goes up when every hold lasted its time.
  */
 fun applyProgression(progress: Progress, workout: Workout, bar: Double): Progression {
     val next = progress.toMutableMap()

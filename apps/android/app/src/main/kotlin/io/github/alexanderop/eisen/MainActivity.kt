@@ -1,5 +1,10 @@
 package io.github.alexanderop.eisen
 
+import androidx.compose.runtime.CompositionLocalProvider
+import io.github.alexanderop.eisen.ui.LocalHapticsEnabled
+import android.Manifest
+import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -7,8 +12,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,94 +25,146 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import io.github.alexanderop.eisen.data.Store
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import androidx.health.connect.client.PermissionController
+import io.github.alexanderop.eisen.domain.Feel
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.Tab
+import io.github.alexanderop.eisen.domain.elm.UiEvent
+import io.github.alexanderop.eisen.domain.elm.handlesBack
+import io.github.alexanderop.eisen.domain.elm.showsWorkout
+import io.github.alexanderop.eisen.health.HealthSync
+import io.github.alexanderop.eisen.runtime.Eisen
+import io.github.alexanderop.eisen.runtime.Prefs
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.EisenTheme
+import io.github.alexanderop.eisen.ui.Haptic
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.history.HistoryScreen
 import io.github.alexanderop.eisen.ui.home.HomeScreen
 import io.github.alexanderop.eisen.ui.progress.ProgressScreen
+import io.github.alexanderop.eisen.ui.rememberHaptics
 import io.github.alexanderop.eisen.ui.settings.SettingsScreen
 import io.github.alexanderop.eisen.ui.workout.WorkoutScreen
 import io.github.alexanderop.eisen.ui.workout.WorkoutSessionHost
 import io.github.alexanderop.eisen.ui.workouts.WorkoutsScreen
 import io.github.alexanderop.eisen.widget.WorkoutLaunch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
+private const val SAVED_TAB = "tab"
+private const val SAVED_WORKOUT_OPEN = "workoutOpen"
+private const val SAVED_ROUTINE = "routine"
+
+/**
+ * The one activity. It turns what Android tells it (intents, start and stop, saved state) into Msgs,
+ * and draws the model: the tabs, or the workout. Screens get the model (or the part they need) and
+ * [Eisen.dispatch] from [App].
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Eisen.init(applicationContext)
         val bars = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+        // After the process ended, the model starts over; the tab and the open workout come back from here.
+        savedInstanceState?.let { saved ->
+            val tab = saved.getString(SAVED_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name } } ?: Tab.HOME
+            Eisen.dispatch(Msg.Nav.Restore(tab, saved.getBoolean(SAVED_WORKOUT_OPEN), saved.getString(SAVED_ROUTINE)))
+        }
         // The widget or a launcher shortcut may have opened the app to start a workout.
-        WorkoutLaunch.handle(intent, restored = savedInstanceState != null)
-        setContent { EisenTheme { App() } }
+        WorkoutLaunch.message(intent, restored = savedInstanceState != null)?.let(Eisen.dispatch)
+        setContent {
+            EisenTheme {
+                CompositionLocalProvider(LocalHapticsEnabled provides Eisen.model.state.settings.haptics) {
+                    App(Eisen.model, Eisen.dispatch)
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        WorkoutLaunch.handle(intent, restored = false)
+        WorkoutLaunch.message(intent, restored = false)?.let(Eisen.dispatch)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Notifications may have been allowed or taken away in the system settings meanwhile.
+        Eisen.dispatch(Msg.App.Foreground(notificationsGranted = Prefs.notificationsGranted(this)))
+    }
+
+    override fun onStop() {
+        Eisen.dispatch(Msg.App.Background)
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val nav = Eisen.model.nav
+        outState.putString(SAVED_TAB, nav.tab.name)
+        outState.putBoolean(SAVED_WORKOUT_OPEN, nav.workoutOpen)
+        outState.putString(SAVED_ROUTINE, nav.routine)
     }
 }
 
-private enum class Tab(val label: String, val icon: ImageVector) {
-    HOME("Home", Icons.Home),
-    WORKOUTS("Workouts", Icons.Workouts),
-    HISTORY("History", Icons.History),
-    PROGRESS("Progress", Icons.Progress),
-    SETTINGS("Settings", Icons.Settings),
-}
+private val Tab.label: String
+    get() = when (this) {
+        Tab.HOME -> "Home"
+        Tab.WORKOUTS -> "Workouts"
+        Tab.HISTORY -> "History"
+        Tab.PROGRESS -> "Progress"
+        Tab.SETTINGS -> "Settings"
+    }
+
+private val Tab.icon: ImageVector
+    get() = when (this) {
+        Tab.HOME -> Icons.Home
+        Tab.WORKOUTS -> Icons.Workouts
+        Tab.HISTORY -> Icons.History
+        Tab.PROGRESS -> Icons.Progress
+        Tab.SETTINGS -> Icons.Settings
+    }
 
 @Composable
-private fun App() {
-    var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-    // Reopen an unfinished workout after the phone closed the app.
-    var workoutOpen by rememberSaveable { mutableStateOf(Store.state.active != null) }
-    val openRequested = WorkoutLaunch.openRequested
-    LaunchedEffect(openRequested) {
-        if (openRequested) {
-            workoutOpen = true
-            WorkoutLaunch.openRequested = false
-        }
-    }
-    val showWorkout = workoutOpen && Store.state.active != null
-    // Above both branches: the discard question and its Undo snackbar outlive the workout screen.
-    val snackbar = remember { SnackbarHostState() }
-    WorkoutSessionHost(snackbar, onDiscarded = { workoutOpen = false }, onRestored = { workoutOpen = true })
+private fun App(model: Model, dispatch: (Msg) -> Unit) {
+    UiEvents(dispatch)
+    // First of all back handlers, so the ones further in (a screen's own) come before it.
+    // Back closes the workout (it keeps running), then goes home from any other tab.
+    BackHandler(enabled = handlesBack(model)) { dispatch(Msg.Nav.Back) }
+    // Above both branches: the discard question shows on the workout and on the home screen.
+    WorkoutSessionHost(model.session, model.now, dispatch)
 
-    if (showWorkout) {
-        // The back gesture closes the workout, not the app. The workout itself keeps running.
-        BackHandler { workoutOpen = false }
+    if (showsWorkout(model)) {
         ShowOverLockScreen()
-        WorkoutScreen(onClose = { workoutOpen = false })
+        WorkoutScreen(model, dispatch)
         return
     }
 
-    // Back from another tab goes home first, like every app with a bottom bar.
-    BackHandler(enabled = tab != Tab.HOME) { tab = Tab.HOME }
+    val tab = model.nav.tab
     val screens = rememberSaveableStateHolder()
     Scaffold(
         containerColor = EisenColors.Background,
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(Eisen.snackbars.host) },
         bottomBar = {
             NavigationBar(containerColor = EisenColors.Card) {
                 for (item in Tab.entries) {
                     NavigationBarItem(
                         selected = tab == item,
-                        onClick = { tab = item },
+                        onClick = { dispatch(Msg.Nav.SelectTab(item)) },
                         icon = { Icon(item.icon, contentDescription = null) },
                         label = { Text(item.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -124,15 +183,73 @@ private fun App() {
             // Each tab keeps its scroll position and open sections while another one shows.
             screens.SaveableStateProvider(tab) {
                 when (tab) {
-                    Tab.HOME -> HomeScreen(onOpenWorkout = { workoutOpen = true })
-                    Tab.WORKOUTS -> WorkoutsScreen()
-                    Tab.HISTORY -> HistoryScreen()
-                    Tab.PROGRESS -> ProgressScreen()
-                    Tab.SETTINGS -> SettingsScreen()
+                    Tab.HOME -> HomeScreen(model, dispatch)
+                    Tab.WORKOUTS -> WorkoutsScreen(model, dispatch)
+                    Tab.HISTORY -> HistoryScreen(model, dispatch)
+                    Tab.PROGRESS -> ProgressScreen(model)
+                    Tab.SETTINGS -> SettingsScreen(model, dispatch)
                 }
             }
         }
     }
+}
+
+/**
+ * Carries out the one-shot UI events `update` asks for: haptics, the system permission dialogs and
+ * the share sheet. The answers go back as Msgs. Snackbars are shown by the runtime's queue.
+ */
+@Composable
+private fun UiEvents(dispatch: (Msg) -> Unit) {
+    val context = LocalContext.current
+    val haptics = rememberHaptics()
+    val scope = rememberCoroutineScope()
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        dispatch(Msg.Rest.NotificationPermission(granted))
+    }
+    val health = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
+        dispatch(Msg.Health.PermissionResult(granted.containsAll(HealthSync.PERMISSIONS)))
+    }
+    LaunchedEffect(Unit) {
+        Eisen.uiEvents.collect { event ->
+            when (event) {
+                is UiEvent.Haptic -> haptics.perform(event.feel.haptic())
+                UiEvent.RequestNotificationPermission -> notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                UiEvent.RequestHealthPermission ->
+                    runCatching { health.launch(HealthSync.PERMISSIONS) }.onFailure { dispatch(Msg.Health.PermissionRequestFailed) }
+                is UiEvent.ShareBackup -> scope.launch {
+                    runCatching { shareBackup(context, event.fileName, event.json) }.onFailure { dispatch(Msg.Data.SendFailed) }
+                }
+                is UiEvent.Snackbar, is UiEvent.DismissSnackbar -> Unit
+            }
+        }
+    }
+}
+
+private fun Feel.haptic(): Haptic = when (this) {
+    Feel.TAP -> Haptic.TAP
+    Feel.WARNING -> Haptic.WARNING
+    Feel.SUCCESS -> Haptic.SUCCESS
+    Feel.DONE -> Haptic.DONE
+}
+
+/** Writes the backup into the folder the FileProvider shares and opens the share sheet with it. */
+private suspend fun shareBackup(context: Context, name: String, json: String) {
+    val file = withContext(Dispatchers.IO) {
+        val folder = File(context.cacheDir, "backups")
+        // Only the newest file is kept, so old backups do not pile up in the cache.
+        folder.mkdirs()
+        folder.listFiles()?.forEach { it.delete() }
+        File(folder, name).apply { writeText(json) }
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "application/json"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TITLE, name)
+        clipData = ClipData.newRawUri(name, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, null))
 }
 
 /**

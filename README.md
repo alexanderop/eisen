@@ -46,6 +46,11 @@ pnpm android:test   # unit tests of the domain rules
 pnpm android:apk    # debug APK in apps/android/app/build/outputs/apk/debug
 ```
 
+The app follows The Elm Architecture: one immutable `Model`, a pure `update(msg, model, env)` that is the
+only place it changes, and side effects as plain `Cmd` data that a small runtime (`runtime/`) carries out.
+Screens are functions of the model and `dispatch`, so every rule is tested through `update` alone.
+See [`apps/android/ARCHITECTURE.md`](apps/android/ARCHITECTURE.md).
+
 A release build is signed with the key named by `EISEN_KEYSTORE` and `EISEN_KEYSTORE_PASSWORD`.
 Android only installs an update over the app when it is signed with the same key, so that key must not get lost.
 

@@ -2,7 +2,15 @@
 import { Badge, Button, Card, ConfirmButton, SetButton, Sheet, Stepper } from '../components/ui'
 import { computed, ref, toRaw } from 'vue'
 import ShareWorkout from '../components/ShareWorkout.vue'
-import { nextReps, stepFor, type ExerciseLog, type Workout } from '../domain/program'
+import {
+  HOLD_STEP_SECONDS,
+  MAX_HELD_SECONDS,
+  nextReps,
+  setText,
+  stepFor,
+  type ExerciseLog,
+  type Workout,
+} from '../domain/program'
 import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
 import { fmt, fmtAdded, fmtLoad, formatDate } from '../format'
@@ -28,6 +36,11 @@ function onTap(log: ExerciseLog, setIndex: number) {
   if (log.targetReps === null) return
   log.sets[setIndex] = nextReps(log.sets[setIndex], log.targetReps)
   haptic('tap')
+}
+
+/** A set in the edit sheet: reps, or a hold in seconds. 0 is not logged. */
+function setFormat(log: ExerciseLog) {
+  return (value: number) => (value === 0 ? '–' : setText(log.timed, value))
 }
 
 function setState(log: ExerciseLog, reps: number | null) {
@@ -78,7 +91,7 @@ function save() {
             v-for="(reps, index) in log.sets"
             :key="index"
             :class="{ missed: reps === null || (log.targetReps !== null && reps !== log.targetReps) }"
-            >{{ reps ?? '–' }}</span
+            >{{ reps === null ? '–' : setText(log.timed, reps) }}</span
           >
         </span>
       </li>
@@ -109,7 +122,7 @@ function save() {
           :format="(value: number) => fmt(value, draft?.unit)"
         />
       </div>
-      <div v-if="log.targetReps !== null" class="sets">
+      <div v-if="log.targetReps !== null && !log.timed" class="sets">
         <SetButton
           v-for="(reps, index) in log.sets"
           :key="index"
@@ -125,9 +138,10 @@ function save() {
           <span class="muted">Set {{ index + 1 }}</span>
           <Stepper
             :model-value="reps ?? 0"
-            :step="1"
-            :label="`${log.name} set ${index + 1} reps`"
-            :format="(value: number) => (value === 0 ? '–' : String(value))"
+            :step="log.timed ? HOLD_STEP_SECONDS : 1"
+            :max="log.timed ? MAX_HELD_SECONDS : undefined"
+            :label="`${log.name} set ${index + 1} ${log.timed ? 'hold' : 'reps'}`"
+            :format="setFormat(log)"
             @update:model-value="log.sets[index] = $event === 0 ? null : $event"
           />
         </div>

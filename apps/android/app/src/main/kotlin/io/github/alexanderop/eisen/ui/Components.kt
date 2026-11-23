@@ -30,13 +30,17 @@ import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.maxLengthReject
 import androidx.compose.foundation.text.input.then
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -473,7 +477,7 @@ private fun NumberField(
             done(state.text.toString())
         },
         lineLimits = TextFieldLineLimits.SingleLine,
-        inputTransformation = InputTransformation.maxLength(MAX_TYPED_LENGTH).then(numberCharacters(whole, allowMinus)),
+        inputTransformation = InputTransformation.maxLengthReject(MAX_TYPED_LENGTH).then(numberCharacters(whole, allowMinus)),
         cursorBrush = SolidColor(EisenColors.Primary),
         decorator = TextFieldDecorator { inner ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -583,6 +587,19 @@ fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modi
             .clickable(role = Role.Button, onClickLabel = description, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = content, fontWeight = FontWeight.Bold, fontSize = 20.sp, style = MaterialTheme.typography.titleLarge)
+        // A hold such as "10:00" is longer than any count of reps.
+        Text(text, color = content, fontWeight = FontWeight.Bold, fontSize = if (text.length > 4) 15.sp else 20.sp, style = MaterialTheme.typography.titleLarge, maxLines = 1)
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+private val FULL_SHEET = setOf(SheetValue.Hidden, SheetValue.Expanded)
+
+/**
+ * The state of the app's bottom sheets: they open all the way and close all the way, never half.
+ * What Material's deprecated `rememberModalBottomSheetState(skipPartiallyExpanded = true)` did: without
+ * the half-open stop, the new flag about that stop changes nothing.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun rememberFullSheetState(): SheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = FULL_SHEET)

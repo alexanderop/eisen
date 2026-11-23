@@ -139,8 +139,9 @@ function pickUnit(unit: Unit) {
   editing.value = null
 }
 
-function toggle(setting: 'sound' | 'haptics') {
-  state.settings[setting] = !state.settings[setting]
+function toggle(setting: 'sound' | 'haptics' | 'restFullScreen') {
+  // A missing full-screen setting counts as on.
+  state.settings[setting] = state.settings[setting] === false
   haptic('tap')
   if (setting === 'sound' && state.settings.sound) void previewSound()
 }
@@ -235,6 +236,14 @@ function onReset() {
         label="After missed reps"
         :value="formatClock(state.settings.restMissed)"
         @click="editing = 'restMissed'"
+      />
+      <ListRow
+        :icon="Hourglass"
+        label="Full-screen rest timer"
+        description="Off: only the small bar. Tap it to open the big timer."
+        trailing="switch"
+        :checked="state.settings.restFullScreen !== false"
+        @click="toggle('restFullScreen')"
       />
       <ListRow
         :icon="Volume2"

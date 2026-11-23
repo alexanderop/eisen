@@ -19,6 +19,11 @@ export interface Settings {
   sound: boolean
   /** Short vibration when a set, a stepper or a finished workout is tapped. */
   haptics: boolean
+  /**
+   * The rest opens as a full screen with the wheels. Off: only the small bar, which still opens
+   * it on a tap. Missing means on: states saved before the setting existed have no entry.
+   */
+  restFullScreen?: boolean
 }
 
 export interface AppState {

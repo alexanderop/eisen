@@ -1,16 +1,19 @@
 <script setup lang="ts">
+import { Timer } from '@lucide/vue'
 import { Button, Card, ConfirmButton, Segmented, SetButton, Sheet, Stepper } from '../components/ui'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import BarbellPlates from '../components/BarbellPlates.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
 import ExercisePicker from '../components/ExercisePicker.vue'
 import RestTimer from '../components/RestTimer.vue'
 import { warmupSets } from '../domain/plates'
 import {
+  holdText,
   incrementStep,
   isComplete,
   isPlateLoaded,
   outcome,
+  setText,
   stepFor,
   UNIT_DEFAULTS,
   warmupStep,
@@ -28,6 +31,7 @@ import {
   platesText,
 } from '../format'
 import { haptic } from '../haptics'
+import { hold, startHold } from '../hold'
 import { startRest, stopRest } from '../rest'
 import {
   addActiveExercise,
@@ -41,10 +45,11 @@ import {
   setActiveWeight,
   setIncrement,
   state,
-  suggestedReps,
+  lastReps,
   tapSet,
   warmupDone,
 } from '../store'
+import { useWakeLock } from '../wakeLock'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -82,6 +87,17 @@ function warmups(log: ExerciseLog) {
   )
 }
 
+/** A logged set as the lifter reads it: reps, or the hold of a timed exercise. */
+function setsText(log: ExerciseLog, separator: string): string {
+  return log.sets.map((count) => (count === null ? '–' : setText(log.timed, count))).join(separator)
+}
+
+/** "3×5", "3×1:00" for a hold, or "3×max". */
+function scheme(log: ExerciseLog): string {
+  const target = log.targetReps === null ? 'max' : setText(log.timed, log.targetReps)
+  return `${log.sets.length}×${target}`
+}
+
 /**
  * "12 Nov: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat.
  * Plain bodyweight shows only the reps, as there is no load worth naming.
@@ -90,7 +106,7 @@ function lastTime(id: string): string | null {
   const last = lastLogged(state.history, id)
   if (!last) return null
   const { workout: then, log } = last
-  const reps = log.sets.map((count) => count ?? '–').join(' ')
+  const reps = setsText(log, ' ')
   const plain = log.equipment === 'bodyweight' && log.weight === 0
   const load = plain ? '' : `${fmtLoad(log.equipment, log.weight, then.unit)} · `
   return `${formatShortDate(then.startedAt)}: ${load}${reps}`
@@ -181,16 +197,46 @@ const nothingLogged = computed(
   () => workout.value?.exercises.every((log) => outcome(log) === 'skipped') ?? true,
 )
 
+/** A timed set opens the hold timer. Tapping one that is logged clears it. */
+function onTapHold(exerciseIndex: number, setIndex: number) {
+  const log = workout.value?.exercises[exerciseIndex]
+  if (!log) return
+  if (log.sets[setIndex] === null) {
+    startHold(log.id, setIndex, log.targetReps)
+    return
+  }
+  logReps(exerciseIndex, setIndex, null)
+  touch(log.id)
+  haptic('tap')
+  stopRest()
+}
+
+/** The card of a hold that just ended settles like after a tap. */
+watch(
+  () => hold.active,
+  (active) => {
+    if (!active && workout.value?.exercises.some((log) => log.id === hold.exerciseId)) {
+      touch(hold.exerciseId)
+    }
+  },
+)
+
 function onTap(exerciseIndex: number, setIndex: number) {
   const active = workout.value
   if (!active) return
   const log = active.exercises[exerciseIndex]
+  if (log.timed) {
+    onTapHold(exerciseIndex, setIndex)
+    return
+  }
   if (log.targetReps === null) {
-    entry.value = {
-      exerciseIndex,
-      setIndex,
-      reps: log.sets[setIndex] ?? suggestedReps(log.id, setIndex),
+    // An open max-reps set takes last time's count with one tap: most days it is the same again.
+    const last = lastReps(log.id, setIndex)
+    if (log.sets[setIndex] === null && last !== null) {
+      logMaxSet(exerciseIndex, setIndex, last)
+      return
     }
+    entry.value = { exerciseIndex, setIndex, reps: log.sets[setIndex] ?? FIRST_MAX_REPS }
     return
   }
   const reps = tapSet(exerciseIndex, setIndex)
@@ -205,6 +251,7 @@ function onTap(exerciseIndex: number, setIndex: number) {
   startRest(
     done ? state.settings.restDone : state.settings.restMissed,
     done ? 'All reps done.' : 'Missed reps. Rest longer.',
+    { exerciseId: log.id, exerciseIndex, setIndex },
   )
 }
 
@@ -221,16 +268,31 @@ function setState(log: ExerciseLog, reps: number | null) {
   return log.targetReps !== null && reps < log.targetReps ? 'missed' : 'done'
 }
 
+/** Starting point for a max-reps entry when there is no last time to go by. */
+const FIRST_MAX_REPS = 8
+
 function saveEntry(reps: number | null) {
-  const active = workout.value
-  if (!active || !entry.value) return
-  const { exerciseIndex } = entry.value
-  logReps(exerciseIndex, entry.value.setIndex, reps)
-  touch(active.exercises[exerciseIndex].id)
+  if (!entry.value) return
+  logMaxSet(entry.value.exerciseIndex, entry.value.setIndex, reps)
   entry.value = null
+}
+
+function logMaxSet(exerciseIndex: number, setIndex: number, reps: number | null) {
+  const active = workout.value
+  if (!active) return
+  const log = active.exercises[exerciseIndex]
+  logReps(exerciseIndex, setIndex, reps)
+  touch(log.id)
   haptic('tap')
-  if (reps === null || lastSetLogged(active.exercises[exerciseIndex])) stopRest()
-  else startRest(state.settings.restDone, 'Max set logged.')
+  if (reps === null || lastSetLogged(log)) {
+    stopRest()
+    return
+  }
+  startRest(state.settings.restDone, 'Max set logged.', {
+    exerciseId: log.id,
+    exerciseIndex,
+    setIndex,
+  })
 }
 
 function onFinish() {
@@ -253,27 +315,9 @@ function discard() {
   emit('close')
 }
 
-let wakeLock: WakeLockSentinel | null = null
+useWakeLock()
 
-async function keepScreenOn() {
-  if (document.visibilityState !== 'visible' || !('wakeLock' in navigator)) return
-  try {
-    wakeLock = await navigator.wakeLock.request('screen')
-  } catch {
-    // Denied, for example in battery saver mode. The workout works without it.
-  }
-}
-
-onMounted(() => {
-  void keepScreenOn()
-  document.addEventListener('visibilitychange', keepScreenOn)
-})
-
-onBeforeUnmount(() => {
-  clearTimeout(settleTimer)
-  document.removeEventListener('visibilitychange', keepScreenOn)
-  void wakeLock?.release()
-})
+onBeforeUnmount(() => clearTimeout(settleTimer))
 </script>
 
 <template>
@@ -301,7 +345,7 @@ onBeforeUnmount(() => {
           >
             <ExerciseImage :image="findExercise(log.id)?.image" :name="log.name" :size="40" />
             <span class="done-name">{{ log.name }}</span>
-            <span class="done-reps">{{ log.sets.join(' · ') }}</span>
+            <span class="done-reps">{{ setsText(log, ' · ') }}</span>
             <span class="chevron" aria-hidden="true">{{ expanded.has(log.id) ? '⌃' : '⌄' }}</span>
           </button>
           <ExerciseImage
@@ -320,25 +364,51 @@ onBeforeUnmount(() => {
               />
               <span class="name">{{ done ? 'Sets' : log.name }}</span>
               <span class="target">
-                {{ log.sets.length }}×{{ log.targetReps ?? 'max' }}
+                {{ scheme(log) }}
                 <strong>{{ fmtLoad(log.equipment, log.weight) }}</strong>
                 <span class="chevron" aria-hidden="true">›</span>
               </span>
             </button>
             <div class="sets">
-              <SetButton
-                v-for="(reps, j) in log.sets"
-                :key="j"
-                :state="setState(log, reps)"
-                :aria-label="`${log.name} set ${j + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
-                @click="onTap(i, j)"
-              >
-                {{ reps ?? log.targetReps ?? '+' }}
-              </SetButton>
+              <template v-if="log.timed">
+                <SetButton
+                  v-for="(seconds, j) in log.sets"
+                  :key="j"
+                  :state="setState(log, seconds)"
+                  :class="{ long: (seconds ?? log.targetReps ?? 0) >= 600 }"
+                  :aria-label="`${log.name} set ${j + 1}: ${seconds === null ? 'start the timer' : `held ${holdText(seconds)}`}`"
+                  @click="onTap(i, j)"
+                >
+                  <Timer v-if="seconds === null && log.targetReps === null" :size="24" aria-hidden="true" />
+                  <template v-else>{{ holdText(seconds ?? log.targetReps ?? 0) }}</template>
+                </SetButton>
+              </template>
+              <template v-else>
+                <SetButton
+                  v-for="(reps, j) in log.sets"
+                  :key="j"
+                  :state="setState(log, reps)"
+                  :aria-label="`${log.name} set ${j + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
+                  @click="onTap(i, j)"
+                >
+                  {{ reps ?? log.targetReps ?? lastReps(log.id, j) ?? '+' }}
+                </SetButton>
+              </template>
             </div>
             <p v-if="lastTime(log.id)" class="plates last">Last time, {{ lastTime(log.id) }}</p>
-            <p v-if="log.targetReps === null" class="plates">
-              As many reps as you can. Tap a set to enter them.
+            <p v-if="log.timed" class="plates">
+              {{
+                log.targetReps === null
+                  ? 'Hold as long as you can. Tap a set to start the timer.'
+                  : 'Tap a set to start the timer.'
+              }}
+            </p>
+            <p v-else-if="log.targetReps === null" class="plates">
+              {{
+                log.sets.some((_, j) => lastReps(log.id, j) !== null)
+                  ? "As many reps as you can. Tap a set to log last time's reps, tap it again to change them."
+                  : 'As many reps as you can. Tap a set to enter them.'
+              }}
             </p>
             <p v-else-if="isPlateLoaded(log.equipment)" class="plates">
               {{ platesText(log.weight, log.equipment) }}
@@ -431,7 +501,7 @@ onBeforeUnmount(() => {
         </p>
       </template>
       <div v-if="editedLog.targetReps !== null && editedLog.equipment !== 'bodyweight'" class="row">
-        <span class="muted">Add after all reps</span>
+        <span class="muted">{{ editedLog.timed ? 'Add after full holds' : 'Add after all reps' }}</span>
         <Stepper
           :model-value="progressOf(editedLog.id).increment"
           :step="incrementStep(state.settings.unit)"
@@ -603,6 +673,11 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 10px;
+}
+
+/* "10:00" is the widest a target gets. */
+.sets .long {
+  font-size: var(--fs-base);
 }
 
 .plates {

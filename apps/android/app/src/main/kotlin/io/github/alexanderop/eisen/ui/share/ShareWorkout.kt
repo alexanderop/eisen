@@ -29,7 +29,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.sharedUrl
@@ -75,6 +73,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
 import java.time.ZoneOffset
+import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
 /** Where the PWA lives. A shared link opens the workout there, so it works for people without the app. */
 private const val APP_URL = "https://alexanderop.github.io/eisen/"
@@ -142,16 +141,17 @@ private suspend fun sharePicture(context: Context, bitmap: Bitmap, workout: Work
 /**
  * Shares a finished workout three ways: as a picture, as a link that shows it, or as Markdown.
  * The web copies the link and the Markdown. A phone's share sheet sends them on in one step and can copy them too.
+ * [history] is the saved history the workout is part of: it decides which of its weights were records.
+ * Weights show in the workout's own unit.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ShareWorkoutSheet(workout: Workout, onDismiss: () -> Unit) {
+fun ShareWorkoutSheet(workout: Workout, history: List<Workout>, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberFullSheetState()
     val close: () -> Unit = { scope.launch { sheetState.hide() }.invokeOnCompletion { onDismiss() } }
 
-    val history = Store.state.history
     val shared = remember(workout, history) {
         toShared(workout, recordIds(history, history.indexOfFirst { it.id == workout.id }))
     }

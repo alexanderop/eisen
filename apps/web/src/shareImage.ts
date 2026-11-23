@@ -1,4 +1,4 @@
-import { loadText } from './domain/program'
+import { loadText, setText } from './domain/program'
 import { sharedStats, type SharedExercise, type SharedWorkout } from './domain/share'
 
 /** The app's palette. A canvas cannot read the CSS variables of a page it is not part of. */
@@ -119,7 +119,8 @@ function stats(context: Context, shared: SharedWorkout, top: number) {
       ? [{ value: Math.round(volume).toLocaleString('en-US'), unit: shared.unit, label: 'VOLUME' }]
       : []),
     { value: String(sets), unit: '', label: 'SETS' },
-    { value: String(reps), unit: '', label: 'REPS' },
+    // Holds are seconds, not reps: a workout of only holds has no reps to show.
+    ...(reps > 0 ? [{ value: String(reps), unit: '', label: 'REPS' }] : []),
     ...(volume > 0 || shared.minutes === null
       ? []
       : [{ value: String(shared.minutes), unit: 'min', label: 'TIME' }]),
@@ -189,10 +190,17 @@ function pill(context: Context, exercise: SharedExercise, reps: number | null, x
     context.fill()
   }
   context.fillStyle = reps === null ? COLOR.muted : missed ? COLOR.warn : COLOR.onPrimary
-  font(context, 800, 36)
+  const text = reps === null ? '–' : setText(exercise.timed, reps)
+  // A hold such as "1:30" is wider than a rep count and gets a smaller size to fit the pill.
+  let size = 36
+  font(context, 800, size)
+  while (size > 18 && context.measureText(text).width > PILL - 24) {
+    size -= 2
+    font(context, 800, size)
+  }
   context.textAlign = 'center'
   context.textBaseline = 'middle'
-  context.fillText(reps === null ? '–' : String(reps), x + PILL / 2, y + PILL / 2 + 2)
+  context.fillText(text, x + PILL / 2, y + PILL / 2 + 2)
   context.textAlign = 'left'
   context.textBaseline = 'alphabetic'
 }

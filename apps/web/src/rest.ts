@@ -1,4 +1,5 @@
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { adjustedRestEnd, restSetLog, type RestSet } from './domain/rest'
 import { state } from './store'
 
 /** Rest timer between sets. Based on timestamps so it stays right when the tab sleeps. */
@@ -11,6 +12,10 @@ export const rest = reactive({
   signalled: false,
   /** True once "ten seconds left" was said, or when the rest is too short to say it. */
   warned: false,
+  /** The set the rest follows. */
+  set: null as RestSet | null,
+  /** The rest screen covers the workout. False when it is minimised to the bar. */
+  expanded: false,
 })
 
 /** Spoken cues. Recorded once with `scripts/voice.py`. */
@@ -53,8 +58,8 @@ const REST_KEY = 'eisen:rest'
 function persist(): void {
   try {
     if (rest.active) {
-      const { startedAt, endsAt, note } = rest
-      localStorage.setItem(REST_KEY, JSON.stringify({ startedAt, endsAt, note }))
+      const { startedAt, endsAt, note, set, expanded } = rest
+      localStorage.setItem(REST_KEY, JSON.stringify({ startedAt, endsAt, note, set, expanded }))
     } else {
       localStorage.removeItem(REST_KEY)
     }
@@ -80,10 +85,12 @@ export const restFraction = computed(() => {
   return Math.min(1, Math.max(0, (now.value - rest.startedAt) / total))
 })
 
-function beep(): void {
+/** Three short beeps for an end, one for a start. */
+export function beep(times: 1 | 3 = 3): void {
   if (!state.settings.sound || !audio) return
+  void audio.resume()
   const start = audio.currentTime
-  for (const offset of [0, 0.22, 0.44]) {
+  for (const offset of [0, 0.22, 0.44].slice(0, times)) {
     const oscillator = audio.createOscillator()
     const gain = audio.createGain()
     oscillator.frequency.value = 880
@@ -100,7 +107,7 @@ function beep(): void {
  * Gets the sound ready. Call from a tap handler: browsers only allow sound after a user gesture.
  * Safe to call again: a phone suspends the sound when the app was in the background.
  */
-async function unlockSound(): Promise<void> {
+export async function unlockSound(): Promise<void> {
   if (!state.settings.sound) return
   audio ??= new AudioContext()
   void audio.resume()
@@ -141,8 +148,11 @@ function tick(): void {
   }
 }
 
-/** Call from a tap handler: browsers only allow sound after a user gesture. */
-export function startRest(seconds: number, note: string): void {
+/**
+ * Starts the rest after a set and opens the rest screen for it.
+ * Call from a tap handler: browsers only allow sound after a user gesture.
+ */
+export function startRest(seconds: number, note: string, set: RestSet): void {
   void unlockSound()
   now.value = Date.now()
   rest.active = true
@@ -151,21 +161,38 @@ export function startRest(seconds: number, note: string): void {
   rest.note = note
   rest.signalled = false
   rest.warned = seconds < WARN_MIN_REST_SECONDS
+  rest.set = { ...set }
+  rest.expanded = state.settings.restFullScreen !== false
   interval ??= setInterval(tick, 250)
   persist()
 }
 
-export function extendRest(seconds: number): void {
+/** Makes the running rest longer, or shorter with negative seconds. It never ends before now. */
+export function adjustRest(seconds: number): void {
   if (!rest.active) return
-  rest.endsAt = Math.max(rest.endsAt, Date.now()) + seconds * 1000
-  rest.signalled = false
-  rest.warned = false
+  now.value = Date.now()
+  rest.endsAt = adjustedRestEnd(rest.endsAt, now.value, seconds)
+  if (seconds > 0) {
+    rest.signalled = false
+    rest.warned = false
+  } else if (rest.endsAt - now.value <= WARN_SECONDS * 1000) {
+    // Cut into the last ten seconds: "ten seconds" would be said too late to be true.
+    rest.warned = true
+  }
   tick()
+  persist()
+}
+
+/** The note was about the count as tapped. Once the count is corrected it would contradict it. */
+export function clearRestNote(): void {
+  rest.note = ''
   persist()
 }
 
 export function stopRest(): void {
   rest.active = false
+  rest.set = null
+  rest.expanded = false
   clearInterval(interval)
   interval = undefined
   persist()
@@ -175,7 +202,13 @@ export function stopRest(): void {
 function restore(): void {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(REST_KEY) ?? 'null')
-    const data = saved as { startedAt?: unknown; endsAt?: unknown; note?: unknown } | null
+    const data = saved as {
+      startedAt?: unknown
+      endsAt?: unknown
+      note?: unknown
+      set?: unknown
+      expanded?: unknown
+    } | null
     if (
       !state.active ||
       typeof data?.startedAt !== 'number' ||
@@ -189,6 +222,8 @@ function restore(): void {
     rest.startedAt = data.startedAt
     rest.endsAt = data.endsAt
     rest.note = data.note
+    rest.set = isRestSet(data.set) ? data.set : null
+    rest.expanded = data.expanded === true
     // A rest that ended while the app was closed must not beep on reopen.
     rest.signalled = Date.now() >= data.endsAt
     rest.warned = data.endsAt - Date.now() <= WARN_SECONDS * 1000
@@ -198,7 +233,46 @@ function restore(): void {
   }
 }
 
+function isRestSet(value: unknown): value is RestSet {
+  const set = value as Partial<RestSet> | null
+  return (
+    typeof set?.exerciseId === 'string' &&
+    Number.isInteger(set.exerciseIndex) &&
+    Number.isInteger(set.setIndex)
+  )
+}
+
+/** The exercise of the set the rest follows, while that set is still logged where it was. */
+export const restLog = computed(() => (rest.active ? restSetLog(state.active, rest.set) : null))
+export const restScreenOpen = computed(() => rest.expanded && restLog.value !== null)
+
+export function openRestScreen(): void {
+  if (!restLog.value) return
+  rest.expanded = true
+  persist()
+}
+
+export function minimiseRestScreen(): void {
+  if (!rest.expanded) return
+  rest.expanded = false
+  persist()
+}
+
 restore()
+
+// The set was cleared, its exercise removed or moved, or the workout ended: the rest screen
+// has nothing left to show. The rest itself runs on.
+watch(
+  restLog,
+  (log) => {
+    if (log || !rest.set) return
+    rest.set = null
+    rest.expanded = false
+    persist()
+  },
+  { immediate: true },
+)
+
 // `click` and not `pointerdown`: a button pressed with the keyboard counts as well.
 window.addEventListener('click', unlockOnTap, { capture: true })
 

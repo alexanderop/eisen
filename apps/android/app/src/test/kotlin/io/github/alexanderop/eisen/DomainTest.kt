@@ -128,7 +128,9 @@ class DomainTest {
     @Test fun `catalog has unique ids and an image file for every exercise`() {
         assertEquals(CATALOG.size, CATALOG.map { it.id }.toSet().size)
         val folder = java.io.File("../../web/src/assets/exercises")
-        for (exercise in CATALOG) assertTrue(exercise.id, java.io.File(folder, "${exercise.image}.webp").exists())
+        for (exercise in CATALOG) {
+            assertTrue(exercise.id, java.io.File(folder, "${exercise.image}.webp").exists())
+        }
     }
 
     @Test fun `starts bars on plate steps and dumbbells on finer ones in both units`() {

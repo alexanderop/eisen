@@ -1,19 +1,12 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.AppState
-import io.github.alexanderop.eisen.domain.Effect
-import io.github.alexanderop.eisen.domain.Env
 import io.github.alexanderop.eisen.domain.ExerciseProgress
-import io.github.alexanderop.eisen.domain.FinishReason
 import io.github.alexanderop.eisen.domain.Feel
+import io.github.alexanderop.eisen.domain.FinishReason
 import io.github.alexanderop.eisen.domain.Routine
-import io.github.alexanderop.eisen.domain.Run
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Stage
-import io.github.alexanderop.eisen.domain.Transition
 import io.github.alexanderop.eisen.domain.WeightUnit
-import io.github.alexanderop.eisen.domain.Workout
-import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.WorkoutEvent.AddExercise
 import io.github.alexanderop.eisen.domain.WorkoutEvent.Cancel
 import io.github.alexanderop.eisen.domain.WorkoutEvent.Confirm
@@ -32,51 +25,49 @@ import io.github.alexanderop.eisen.domain.WorkoutEvent.TapSet
 import io.github.alexanderop.eisen.domain.WorkoutEvent.Undo
 import io.github.alexanderop.eisen.domain.active
 import io.github.alexanderop.eisen.domain.canDefer
-import io.github.alexanderop.eisen.domain.editProgress
+import io.github.alexanderop.eisen.domain.elm.Cmd
+import io.github.alexanderop.eisen.domain.elm.DISCARD_SNACKBAR
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.RepsQuestion
+import io.github.alexanderop.eisen.domain.elm.RestState
+import io.github.alexanderop.eisen.domain.elm.SETTLE_MS
+import io.github.alexanderop.eisen.domain.elm.UiEvent
+import io.github.alexanderop.eisen.domain.elm.restCountdown
+import io.github.alexanderop.eisen.domain.elm.refreshHomeSurfaces
 import io.github.alexanderop.eisen.domain.freshState
 import io.github.alexanderop.eisen.domain.order
 import io.github.alexanderop.eisen.domain.stageOf
-import io.github.alexanderop.eisen.domain.transition
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The workout state machine, one test per transition of the diagram in `WorkoutMachine.kt`,
- * plus the ignored events and the effects of each kind of tap.
+ * The workout state machine, driven through `update` with `Msg.Workout`: one test per transition of
+ * the diagram in `WorkoutMachine.kt`, plus the ignored events and what each kind of tap leads to
+ * (the rest in the model and its Cmds, the haptics as UI events).
  * Workout A: Hack Squat 5×5, Bench Press 5×5, Barbell Row 5×5, Dips 3×max.
  */
 class WorkoutMachineTest {
-    private val startedAt = 1_000L
-    private val env = Env(startedAt) { "w1" }
-
-    private fun Transition.send(event: WorkoutEvent, now: Long = startedAt + 60_000): Transition =
-        transition(session, state, event, Env(now) { "w2" })
-
-    private fun started(state: AppState = freshState(WeightUnit.KG)): Transition = transition(Session.Idle, state, Start, env)
-
-    private val Transition.run: Run get() = (session as Session.WithRun).run
-    private val Transition.workout: Workout get() = run.workout
-
     /** Taps every set of an exercise once: all reps. */
-    private fun Transition.full(exercise: Int): Transition =
+    private fun Step.full(exercise: Int): Step =
         workout.exercises[exercise].sets.indices.fold(this) { at, set -> at.send(TapSet(exercise, set)) }
 
     /** Every set of the workout logged, max-reps sets with 10. */
-    private fun Transition.everything(): Transition = workout.exercises.indices.fold(this) { at, index ->
+    private fun Step.everything(): Step = workout.exercises.indices.fold(this) { at, index ->
         val log = at.workout.exercises[index]
         if (log.targetReps != null) at.full(index) else log.sets.indices.fold(at) { inner, set -> inner.send(LogReps(index, set, 10)) }
     }
 
-    private fun assertIgnored(before: Transition, event: WorkoutEvent) {
-        val after = before.send(event)
-        assertSame(before.session, after.session)
-        assertEquals(before.state, after.state)
-        assertTrue(after.effects.isEmpty())
-    }
+    private fun rest(seconds: Int, note: String, at: Long = LATER) = RestState(at, at + seconds * 1000L, note)
+
+    private val stopRest = listOf(Cmd.SaveRest(null), Cmd.CancelRestAlarms, Cmd.HideRestCountdown, Cmd.HideRestOver)
+
+    private fun Step.stopsRest(): Boolean = cmds.containsAll(stopRest)
+
+    private fun Step.discardSnackbar(): UiEvent.Snackbar? = uiEvents.filterIsInstance<UiEvent.Snackbar>().firstOrNull { it.tag == DISCARD_SNACKBAR }
 
     // Idle
 
@@ -85,19 +76,23 @@ class WorkoutMachineTest {
         val running = result.session as Session.Running
         assertEquals(listOf("hackSquat", "bench", "row", "dips"), running.workout.exercises.map { it.id })
         assertEquals("w1", running.workout.id)
-        assertEquals(startedAt, running.workout.startedAt)
+        assertEquals(STARTED_AT, running.workout.startedAt)
         assertEquals(running.workout, result.state.active)
         assertEquals(result.state.progress, running.run.baseline)
-        assertEquals(listOf(Effect.Started(running.workout)), result.effects)
+        // A new workout forgets the last summary and shows itself; the new state is saved.
+        assertNull(result.model.lastChanges)
+        assertTrue(result.model.nav.workoutOpen)
+        assertEquals(listOf(Cmd.Save(result.state), refreshHomeSurfaces(result.state)), result.cmds)
         assertEquals(Stage.FRESH, stageOf(running.workout))
     }
 
     @Test fun `Start does nothing when the routine has no exercise left`() {
         val empty = freshState(WeightUnit.KG).let { it.copy(routines = listOf(Routine("A", "Empty", emptyList())), nextRoutineId = "A") }
-        val result = transition(Session.Idle, empty, Start, env)
+        val result = stepOf(empty).send(Start)
         assertEquals(Session.Idle, result.session)
         assertNull(result.state.active)
-        assertTrue(result.effects.isEmpty())
+        assertFalse(result.model.nav.workoutOpen)
+        assertTrue(result.cmds.isEmpty())
     }
 
     // Taps
@@ -105,14 +100,30 @@ class WorkoutMachineTest {
     @Test fun `a full set starts the rest for done sets`() {
         val result = started().send(TapSet(0, 0))
         assertEquals(5, result.workout.exercises[0].sets[0])
-        assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StartRest(90, "All reps done.")), result.effects)
+        val rest = rest(90, "All reps done.")
+        assertEquals(rest, result.model.rest)
+        assertEquals(
+            listOf(
+                Cmd.Ui(UiEvent.Haptic(Feel.TAP)),
+                Cmd.SaveRest(rest),
+                Cmd.ScheduleRestAlarms(tenAt = rest.endsAt - 10_000, overAt = rest.endsAt),
+                Cmd.HideRestOver,
+                Cmd.ShowRestCountdown(restCountdown(rest)),
+                // The card holds its place for a moment, see UpdateTest.
+                Cmd.After(SETTLE_MS, Msg.WorkoutScreen.Settle("hackSquat", LATER)),
+                Cmd.Save(result.state),
+                refreshHomeSurfaces(result.state),
+            ),
+            result.cmds,
+        )
         assertEquals(result.workout, result.state.active)
     }
 
     @Test fun `a missed rep warns and starts the longer rest`() {
         val result = started().send(TapSet(0, 0)).send(TapSet(0, 0))
         assertEquals(4, result.workout.exercises[0].sets[0])
-        assertEquals(listOf(Effect.Haptic(Feel.WARNING), Effect.StartRest(300, "Missed reps. Rest longer.")), result.effects)
+        assertEquals(listOf(Feel.WARNING), result.feels)
+        assertEquals(rest(300, "Missed reps. Rest longer."), result.model.rest)
     }
 
     @Test fun `tapping cycles target down to 0 and clearing stops the rest`() {
@@ -123,14 +134,18 @@ class WorkoutMachineTest {
             seen += at.workout.exercises[0].sets[0]
         }
         assertEquals(listOf(5, 4, 3, 2, 1, 0, null), seen)
-        assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StopRest), at.effects)
+        assertEquals(listOf(Feel.TAP), at.feels)
+        assertNull(at.model.rest)
+        assertTrue(at.stopsRest())
     }
 
     @Test fun `the last set of an exercise feels like a success and leaves no rest behind`() {
         val four = (0 until 4).fold(started()) { at, set -> at.send(TapSet(0, set)) }
-        assertEquals(Effect.StartRest(90, "All reps done."), four.effects.last())
+        assertEquals(rest(90, "All reps done."), four.model.rest)
         val result = four.send(TapSet(0, 4))
-        assertEquals(listOf(Effect.Haptic(Feel.SUCCESS), Effect.StopRest), result.effects)
+        assertEquals(listOf(Feel.SUCCESS), result.feels)
+        assertNull(result.model.rest)
+        assertTrue(result.stopsRest())
         // The workout itself is far from done: the timer goes because the exercise is.
         assertEquals(Stage.UNDERWAY, stageOf(result.workout))
     }
@@ -139,13 +154,17 @@ class WorkoutMachineTest {
         val done = (0 until 5).fold(started()) { at, set -> at.send(TapSet(0, set)) }
         val missed = done.send(TapSet(0, 4))
         assertEquals(4, missed.workout.exercises[0].sets[4])
-        assertEquals(listOf(Effect.Haptic(Feel.WARNING), Effect.StopRest), missed.effects)
+        assertEquals(listOf(Feel.WARNING), missed.feels)
+        assertNull(missed.model.rest)
     }
 
     @Test fun `the last max-reps set of an exercise leaves no rest behind`() {
         val two = started().send(LogReps(3, 0, 12)).send(LogReps(3, 1, 10))
-        assertEquals(Effect.StartRest(90, "Max set logged."), two.effects.last())
-        assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StopRest), two.send(LogReps(3, 2, 8)).effects)
+        assertEquals(rest(90, "Max set logged."), two.model.rest)
+        val last = two.send(LogReps(3, 2, 8))
+        assertEquals(listOf(Feel.TAP), last.feels)
+        assertNull(last.model.rest)
+        assertTrue(last.stopsRest())
     }
 
     @Test fun `the set that completes the workout stops the rest`() {
@@ -154,26 +173,43 @@ class WorkoutMachineTest {
         assertNull(almost.workout.exercises[0].sets[4])
         val result = almost.send(TapSet(0, 4))
         assertEquals(Stage.COMPLETE, stageOf(result.workout))
-        assertEquals(listOf(Effect.Haptic(Feel.SUCCESS), Effect.StopRest), result.effects)
+        assertEquals(listOf(Feel.SUCCESS), result.feels)
+        assertNull(result.model.rest)
     }
 
-    @Test fun `a max-reps set asks for the count, starting at last time`() {
+    @Test fun `a max-reps set with no last time asks for the count`() {
         val fresh = started().send(TapSet(3, 0))
-        assertEquals(listOf(Effect.AskReps(3, 0, 8)), fresh.effects)
+        assertEquals(RepsQuestion(3, 0, 8), fresh.model.repsQuestion)
         assertEquals(started().session, fresh.session)
+        assertTrue(fresh.cmds.isEmpty())
+    }
 
-        val last = started().workout.copy(id = "old", exercises = started().workout.exercises.map { if (it.id == "dips") it.copy(sets = listOf(12, 10, 9)) else it })
+    @Test fun `a max-reps set takes last time's count with one tap, and a second tap asks to change it`() {
+        // The third set was left open last time: it has nothing to offer.
+        val last = started().workout.copy(id = "old", exercises = started().workout.exercises.map { if (it.id == "dips") it.copy(sets = listOf(12, 10, null)) else it })
         val withHistory = started(freshState(WeightUnit.KG).copy(history = listOf(last)))
-        assertEquals(listOf(Effect.AskReps(3, 1, 10)), withHistory.send(TapSet(3, 1)).effects)
+
+        val logged = withHistory.send(TapSet(3, 1))
+        assertEquals(10, logged.workout.exercises[3].sets[1])
+        assertNull(logged.model.repsQuestion)
+        assertEquals(rest(90, "Max set logged."), logged.model.rest)
+
+        assertEquals(RepsQuestion(3, 1, 10), logged.send(TapSet(3, 1)).model.repsQuestion)
+        assertEquals(RepsQuestion(3, 2, 8), withHistory.send(TapSet(3, 2)).model.repsQuestion)
     }
 
     @Test fun `logging a count starts the rest and clearing it stops it`() {
-        val logged = started().send(LogReps(3, 0, 12))
+        val logged = started().send(TapSet(3, 0)).send(LogReps(3, 0, 12))
         assertEquals(12, logged.workout.exercises[3].sets[0])
-        assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StartRest(90, "Max set logged.")), logged.effects)
+        // The count is in: the question is answered.
+        assertNull(logged.model.repsQuestion)
+        assertEquals(listOf(Feel.TAP), logged.feels)
+        assertEquals(rest(90, "Max set logged."), logged.model.rest)
         val cleared = logged.send(LogReps(3, 0, null))
         assertNull(cleared.workout.exercises[3].sets[0])
-        assertEquals(listOf(Effect.Haptic(Feel.TAP), Effect.StopRest), cleared.effects)
+        assertEquals(listOf(Feel.TAP), cleared.feels)
+        assertNull(cleared.model.rest)
+        assertTrue(cleared.stopsRest())
     }
 
     // Editing the running workout
@@ -279,10 +315,12 @@ class WorkoutMachineTest {
         // applyProgression: hack squat 80 kg + 5 kg after all reps.
         assertEquals(85.0, saved.state.progress.getValue("hackSquat").weight, 0.0)
         assertEquals("B", saved.state.nextRoutineId)
-        val savedEffect = saved.effects[2] as Effect.Saved
-        assertEquals(finished, savedEffect.workout)
-        assertEquals(3, savedEffect.changes.size)
-        assertEquals(listOf(Effect.Haptic(Feel.DONE), Effect.StopRest), saved.effects.take(2))
+        // The home screen shows what changed; the workout screen closes.
+        assertEquals(3, saved.model.lastChanges!!.size)
+        assertFalse(saved.model.nav.workoutOpen)
+        assertEquals(listOf(Feel.DONE), saved.feels)
+        assertNull(saved.model.rest)
+        assertTrue(Cmd.Save(saved.state) in saved.cmds)
     }
 
     @Test fun `RequestFinish with sets open asks first, Confirm saves`() {
@@ -290,11 +328,11 @@ class WorkoutMachineTest {
         val asking = underway.send(RequestFinish)
         assertEquals(Session.ConfirmingFinish(underway.run, FinishReason.EARLY), asking.session)
         assertEquals(underway.workout, asking.state.active)
-        assertTrue(asking.effects.isEmpty())
+        assertTrue(asking.cmds.isEmpty())
         val saved = asking.send(Confirm)
         assertEquals(Session.Idle, saved.session)
         assertEquals(1, saved.state.history.size)
-        assertTrue(saved.effects.last() is Effect.Saved)
+        assertNotNull(saved.model.lastChanges)
     }
 
     @Test fun `Cancel on the finish question keeps the workout running`() {
@@ -311,7 +349,9 @@ class WorkoutMachineTest {
         assertTrue(discarded.session is Session.Discarded)
         assertTrue(discarded.state.history.isEmpty())
         assertNull(discarded.state.active)
-        assertEquals(listOf(Effect.StopRest, Effect.DiscardedWorkout(asking.workout)), discarded.effects)
+        assertNull(discarded.model.rest)
+        assertNotNull(discarded.discardSnackbar())
+        assertFalse(discarded.model.nav.workoutOpen)
     }
 
     // Discarding
@@ -321,7 +361,18 @@ class WorkoutMachineTest {
         val discarded = fresh.send(RequestDiscard)
         assertEquals(Session.Discarded(fresh.run, undo = emptyMap()), discarded.session)
         assertNull(discarded.state.active)
-        assertEquals(listOf(Effect.StopRest, Effect.DiscardedWorkout(fresh.workout)), discarded.effects)
+        assertEquals(
+            UiEvent.Snackbar(
+                "Workout discarded",
+                actionLabel = "Undo",
+                onAction = Msg.Workout(Undo),
+                onDismiss = Msg.Workout(Forget),
+                millis = 6_000,
+                tag = DISCARD_SNACKBAR,
+            ),
+            discarded.discardSnackbar(),
+        )
+        assertFalse(discarded.model.nav.workoutOpen)
     }
 
     @Test fun `RequestDiscard with sets logged asks first, with a warning`() {
@@ -329,7 +380,7 @@ class WorkoutMachineTest {
         val asking = underway.send(RequestDiscard)
         assertEquals(Session.ConfirmingDiscard(underway.run), asking.session)
         assertEquals(underway.workout, asking.state.active)
-        assertEquals(listOf(Effect.Haptic(Feel.WARNING)), asking.effects)
+        assertEquals(listOf(Cmd.Ui(UiEvent.Haptic(Feel.WARNING))), asking.cmds)
     }
 
     @Test fun `Cancel on the discard question keeps the workout running`() {
@@ -340,11 +391,14 @@ class WorkoutMachineTest {
 
     @Test fun `Confirm on the discard question discards and stops the rest`() {
         val underway = started().send(TapSet(0, 0))
+        assertNotNull(underway.model.rest)
         val discarded = underway.send(RequestDiscard).send(Confirm)
         assertTrue(discarded.session is Session.Discarded)
         assertNull(discarded.state.active)
         assertTrue(discarded.state.history.isEmpty())
-        assertEquals(listOf(Effect.StopRest, Effect.DiscardedWorkout(underway.workout)), discarded.effects)
+        assertNull(discarded.model.rest)
+        assertTrue(discarded.stopsRest())
+        assertNotNull(discarded.discardSnackbar())
     }
 
     @Test fun `Undo brings back exactly the workout, without its rest`() {
@@ -352,7 +406,10 @@ class WorkoutMachineTest {
         val restored = underway.send(RequestDiscard).send(Confirm).send(Undo)
         assertEquals(Session.Running(underway.run), restored.session)
         assertEquals(underway.state, restored.state)
-        assertTrue(restored.effects.isEmpty())
+        assertNull(restored.model.rest)
+        assertTrue(restored.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.ShowRestCountdown })
+        // It shows again, where it was.
+        assertTrue(restored.model.nav.workoutOpen)
     }
 
     @Test fun `Forget drops the discarded workout for good`() {
@@ -366,7 +423,9 @@ class WorkoutMachineTest {
         val again = discarded.send(Start)
         val running = again.session as Session.Running
         assertEquals("w2", running.workout.id)
-        assertEquals(listOf(Effect.Started(running.workout)), again.effects)
+        assertTrue(again.model.nav.workoutOpen)
+        // The old Undo is gone with the snackbar that offered it.
+        assertTrue(Cmd.Ui(UiEvent.DismissSnackbar(DISCARD_SNACKBAR)) in again.cmds)
         assertIgnored(again, Undo)
     }
 
@@ -374,9 +433,10 @@ class WorkoutMachineTest {
         val start = started()
         val before = start.state.progress
         val edited = start.send(SetWeight(1, 100.0)).send(AddExercise("dumbbellRow")).send(SetWorkingWeight("row", 70.0))
-            .let { it.copy(state = it.state.editProgress("hackSquat") { entry -> entry.copy(increment = 10.0) }) }
+            .send(Msg.Settings.SetIncrement("hackSquat", 10.0))
             .send(TapSet(0, 0))
         assertEquals(100.0, edited.state.progress.getValue("bench").weight, 0.0)
+        assertEquals(10.0, edited.state.progress.getValue("hackSquat").increment, 0.0)
 
         val discarded = edited.send(RequestDiscard).send(Confirm)
         assertEquals(before, discarded.state.progress)
@@ -391,7 +451,7 @@ class WorkoutMachineTest {
         assertEquals(55.0, running.workout.exercises[1].weight, 0.0)
         assertEquals(55.0, running.state.active!!.exercises[1].weight, 0.0)
 
-        val idle = transition(Session.Idle, freshState(WeightUnit.KG), SetWorkingWeight("bench", 55.0), env)
+        val idle = stepOf().send(SetWorkingWeight("bench", 55.0))
         assertEquals(Session.Idle, idle.session)
         assertEquals(55.0, idle.state.progress.getValue("bench").weight, 0.0)
     }
@@ -431,7 +491,7 @@ class WorkoutMachineTest {
         assertEquals(Session.Idle, saved.session)
         assertEquals(added(10.0), saved.state.progress["dips"])
         assertEquals(10.0, saved.state.history[0].exercises[3].weight, 0.0)
-        assertTrue((saved.effects.last() as Effect.Saved).changes.none { it.id == "dips" })
+        assertTrue(saved.model.lastChanges!!.none { it.id == "dips" })
 
         val nextA = saved.state.copy(nextRoutineId = "A")
         assertEquals(10.0, started(nextA).workout.exercises[3].weight, 0.0)
@@ -476,7 +536,7 @@ class WorkoutMachineTest {
     // Ignored events
 
     @Test fun `events a state does not take are ignored`() {
-        val idle = Transition(Session.Idle, freshState(WeightUnit.KG))
+        val idle = stepOf()
         for (event in listOf(TapSet(0, 0), LogReps(0, 0, 5), Confirm, Cancel, Undo, Forget, RequestFinish, RequestDiscard, Move(0, 1), Defer(0), Rise("bench"))) {
             assertIgnored(idle, event)
         }

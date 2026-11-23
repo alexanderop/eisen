@@ -10,6 +10,7 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.Build
 import io.github.alexanderop.eisen.domain.SharedExercise
+import io.github.alexanderop.eisen.domain.setText
 import io.github.alexanderop.eisen.domain.SharedWorkout
 import io.github.alexanderop.eisen.domain.loadText
 import io.github.alexanderop.eisen.domain.sharedStats
@@ -177,8 +178,10 @@ private fun Card.stats(shared: SharedWorkout, top: Float) {
         // JavaScript's Math.round and toLocaleString('en-US'): 3,120.
         if (volume > 0) add(Tile(String.format(Locale.US, "%,d", floor(volume + 0.5).toLong()), shared.unit.label, "VOLUME"))
         add(Tile(sets.toString(), "", "SETS"))
-        add(Tile(reps.toString(), "", "REPS"))
-        if (volume <= 0 && shared.minutes != null) add(Tile(shared.minutes.toString(), "min", "TIME"))
+        // Holds are no reps: a workout of only holds shows its time instead.
+        val showReps = reps > 0 || shared.exercises.none { it.timed }
+        if (showReps) add(Tile(reps.toString(), "", "REPS"))
+        if ((volume <= 0 || !showReps) && shared.minutes != null) add(Tile(shared.minutes.toString(), "min", "TIME"))
     }
     val gap = 16f
     // The volume is the longest number, so its tile is the widest.
@@ -226,8 +229,15 @@ private fun Card.pill(exercise: SharedExercise, reps: Int?, x: Float, y: Float) 
         else -> fill(x, y, PILL, PILL, 22f, Palette.PRIMARY)
     }
     val color = if (reps == null) Palette.MUTED else if (missed) Palette.WARN else Palette.ON_PRIMARY
-    font(800, 36f)
-    middleText(reps?.toString() ?: "–", x + PILL / 2, y + PILL / 2 + 2, color, Paint.Align.CENTER)
+    val label = reps?.let { setText(it, exercise.timed) } ?: "–"
+    // A hold such as "1:30" is wider than a count of reps: it gets a smaller font, not a wider pill.
+    var size = 36f
+    font(800, size)
+    while (size > 20 && measure(label) > PILL - 14) {
+        size -= 2
+        font(800, size)
+    }
+    middleText(label, x + PILL / 2, y + PILL / 2 + 2, color, Paint.Align.CENTER)
 }
 
 private fun Card.exerciseRow(shared: SharedWorkout, exercise: SharedExercise, top: Float) {

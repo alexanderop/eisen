@@ -1,0 +1,960 @@
+package io.github.alexanderop.eisen
+
+import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.ExerciseProgress
+import io.github.alexanderop.eisen.domain.Feel
+import io.github.alexanderop.eisen.domain.MAX_HELD_SECONDS
+import io.github.alexanderop.eisen.domain.Routine
+import io.github.alexanderop.eisen.domain.Session
+import io.github.alexanderop.eisen.domain.Slot
+import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.WorkoutEvent
+import io.github.alexanderop.eisen.domain.active
+import io.github.alexanderop.eisen.domain.elm.AddTarget
+import io.github.alexanderop.eisen.domain.elm.BACKUP_RESTORED
+import io.github.alexanderop.eisen.domain.elm.Cmd
+import io.github.alexanderop.eisen.domain.elm.Cue
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.DeletedWorkout
+import io.github.alexanderop.eisen.domain.elm.Flags
+import io.github.alexanderop.eisen.domain.elm.HISTORY_SNACKBAR
+import io.github.alexanderop.eisen.domain.elm.HealthAvailability
+import io.github.alexanderop.eisen.domain.elm.HealthJob
+import io.github.alexanderop.eisen.domain.elm.HealthModel
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.NOT_A_BACKUP
+import io.github.alexanderop.eisen.domain.elm.Navigation
+import io.github.alexanderop.eisen.domain.elm.Notifications
+import io.github.alexanderop.eisen.domain.elm.PermissionCheck
+import io.github.alexanderop.eisen.domain.elm.REST_OVER_VIBRATION
+import io.github.alexanderop.eisen.domain.elm.RemovedSlot
+import io.github.alexanderop.eisen.domain.elm.RepsQuestion
+import io.github.alexanderop.eisen.domain.elm.RestState
+import io.github.alexanderop.eisen.domain.elm.SLOT_SNACKBAR
+import io.github.alexanderop.eisen.domain.elm.Sub
+import io.github.alexanderop.eisen.domain.elm.Tab
+import io.github.alexanderop.eisen.domain.elm.UiEvent
+import io.github.alexanderop.eisen.domain.elm.backupFileName
+import io.github.alexanderop.eisen.domain.elm.exerciseNamed
+import io.github.alexanderop.eisen.domain.elm.exercises
+import io.github.alexanderop.eisen.domain.elm.exportJson
+import io.github.alexanderop.eisen.domain.elm.handlesBack
+import io.github.alexanderop.eisen.domain.elm.holdFits
+import io.github.alexanderop.eisen.domain.elm.init
+import io.github.alexanderop.eisen.domain.elm.refreshHomeSurfaces
+import io.github.alexanderop.eisen.domain.elm.restOver
+import io.github.alexanderop.eisen.domain.elm.restScreenFits
+import io.github.alexanderop.eisen.domain.elm.SETTLE_MS
+import io.github.alexanderop.eisen.domain.elm.Settling
+import io.github.alexanderop.eisen.domain.elm.showsWorkout
+import io.github.alexanderop.eisen.domain.elm.subscriptions
+import io.github.alexanderop.eisen.domain.elm.warmupKey
+import io.github.alexanderop.eisen.domain.encodeState
+import io.github.alexanderop.eisen.domain.freshState
+import io.github.alexanderop.eisen.domain.order
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Every Msg group besides the workout machine (see [WorkoutMachineTest]), through `update` alone:
+ * for a Msg, the new Model and the Cmds it asks for.
+ */
+class UpdateTest {
+    private fun routine(step: Step, id: String): Routine = step.state.routines.first { it.id == id }
+
+    private val stopRest = listOf(Cmd.SaveRest(null), Cmd.CancelRestAlarms, Cmd.HideRestCountdown, Cmd.HideRestOver)
+
+    private fun Step.snackbars(): List<UiEvent.Snackbar> = uiEvents.filterIsInstance<UiEvent.Snackbar>()
+
+    // Routines
+
+    @Test fun `Add names the new workout after the first free number and opens it`() {
+        val added = stepOf().send(Msg.Routines.Add(), id = "r3")
+        assertEquals(Routine("r3", "Workout 3", emptyList()), added.state.routines.last())
+        assertEquals("r3", added.model.nav.routine)
+        assertTrue(Cmd.Save(added.state) in added.cmds)
+
+        val taken = stepOf().send(Msg.Routines.Rename("A", "Workout 3")).send(Msg.Routines.Add(openEditor = false), id = "r4")
+        assertEquals("Workout 4", taken.state.routines.last().name)
+        assertNull(taken.model.nav.routine)
+    }
+
+    @Test fun `Rename cuts the name and leaving a blank name gives it one`() {
+        val long = stepOf().send(Msg.Routines.Rename("A", "x".repeat(40)))
+        assertEquals(30, routine(long, "A").name.length)
+        val blank = stepOf().send(Msg.Routines.Rename("A", "  "))
+        assertEquals("  ", routine(blank, "A").name)
+        assertEquals("Workout", routine(blank.send(Msg.Routines.CommitName("A")), "A").name)
+        assertIgnored(stepOf(), Msg.Routines.CommitName("A"))
+    }
+
+    @Test fun `the last routine stays`() {
+        val one = stepOf().send(Msg.Routines.Remove("B"))
+        assertEquals(listOf("A"), one.state.routines.map { it.id })
+        assertIgnored(one, Msg.Routines.Remove("A"))
+        assertIgnored(stepOf(), Msg.Routines.Remove("nope"))
+    }
+
+    @Test fun `removing the routine offered next offers the first one and closes its editor`() {
+        val open = stepOf().send(Msg.Routines.Select("B")).send(Msg.Nav.OpenRoutine("B"))
+        val removed = open.send(Msg.Routines.Remove("B"))
+        assertEquals("A", removed.state.nextRoutineId)
+        assertNull(removed.model.nav.routine)
+    }
+
+    @Test fun `the next routine cannot change while a workout runs`() {
+        assertEquals("B", stepOf().send(Msg.Routines.Select("B")).state.nextRoutineId)
+        assertIgnored(started(), Msg.Routines.Select("B"))
+    }
+
+    @Test fun `a routine that is gone is not chosen as the next one`() {
+        assertIgnored(stepOf(), Msg.Routines.Select("gone"))
+    }
+
+    @Test fun `AddSlot adds an exercise once with its default sets and a working weight`() {
+        val added = stepOf().send(Msg.Routines.AddSlot("A", "dumbbellRow"))
+        assertEquals(Slot("dumbbellRow", 3, 10), routine(added, "A").slots.last())
+        assertTrue("dumbbellRow" in added.state.progress)
+        assertIgnored(added, Msg.Routines.AddSlot("A", "dumbbellRow"))
+        assertIgnored(stepOf(), Msg.Routines.AddSlot("A", "nope"))
+        // Not even a working weight for an exercise added to a routine that is gone.
+        assertIgnored(stepOf(), Msg.Routines.AddSlot("gone", "dumbbellRow"))
+    }
+
+    @Test fun `UpdateSlot changes sets and reps and ignores an index that is gone`() {
+        val updated = stepOf().send(Msg.Routines.UpdateSlot("A", 0, Slot("hackSquat", 3, 8)))
+        assertEquals(Slot("hackSquat", 3, 8), routine(updated, "A").slots[0])
+        assertIgnored(stepOf(), Msg.Routines.UpdateSlot("A", 9, Slot("hackSquat", 3, 8)))
+    }
+
+    @Test fun `UpdateSlot from a card whose index went stale does not overwrite its neighbour`() {
+        // Bench was at 1; after it moved down, index 1 holds Row. The old card's update is dropped.
+        val moved = stepOf().send(Msg.Routines.MoveSlot("A", 1, 2))
+        assertIgnored(moved, Msg.Routines.UpdateSlot("A", 1, Slot("bench", 3, 8)))
+    }
+
+    @Test fun `InsertSlot brings nothing back into a routine or for an exercise that is gone`() {
+        assertIgnored(stepOf(), Msg.Routines.InsertSlot("gone", 0, Slot("dumbbellRow", 3, 10)))
+        assertIgnored(stepOf(), Msg.Routines.InsertSlot("A", 0, Slot("custom-gone", 3, 10)))
+    }
+
+    @Test fun `removing a slot offers Undo and Undo puts it back once`() {
+        val before = routine(stepOf(), "A").slots
+        val removed = stepOf().send(Msg.Routines.RemoveSlot("A", "bench"))
+        assertEquals(listOf("hackSquat", "row", "dips"), routine(removed, "A").slots.map { it.exerciseId })
+        assertEquals(RemovedSlot("A", 1, before[1]), removed.model.undo.removedSlot)
+        assertEquals(
+            UiEvent.Snackbar("Removed Bench Press", actionLabel = "Undo", onAction = Msg.Routines.UndoRemoveSlot, tag = SLOT_SNACKBAR),
+            removed.snackbars().single(),
+        )
+        val undone = removed.send(Msg.Routines.UndoRemoveSlot)
+        assertEquals(before, routine(undone, "A").slots)
+        assertNull(undone.model.undo.removedSlot)
+        assertIgnored(undone, Msg.Routines.UndoRemoveSlot)
+    }
+
+    @Test fun `removing a slot without Undo or one that is gone`() {
+        val quiet = stepOf().send(Msg.Routines.RemoveSlot("A", "bench", offerUndo = false))
+        assertTrue(quiet.snackbars().isEmpty())
+        assertNull(quiet.model.undo.removedSlot)
+        assertIgnored(quiet, Msg.Routines.RemoveSlot("A", "bench"))
+    }
+
+    @Test fun `removing a slot is felt, unless haptics are off`() {
+        assertEquals(listOf(Feel.TAP), stepOf().send(Msg.Routines.RemoveSlot("A", "bench")).feels)
+        assertEquals(listOf(Feel.TAP), stepOf().send(Msg.Routines.RemoveSlot("A", "bench", offerUndo = false)).feels)
+        val fresh = stepOf().state
+        val off = stepOf(fresh.copy(settings = fresh.settings.copy(haptics = false)))
+        assertTrue(off.send(Msg.Routines.RemoveSlot("A", "bench")).feels.isEmpty())
+    }
+
+    // Custom exercises
+
+    @Test fun `AddCustom trims the name, finds a taken one and ignores an empty one`() {
+        val created = stepOf().send(Msg.Exercises.AddCustom("  Cable Fly  ", Equipment.WEIGHT), id = "1")
+        val fly = created.state.customExercises.single()
+        assertEquals("custom-1", fly.id)
+        assertEquals("Cable Fly", fly.name)
+        assertEquals(fly, exerciseNamed(created.model, "cable fly"))
+
+        assertIgnored(created, Msg.Exercises.AddCustom("CABLE FLY", Equipment.BARBELL))
+        assertIgnored(stepOf(), Msg.Exercises.AddCustom("Bench Press", Equipment.BARBELL))
+        assertIgnored(stepOf(), Msg.Exercises.AddCustom("   ", Equipment.BARBELL))
+        assertEquals(40, stepOf().send(Msg.Exercises.AddCustom("y".repeat(50), Equipment.WEIGHT)).state.customExercises.single().name.length)
+    }
+
+    @Test fun `AddCustom adds the exercise where the picker was opened`() {
+        val toRoutine = stepOf().send(Msg.Exercises.AddCustom("Cable Fly", Equipment.WEIGHT, AddTarget.Routine("B")), id = "1")
+        assertEquals("custom-1", routine(toRoutine, "B").slots.last().exerciseId)
+
+        val toWorkout = started().send(Msg.Exercises.AddCustom("Cable Fly", Equipment.WEIGHT, AddTarget.Workout), id = "1")
+        assertEquals("custom-1", toWorkout.workout.exercises.last().id)
+        assertEquals(toWorkout.workout, toWorkout.state.active)
+    }
+
+    @Test fun `DeleteCustom removes it from every routine and its weight, finished workouts keep it`() {
+        val created = stepOf().send(Msg.Exercises.AddCustom("Cable Fly", Equipment.WEIGHT, AddTarget.Routine("A")), id = "1")
+        assertTrue("custom-1" in created.state.progress)
+        val deleted = created.send(Msg.Exercises.DeleteCustom("custom-1"))
+        assertTrue(deleted.state.customExercises.isEmpty())
+        assertTrue(routine(deleted, "A").slots.none { it.exerciseId == "custom-1" })
+        assertFalse("custom-1" in deleted.state.progress)
+    }
+
+    @Test fun `DeleteCustom of a built-in exercise changes nothing`() {
+        assertIgnored(stepOf(), Msg.Exercises.DeleteCustom("bench"))
+    }
+
+    // History
+
+    private fun withHistory(): Step = started().send(WorkoutEvent.TapSet(0, 0)).send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm)
+
+    @Test fun `Edit corrects a finished workout and keeps the working weights`() {
+        val done = withHistory()
+        val workout = done.state.history[0]
+        val fixed = workout.exercises.map { it.copy(sets = it.sets.map { 5 }) }
+        val edited = done.send(Msg.History.Edit(workout.id, fixed))
+        assertEquals(fixed, edited.state.history[0].exercises)
+        assertEquals(done.state.progress, edited.state.progress)
+    }
+
+    @Test fun `a swiped delete offers Undo, which puts the workout back where it was`() {
+        val done = withHistory()
+        val workout = done.state.history[0]
+        val deleted = done.send(Msg.History.Delete(workout.id, offerUndo = true))
+        assertTrue(deleted.state.history.isEmpty())
+        assertEquals(DeletedWorkout(workout, 0), deleted.model.undo.deletedWorkout)
+        assertEquals(
+            UiEvent.Snackbar("Workout deleted", actionLabel = "Undo", onAction = Msg.History.UndoDelete, tag = HISTORY_SNACKBAR),
+            deleted.snackbars().single(),
+        )
+        val undone = deleted.send(Msg.History.UndoDelete)
+        assertEquals(done.state.history, undone.state.history)
+        assertIgnored(undone, Msg.History.UndoDelete)
+        assertIgnored(undone, Msg.History.Restore(workout, 0))
+    }
+
+    @Test fun `a delete from the dialog offers no Undo`() {
+        val done = withHistory()
+        val deleted = done.send(Msg.History.Delete(done.state.history[0].id))
+        assertTrue(deleted.state.history.isEmpty())
+        assertTrue(deleted.snackbars().isEmpty())
+        assertNull(deleted.model.undo.deletedWorkout)
+        assertIgnored(deleted, Msg.History.Delete("nope"))
+    }
+
+    @Test fun `Health Connect follows the history only while sync is on`() {
+        val off = withHistory()
+        assertTrue(off.cmds.none { it is Cmd.Health })
+
+        val on = started().let { it.copy(model = it.model.copy(health = HealthModel(enabled = true))) }
+            .send(WorkoutEvent.TapSet(0, 0)).send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm)
+        val finished = on.state.history[0]
+        assertTrue(Cmd.Health(HealthJob.Upsert(listOf(finished))) in on.cmds)
+
+        val edited = on.send(Msg.History.Edit(finished.id, emptyList()))
+        assertTrue(Cmd.Health(HealthJob.Upsert(listOf(edited.state.history[0]))) in edited.cmds)
+        val deleted = edited.send(Msg.History.Delete(finished.id))
+        assertTrue(Cmd.Health(HealthJob.Delete(listOf(finished.id))) in deleted.cmds)
+        // A tapped set does not touch the history, so Health Connect is left alone.
+        assertTrue(started().let { it.copy(model = it.model.copy(health = HealthModel(enabled = true))) }
+            .send(WorkoutEvent.TapSet(0, 0)).cmds.none { it is Cmd.Health })
+    }
+
+    // Settings
+
+    @Test fun `switching the unit converts the working weights and the bar`() {
+        val dips = freshState(WeightUnit.KG).let { it.copy(progress = it.progress + ("dips" to ExerciseProgress(10.0, 0, 0.0))) }
+        val lb = stepOf(dips).send(Msg.Settings.SetUnit(WeightUnit.LB))
+        assertEquals(WeightUnit.LB, lb.state.settings.unit)
+        assertEquals(45.0, lb.state.settings.bar, 0.0)
+        assertEquals(175.0, lb.state.progress.getValue("hackSquat").weight, 0.0)
+        assertEquals(22.5, lb.state.progress.getValue("dips").weight, 0.0)
+        assertIgnored(lb, Msg.Settings.SetUnit(WeightUnit.LB))
+    }
+
+    @Test fun `an added weight of 0 stays 0 when the unit changes`() {
+        val none = freshState(WeightUnit.KG).let { it.copy(progress = it.progress + ("dips" to ExerciseProgress(0.0, 0, 0.0))) }
+        assertEquals(0.0, stepOf(none).send(Msg.Settings.SetUnit(WeightUnit.LB)).state.progress.getValue("dips").weight, 0.0)
+    }
+
+    @Test fun `the unit is locked during a workout and while a discard can be undone`() {
+        assertIgnored(started(), Msg.Settings.SetUnit(WeightUnit.LB))
+        val discarded = started().send(WorkoutEvent.RequestDiscard)
+        assertIgnored(discarded, Msg.Settings.SetUnit(WeightUnit.LB))
+        val forgotten = discarded.send(WorkoutEvent.Forget)
+        assertEquals(WeightUnit.LB, forgotten.send(Msg.Settings.SetUnit(WeightUnit.LB)).state.settings.unit)
+    }
+
+    @Test fun `switching the sound on plays the cue once, off plays nothing`() {
+        val off = stepOf().send(Msg.Settings.SetSound(false))
+        assertFalse(off.state.settings.sound)
+        assertTrue(off.cmds.none { it is Cmd.PlayCue })
+        val on = off.send(Msg.Settings.SetSound(true))
+        assertTrue(on.state.settings.sound)
+        assertTrue(Cmd.PlayCue(Cue.REST_OVER) in on.cmds)
+    }
+
+    @Test fun `bar, rest times, haptics and increments`() {
+        val edited = stepOf()
+            .send(Msg.Settings.SetBar(15.0))
+            .send(Msg.Settings.SetRestDone(120))
+            .send(Msg.Settings.SetRestMissed(240))
+            .send(Msg.Settings.SetHaptics(false))
+            .send(Msg.Settings.SetIncrement("bench", 1.25))
+        val settings = edited.state.settings
+        assertEquals(listOf(15.0, 120.0, 240.0), listOf(settings.bar, settings.restDone.toDouble(), settings.restMissed.toDouble()))
+        assertFalse(settings.haptics)
+        assertEquals(1.25, edited.state.progress.getValue("bench").increment, 0.0)
+        // Haptics off: a tapped set asks for no vibration.
+        assertTrue(Step(edited.model).send(WorkoutEvent.Start).send(WorkoutEvent.TapSet(0, 0)).feels.isEmpty())
+    }
+
+    // Backups
+
+    @Test fun `a valid backup replaces everything and stops the rest`() {
+        val backup = freshState(WeightUnit.LB).copy(nextRoutineId = "B")
+        val resting = started().send(WorkoutEvent.TapSet(0, 0))
+        assertNotNull(resting.model.rest)
+        val imported = resting.send(Msg.Data.Import(encodeState(backup)))
+        assertEquals(backup, imported.state)
+        assertEquals(Session.Idle, imported.session)
+        assertNull(imported.model.rest)
+        assertEquals(BACKUP_RESTORED, imported.model.dataNotice)
+        assertTrue(imported.cmds.containsAll(stopRest + Cmd.Save(backup)))
+    }
+
+    @Test fun `a backup with a workout running brings it back running`() {
+        val running = started().send(WorkoutEvent.TapSet(0, 0)).state
+        val imported = stepOf().send(Msg.Data.Import(encodeState(running)))
+        assertEquals(running.active, (imported.session as Session.Running).workout)
+    }
+
+    @Test fun `text that is no backup changes no data and says so`() {
+        val before = stepOf()
+        val refused = before.send(Msg.Data.Import("{\"not\":\"eisen\"}"))
+        assertSame(before.state, refused.state)
+        assertEquals(NOT_A_BACKUP, refused.model.dataNotice)
+        assertTrue(refused.cmds.isEmpty())
+        assertEquals(NOT_A_BACKUP, before.send(Msg.Data.BackupRead(null)).model.dataNotice)
+    }
+
+    @Test fun `backup files are read, written and shared through Cmds`() {
+        val step = stepOf()
+        assertEquals(listOf(Cmd.ReadBackup("content://a")), step.send(Msg.Data.Restore("content://a")).cmds)
+        assertEquals(BACKUP_RESTORED, step.send(Msg.Data.BackupRead(encodeState(freshState()))).model.dataNotice)
+        assertEquals(listOf(Cmd.WriteBackup("content://b", exportJson(step.model))), step.send(Msg.Data.WriteBackup("content://b")).cmds)
+        assertEquals("Backup saved.", step.send(Msg.Data.BackupWritten(true)).model.dataNotice)
+        assertEquals("Could not save the backup.", step.send(Msg.Data.BackupWritten(false)).model.dataNotice)
+        val shared = step.send(Msg.Data.SendBackup, now = 0)
+        assertEquals(listOf(UiEvent.ShareBackup("eisen-backup-1970-01-01.json", exportJson(step.model))), shared.uiEvents)
+        assertEquals("eisen-backup-1970-01-01.json", backupFileName(0))
+        assertEquals("Could not create the backup.", step.send(Msg.Data.SendFailed).model.dataNotice)
+    }
+
+    @Test fun `Reset erases everything but the unit`() {
+        val lb = stepOf(freshState(WeightUnit.LB)).send(Msg.Routines.Add(), id = "r3")
+        val resting = lb.send(WorkoutEvent.Start).send(WorkoutEvent.TapSet(0, 0))
+        val reset = resting.send(Msg.Data.Reset)
+        assertEquals(freshState(WeightUnit.LB), reset.state)
+        assertEquals(Session.Idle, reset.session)
+        assertNull(reset.model.rest)
+        assertFalse(reset.model.nav.workoutOpen)
+        assertNull(reset.model.nav.routine)
+        assertEquals("All data erased.", reset.model.dataNotice)
+        assertTrue(reset.cmds.containsAll(stopRest))
+    }
+
+    // Navigation
+
+    @Test fun `back closes the workout, then the routine editor, then goes home`() {
+        val running = started()
+        assertTrue(showsWorkout(running.model))
+        assertTrue(handlesBack(running.model))
+        val closed = running.send(Msg.Nav.Back)
+        assertFalse(showsWorkout(closed.model))
+        assertNotNull(closed.state.active)
+
+        val editing = stepOf().send(Msg.Nav.SelectTab(Tab.WORKOUTS)).send(Msg.Nav.OpenRoutine("B"))
+        val list = editing.send(Msg.Nav.Back)
+        assertEquals(Navigation(tab = Tab.WORKOUTS), list.model.nav)
+        val home = list.send(Msg.Nav.Back)
+        assertEquals(Tab.HOME, home.model.nav.tab)
+        assertFalse(handlesBack(home.model))
+        assertIgnored(home, Msg.Nav.Back)
+    }
+
+    @Test fun `the workout only shows while there is one`() {
+        val open = stepOf().send(Msg.Nav.OpenWorkout)
+        assertTrue(open.model.nav.workoutOpen)
+        assertFalse(showsWorkout(open.model))
+        assertIgnored(stepOf(), Msg.Nav.OpenRoutine("nope"))
+    }
+
+    @Test fun `saved navigation comes back, without a routine that is gone`() {
+        val restored = stepOf().send(Msg.Nav.Restore(Tab.WORKOUTS, workoutOpen = false, routine = "gone"))
+        assertEquals(Navigation(tab = Tab.WORKOUTS), restored.model.nav)
+        assertEquals("B", stepOf().send(Msg.Nav.Restore(Tab.WORKOUTS, false, "B")).model.nav.routine)
+    }
+
+    @Test fun `a change of screen reads the clock, so Home and Progress date themselves with today`() {
+        val progress = stepOf().send(Msg.Nav.SelectTab(Tab.PROGRESS), now = 5_000)
+        assertEquals(Tab.PROGRESS, progress.model.nav.tab)
+        assertEquals(5_000, progress.model.now)
+        assertTrue(progress.cmds.isEmpty())
+        // Selecting the tab that shows reads it too.
+        assertEquals(6_000, progress.send(Msg.Nav.SelectTab(Tab.PROGRESS), now = 6_000).model.now)
+        val home = progress.send(Msg.Nav.Back, now = 9_000)
+        assertEquals(Tab.HOME, home.model.nav.tab)
+        assertEquals(9_000, home.model.now)
+        // A move that changes nothing still hands back the same model.
+        assertIgnored(home, Msg.Nav.Back)
+        assertIgnored(home, Msg.Nav.CloseWorkout)
+    }
+
+    @Test fun `the discard question reads the clock when it is asked, for its minutes`() {
+        val logged = started().send(WorkoutEvent.TapSet(0, 0))
+        val asking = logged.send(WorkoutEvent.RequestDiscard, now = LATER + 17 * 60_000)
+        assertTrue(asking.session is Session.ConfirmingDiscard)
+        assertEquals(LATER + 17 * 60_000, asking.model.now)
+        // The home screen after a finish dates itself with the end of the workout.
+        val home = logged.send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm, now = LATER + 40 * 60_000)
+        assertEquals(Session.Idle, home.session)
+        assertEquals(LATER + 40 * 60_000, home.model.now)
+    }
+
+    @Test fun `a state file that cannot be read starts fresh, with the clock of the start`() {
+        val (model, cmds) = init(Flags(null, savedRest = null, healthEnabled = false, notifications = Notifications(true, true), now = 7_000))
+        assertEquals(freshState(), model.state)
+        assertEquals(Session.Idle, model.session)
+        assertEquals(7_000, model.now)
+        assertEquals(listOf(refreshHomeSurfaces(freshState())), cmds)
+    }
+
+    @Test fun `the summary is dismissed, warmups ticked and the reps entry closed`() {
+        val saved = started().send(WorkoutEvent.TapSet(0, 0)).send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm)
+        assertNotNull(saved.model.lastChanges)
+        assertNull(saved.send(Msg.Home.DismissSummary).model.lastChanges)
+
+        val key = warmupKey("hackSquat", 0)
+        val ticked = started().send(Msg.WorkoutScreen.ToggleWarmup(key))
+        assertEquals(setOf("hackSquat:0"), ticked.model.warmupDone)
+        assertTrue(ticked.send(Msg.WorkoutScreen.ToggleWarmup(key)).model.warmupDone.isEmpty())
+        // A new workout starts with nothing ticked.
+        assertTrue(ticked.send(WorkoutEvent.RequestDiscard).send(WorkoutEvent.Start).model.warmupDone.isEmpty())
+
+        val asked = started().send(WorkoutEvent.TapSet(3, 0))
+        assertEquals(RepsQuestion(3, 0, 8), asked.model.repsQuestion)
+        assertNull(asked.send(Msg.WorkoutScreen.CloseRepsEntry).model.repsQuestion)
+    }
+
+    // The exercise tapped last (Workout A: hackSquat, bench, row, dips)
+
+    private fun Step.order(): List<String> = order(run, model.settling?.id).map { it.log.id }
+
+    @Test fun `the exercise tapped last holds its place, then rises once its wait is over`() {
+        val tapped = started().send(WorkoutEvent.TapSet(2, 0))
+        assertEquals(Settling("row", LATER), tapped.model.settling)
+        assertTrue(Cmd.After(SETTLE_MS, Msg.WorkoutScreen.Settle("row", LATER)) in tapped.cmds)
+        assertEquals(listOf("hackSquat", "bench", "row", "dips"), tapped.order())
+        // Another tap starts the wait again: the first timer changes nothing.
+        val again = tapped.send(WorkoutEvent.TapSet(2, 1), now = LATER + 1_000)
+        assertEquals(Settling("row", LATER + 1_000), again.model.settling)
+        assertIgnored(again, Msg.WorkoutScreen.Settle("row", LATER))
+        val risen = again.send(Msg.WorkoutScreen.Settle("row", LATER + 1_000))
+        assertNull(risen.model.settling)
+        assertEquals(listOf("row", "hackSquat", "bench", "dips"), risen.order())
+    }
+
+    @Test fun `a finished exercise stays open while it settles, then sinks`() {
+        val done = (0 until 5).fold(started()) { at, set -> at.send(WorkoutEvent.TapSet(0, set)) }
+        assertEquals("hackSquat", done.order().first())
+        val settled = done.send(Msg.WorkoutScreen.Settle("hackSquat", LATER))
+        assertEquals(listOf("bench", "row", "dips", "hackSquat"), settled.order())
+    }
+
+    @Test fun `a tap on another exercise lets the one before take its place at once`() {
+        val second = started().send(WorkoutEvent.TapSet(2, 0)).send(WorkoutEvent.TapSet(1, 0))
+        assertEquals("bench", second.model.settling?.id)
+        assertEquals(listOf("row"), second.run.ranking)
+    }
+
+    @Test fun `a max-reps set settles when its count is logged, not when it is tapped`() {
+        val asked = started().send(WorkoutEvent.TapSet(3, 0))
+        assertNull(asked.model.settling)
+        assertTrue(asked.cmds.none { it is Cmd.After })
+        assertEquals(Settling("dips", LATER), asked.send(WorkoutEvent.LogReps(3, 0, 8)).model.settling)
+    }
+
+    @Test fun `a drag or a TalkBack move settles first, and a move goes by the settled order`() {
+        val tapped = started().send(WorkoutEvent.TapSet(2, 0))
+        val now = tapped.send(Msg.WorkoutScreen.SettleNow)
+        assertNull(now.model.settling)
+        assertEquals(listOf("row"), now.run.ranking)
+        assertIgnored(now, Msg.WorkoutScreen.SettleNow)
+
+        // Settled, row is on top; one place down puts it second.
+        val moved = tapped.send(Msg.WorkoutScreen.MoveBy("row", 1))
+        assertNull(moved.model.settling)
+        assertTrue(moved.run.arranged)
+        assertEquals(listOf("hackSquat", "row", "bench", "dips"), moved.order())
+        assertIgnored(stepOf(), Msg.WorkoutScreen.MoveBy("row", 1))
+    }
+
+    @Test fun `a discarded workout forgets the exercise tapped last`() {
+        val discarded = started().send(WorkoutEvent.TapSet(2, 0)).send(WorkoutEvent.RequestDiscard).send(WorkoutEvent.Confirm)
+        assertNull(discarded.model.settling)
+        assertIgnored(discarded, Msg.WorkoutScreen.Settle("row", LATER))
+    }
+
+    // The rest timer
+
+    private fun resting(seconds: Int = 90): Step =
+        started().send(Msg.Settings.SetRestDone(seconds)).send(WorkoutEvent.TapSet(0, 0))
+
+    @Test fun `a rest sets both alarms, a short one only the end`() {
+        val long = resting(20).model.rest!!
+        assertTrue(Cmd.ScheduleRestAlarms(tenAt = long.endsAt - 10_000, overAt = long.endsAt) in resting(20).cmds)
+        val short = resting(15)
+        val rest = short.model.rest!!
+        assertEquals(15_000, rest.endsAt - rest.startedAt)
+        assertTrue(Cmd.ScheduleRestAlarms(tenAt = null, overAt = rest.endsAt) in short.cmds)
+    }
+
+    @Test fun `Extend adds 30 seconds, counted from now once the rest is over`() {
+        val rest = resting().model.rest!!
+        val extended = resting().send(Msg.Rest.Extend)
+        assertEquals(rest.copy(endsAt = rest.endsAt + 30_000), extended.model.rest)
+        assertTrue(Cmd.ScheduleRestAlarms(tenAt = rest.endsAt + 20_000, overAt = rest.endsAt + 30_000) in extended.cmds)
+
+        val late = rest.endsAt + 5_000
+        assertEquals(late + 30_000, resting().send(Msg.Rest.Extend, now = late).model.rest!!.endsAt)
+        assertIgnored(started(), Msg.Rest.Extend)
+    }
+
+    @Test fun `the end of a rest plays the cue, shakes, notifies and lets the service go after the cue`() {
+        val step = resting()
+        val rest = step.model.rest!!
+        val over = step.send(Msg.Rest.AlarmOver, now = rest.endsAt)
+        assertEquals(
+            listOf(
+                Cmd.PlayCue(Cue.REST_OVER),
+                Cmd.Vibrate(REST_OVER_VIBRATION),
+                Cmd.ShowRestOver(restOver(rest)),
+                Cmd.After(4_000, Msg.Rest.CueFinished(rest)),
+            ),
+            over.cmds,
+        )
+        // The rest stays until it is dismissed.
+        assertEquals(rest, over.model.rest)
+        assertEquals(listOf(Cmd.HideRestCountdown), over.send(Msg.Rest.CueFinished(rest)).cmds)
+    }
+
+    @Test fun `only the end of a rest beeps when its recording cannot play`() {
+        assertTrue(Cue.REST_OVER.beepWhenSilent)
+        assertFalse(Cue.TEN_SECONDS.beepWhenSilent)
+    }
+
+    @Test fun `with the sound off and no notifications the end only shakes`() {
+        val quiet = resting().send(Msg.Settings.SetSound(false))
+        val step = quiet.copy(model = quiet.model.copy(notifications = Notifications(granted = false, asked = true)))
+        val rest = step.model.rest!!
+        val over = step.send(Msg.Rest.AlarmOver, now = rest.endsAt)
+        assertEquals(listOf(Cmd.Vibrate(REST_OVER_VIBRATION), Cmd.After(4_000, Msg.Rest.CueFinished(rest))), over.cmds)
+    }
+
+    @Test fun `an alarm left over from before an extend is ignored`() {
+        val rest = resting().model.rest!!
+        val extended = resting().send(Msg.Rest.Extend)
+        assertIgnored(extended, Msg.Rest.AlarmOver)
+        val stale = extended.send(Msg.Rest.AlarmOver, now = rest.endsAt)
+        assertSame(extended.model, stale.model)
+        assertTrue(stale.cmds.isEmpty())
+        // The cue of a rest that was extended meanwhile does not stop the new countdown.
+        assertTrue(extended.send(Msg.Rest.CueFinished(rest)).cmds.isEmpty())
+        assertIgnored(started(), Msg.Rest.AlarmOver)
+    }
+
+    @Test fun `ten seconds before the end the warning plays, not at any other time`() {
+        val step = resting()
+        val rest = step.model.rest!!
+        assertEquals(listOf(Cmd.PlayCue(Cue.TEN_SECONDS)), step.send(Msg.Rest.AlarmTen, now = rest.endsAt - 10_000).cmds)
+        assertTrue(step.send(Msg.Rest.AlarmTen, now = rest.endsAt - 30_000).cmds.isEmpty())
+        assertTrue(step.send(Msg.Rest.AlarmTen, now = rest.endsAt).cmds.isEmpty())
+        assertTrue(step.send(Msg.Settings.SetSound(false)).send(Msg.Rest.AlarmTen, now = rest.endsAt - 10_000).cmds.isEmpty())
+        assertIgnored(started(), Msg.Rest.AlarmTen)
+    }
+
+    @Test fun `dismissing a rest takes everything of it away`() {
+        val dismissed = resting().send(Msg.Rest.Dismiss)
+        assertNull(dismissed.model.rest)
+        assertEquals(stopRest, dismissed.cmds)
+        assertIgnored(dismissed, Msg.Rest.Dismiss)
+    }
+
+    @Test fun `a rest comes back after the process ended, but not without its workout`() {
+        val rest = RestState(1_000, 91_000, "All reps done.")
+        val running = started().state
+        val (back, cmds) = init(Flags(running, rest, healthEnabled = false, notifications = Notifications(true, true)))
+        assertEquals(rest, back.rest)
+        assertTrue(back.nav.workoutOpen)
+        assertEquals(listOf(refreshHomeSurfaces(running)), cmds)
+
+        val (gone, stale) = init(Flags(freshState(), rest, healthEnabled = true, notifications = Notifications(true, true)))
+        assertNull(gone.rest)
+        assertEquals(stopRest + Cmd.Health(HealthJob.CheckPermission(PermissionCheck.STARTUP)) + refreshHomeSurfaces(freshState()), stale)
+    }
+
+    @Test fun `the first rest asks once to allow notifications and an answer shows the countdown`() {
+        val unasked = started().let { it.copy(model = it.model.copy(notifications = Notifications(granted = false, asked = false))) }
+        val asked = unasked.send(WorkoutEvent.TapSet(0, 0))
+        assertEquals(listOf(Cmd.MarkNotificationsAsked, Cmd.Ui(UiEvent.RequestNotificationPermission)), asked.cmds.drop(1).take(2))
+        assertTrue(asked.model.notifications.asked)
+        assertTrue(asked.send(WorkoutEvent.TapSet(0, 1)).uiEvents.none { it == UiEvent.RequestNotificationPermission })
+
+        val rest = asked.model.rest!!
+        val allowed = asked.send(Msg.Rest.NotificationPermission(true), now = rest.startedAt + 1_000)
+        assertTrue(allowed.model.notifications.granted)
+        assertEquals(rest, allowed.model.rest)
+        assertTrue(allowed.cmds.any { it is Cmd.ShowRestCountdown })
+        // Almost over: running it again would change its cues.
+        assertTrue(asked.send(Msg.Rest.NotificationPermission(true), now = rest.endsAt - 5_000).cmds.isEmpty())
+        assertTrue(asked.send(Msg.Rest.NotificationPermission(false)).cmds.isEmpty())
+    }
+
+    @Test fun `the countdown clock runs only while a rest runs and the app shows`() {
+        val visible = resting().send(Msg.App.Foreground(notificationsGranted = true))
+        val rest = visible.model.rest!!
+        assertEquals(setOf(Sub.RestClock(rest.endsAt)), subscriptions(visible.model))
+        assertEquals(rest.startedAt + 5_000, visible.send(Msg.Rest.Tick, now = rest.startedAt + 5_000).model.now)
+        assertTrue(subscriptions(visible.send(Msg.App.Background).model).isEmpty())
+        assertTrue(subscriptions(visible.send(Msg.Rest.Dismiss).model).isEmpty())
+        assertIgnored(started(), Msg.Rest.Tick)
+    }
+
+    // Launch from the widget or a shortcut
+
+    @Test fun `a launch starts the routine it names and shows it`() {
+        val launched = stepOf().send(Msg.App.LaunchWorkout("B", restored = false, fromHistory = false))
+        assertEquals("B", launched.workout.routineId)
+        assertTrue(showsWorkout(launched.model))
+        // An unknown routine starts the one offered next.
+        assertEquals("A", stepOf().send(Msg.App.LaunchWorkout("gone", false, false)).workout.routineId)
+    }
+
+    @Test fun `a launch counts once`() {
+        assertIgnored(stepOf(), Msg.App.LaunchWorkout("B", restored = true, fromHistory = false))
+        assertIgnored(stepOf(), Msg.App.LaunchWorkout("B", restored = false, fromHistory = true))
+    }
+
+    @Test fun `a launch during a workout resumes it`() {
+        val closed = started().send(Msg.Nav.CloseWorkout)
+        val resumed = closed.send(Msg.App.LaunchWorkout("B", false, false))
+        assertSame(closed.session, resumed.session)
+        assertTrue(showsWorkout(resumed.model))
+    }
+
+    @Test fun `a launch of a routine without exercises selects it and stays home`() {
+        val empty = stepOf().send(Msg.Routines.Add(openEditor = false), id = "r3")
+        val launched = empty.send(Msg.App.LaunchWorkout("r3", false, false))
+        assertEquals("r3", launched.state.nextRoutineId)
+        assertEquals(Session.Idle, launched.session)
+        assertFalse(showsWorkout(launched.model))
+    }
+
+    // Health Connect switch
+
+    @Test fun `turning sync on asks Health Connect only when it is not allowed yet`() {
+        val checking = stepOf().send(Msg.Health.Toggle)
+        assertEquals(listOf(Cmd.Health(HealthJob.CheckPermission(PermissionCheck.TOGGLE))), checking.cmds)
+        val on = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true))
+        assertTrue(on.model.health.enabled)
+        assertEquals(listOf(Cmd.SaveHealthEnabled(true)), on.cmds)
+
+        val asking = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = false))
+        assertEquals(listOf(UiEvent.RequestHealthPermission), asking.uiEvents)
+        val refused = asking.send(Msg.Health.PermissionResult(false))
+        assertFalse(refused.model.health.enabled)
+        assertEquals("Health Connect did not allow Eisen to write workouts.", refused.model.health.notice)
+        assertEquals("Could not open Health Connect.", asking.send(Msg.Health.PermissionRequestFailed).model.health.notice)
+
+        val off = on.send(Msg.Health.Toggle)
+        assertFalse(off.model.health.enabled)
+        assertEquals(listOf(Cmd.SaveHealthEnabled(false)), off.cmds)
+    }
+
+    @Test fun `sync turns off when the permission was taken away`() {
+        val on = stepOf().let { it.copy(model = it.model.copy(health = HealthModel(enabled = true))) }
+        assertFalse(on.send(Msg.Health.PermissionChecked(PermissionCheck.STARTUP, granted = false)).model.health.enabled)
+        assertIgnored(on, Msg.Health.PermissionChecked(PermissionCheck.STARTUP, granted = true))
+        assertFalse(on.send(Msg.Health.Revoked).model.health.enabled)
+    }
+
+    @Test fun `syncing past workouts runs once at a time and says how it went`() {
+        val on = withHistory().let { it.copy(model = it.model.copy(health = HealthModel(enabled = true))) }
+        val syncing = on.send(Msg.Health.SyncPast)
+        assertEquals(HealthModel(enabled = true, syncing = true, notice = "Syncing…"), syncing.model.health)
+        assertEquals(listOf(Cmd.Health(HealthJob.SyncPast(on.state.history))), syncing.cmds)
+        assertIgnored(syncing, Msg.Health.SyncPast)
+        assertEquals("1 workout synced.", syncing.send(Msg.Health.SyncedPast(1)).model.health.notice)
+        assertEquals("3 workouts synced.", syncing.send(Msg.Health.SyncedPast(3)).model.health.notice)
+        assertEquals("Could not reach Health Connect.", syncing.send(Msg.Health.SyncedPast(null)).model.health.notice)
+        val revoked = syncing.send(Msg.Health.Revoked).send(Msg.Health.SyncedPast(0))
+        assertEquals("Health Connect no longer allows Eisen to write workouts.", revoked.model.health.notice)
+        assertFalse(revoked.model.health.syncing)
+    }
+
+    @Test fun `whether Health Connect is there is asked on every return to the app and when its rows show`() {
+        val check = Cmd.Health(HealthJob.CheckAvailability)
+        assertTrue(check in stepOf().send(Msg.App.Foreground(notificationsGranted = true)).cmds)
+        assertEquals(listOf(check), stepOf().send(Msg.Health.RowsShown).cmds)
+
+        val there = stepOf().send(Msg.Health.Availability(HealthAvailability.AVAILABLE))
+        assertEquals(HealthAvailability.AVAILABLE, there.model.health.availability)
+        assertTrue(there.cmds.isEmpty())
+        assertIgnored(there, Msg.Health.Availability(HealthAvailability.AVAILABLE))
+        assertEquals(
+            HealthAvailability.NEEDS_INSTALL,
+            there.send(Msg.Health.Availability(HealthAvailability.NEEDS_INSTALL)).model.health.availability,
+        )
+    }
+
+    @Test fun `the haptics of a tap reach the UI as events`() {
+        assertEquals(listOf(Feel.TAP), started().send(WorkoutEvent.TapSet(0, 0)).feels)
+    }
+
+    // Invariants
+
+    /**
+     * Thousands of Msgs in a random order, ones that make sense and ones that do not, and the rules
+     * that must hold after every one of them. Seeded, so a failure comes back the same way.
+     */
+    @Test fun `the model keeps its rules whatever Msgs come in`() {
+        // Counts what the walk reached, so a generator that only ever sends ignored Msgs fails too.
+        var finished = 0
+        var changed = 0
+        var held = 0
+        var screens = 0
+        var corrected = 0
+        // Both workouts start with a hold and a max hold, so the hold timer comes up often.
+        val fresh = freshState(WeightUnit.KG)
+        val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
+        for (seed in 1L..30L) {
+            val random = java.util.Random(seed)
+            var step = stepOf(withHolds)
+            var now = STARTED_AT
+            repeat(300) { turn ->
+                now += random.nextInt(120_000)
+                val msg = randomMsg(step.model, random)
+                val id = "r$seed-$turn"
+                val after = step.send(msg, now = now, id = id)
+                val where = "seed $seed, turn $turn, $msg"
+
+                // Pure: the same Msg on the same model at the same time gives the same answer.
+                assertEquals(where, after, step.send(msg, now = now, id = id))
+                // The workout belongs to the session.
+                assertEquals(where, after.session.active, after.state.active)
+                // The file is written exactly when the saved state changed, with that state.
+                val saves = after.cmds.filterIsInstance<Cmd.Save>()
+                assertEquals(where, if (after.state != step.state) listOf(Cmd.Save(after.state)) else emptyList<Cmd>(), saves)
+                // The widget and the shortcuts are redrawn exactly when what they show changed, with that.
+                val surfaces = refreshHomeSurfaces(after.state)
+                val redraws = after.cmds.filterIsInstance<Cmd.RefreshHomeSurfaces>()
+                assertEquals(where, if (surfaces != refreshHomeSurfaces(step.state)) listOf(surfaces) else emptyList<Cmd>(), redraws)
+                // There is always a next workout, and it exists.
+                val ids = after.state.routines.map { it.id }
+                assertTrue(where, after.state.nextRoutineId in ids)
+                // The editor never shows a routine that is gone.
+                assertTrue(where, after.model.nav.routine == null || after.model.nav.routine in ids)
+                // Every slot is a known exercise, at most once per routine.
+                val known = exercises(after.model).map { it.id }.toSet()
+                for (routine in after.state.routines) {
+                    assertTrue(where, routine.slots.all { it.exerciseId in known })
+                    assertEquals(where, routine.slots.size, routine.slots.map { it.exerciseId }.toSet().size)
+                }
+                // A hold timer only exists over an open set of a timed exercise of the running workout on
+                // screen, and its clock runs as long as it does.
+                after.model.hold?.let { hold ->
+                    assertTrue(where, after.session is Session.Running)
+                    assertTrue(where, holdFits(after.model, hold))
+                    assertTrue(where, showsWorkout(after.model))
+                    assertTrue(where, Sub.HoldClock(hold.startsAt) in subscriptions(after.model))
+                }
+                if (after.model.hold == null) assertTrue(where, subscriptions(after.model).none { it is Sub.HoldClock })
+                // An open rest screen belongs to the running rest and a logged set of its exercise, and
+                // never shows with a hold timer.
+                after.model.restScreen?.let { screen ->
+                    assertNotNull(where, after.model.rest)
+                    assertNull(where, after.model.hold)
+                    assertTrue(where, restScreenFits(after.model, screen))
+                    if (step.model.restScreen == null) screens++
+                }
+                // The wheels and putting the screen away or back never touch the rest, its alarms or its notification.
+                val event = (msg as? Msg.Workout)?.event
+                if (event is WorkoutEvent.CorrectReps || event is WorkoutEvent.SetWeight || msg == Msg.Rest.Minimise || msg == Msg.Rest.Open) {
+                    assertEquals(where, step.model.rest, after.model.rest)
+                    assertTrue(where, after.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown })
+                    assertEquals(where, step.model.repsQuestion, after.model.repsQuestion)
+                }
+                if (event is WorkoutEvent.CorrectReps && after.model != step.model) {
+                    corrected++
+                    assertEquals(where, step.model.restScreen, after.model.restScreen)
+                    assertEquals(where, event.reps, after.workout.exercises[event.exercise].sets[event.set])
+                }
+                // The timer logs a set of its own exercise only, never more than its target.
+                val before = step.model.hold
+                if (before != null && after.model.hold == null && msg is Msg.Hold && after.session is Session.Running) {
+                    val logged = after.workout.exercises.getOrNull(before.exercise)?.sets?.getOrNull(before.set)
+                    if (logged != null) {
+                        held++
+                        assertTrue(where, logged in 1..(before.target ?: MAX_HELD_SECONDS))
+                    }
+                }
+                if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
+                if (after.model != step.model) changed++
+                step = after
+            }
+        }
+        assertTrue("only $finished workouts finished", finished >= 10)
+        assertTrue("only $changed Msgs changed the model", changed >= 1_000)
+        assertTrue("only $held holds were logged by the timer", held >= 5)
+        assertTrue("only $screens rest screens opened", screens >= 20)
+        assertTrue("only $corrected sets were corrected", corrected >= 5)
+    }
+
+    /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */
+    private fun randomMsg(model: Model, random: java.util.Random): Msg {
+        fun <T> pick(items: List<T>): T = items[random.nextInt(items.size)]
+        fun index(size: Int): Int = random.nextInt(size + 2) - 1
+        val state = model.state
+        val routine = pick(state.routines)
+        val routineId = if (random.nextInt(8) == 0) "gone" else routine.id
+        val exerciseId = pick(exercises(model).map { it.id }.take(12) + listOf("plank", "deadHang") + state.customExercises.map { it.id } + "nope")
+        val slotIndex = index(routine.slots.size)
+        val slot = routine.slots.getOrNull(slotIndex) ?: Slot(exerciseId, 3, 5)
+        val logs = model.session.active?.exercises.orEmpty()
+        val exercise = index(logs.size)
+        val set = random.nextInt(7) - 1
+        val workoutId = state.history.getOrNull(index(state.history.size))?.id ?: "gone"
+        val tap = { Msg.Workout(WorkoutEvent.TapSet(exercise, set)) }
+        // A tap on a set of a timed exercise, which opens the hold timer when the set is open.
+        val timed = logs.indices.filter { logs[it].timed }
+        val tapHold = { Msg.Workout(WorkoutEvent.TapSet(if (timed.isEmpty()) exercise else pick(timed), random.nextInt(4))) }
+        // The reps wheel corrects a logged set (the rest screen's most of the time), or a set that is not there.
+        val logged = logs.indices.filterNot { logs[it].timed }.flatMap { i -> logs[i].sets.indices.filter { logs[i].sets[it] != null }.map { i to it } }
+        val corrected = model.restScreen?.let { it.exercise to it.set }?.takeIf { random.nextInt(4) > 0 }
+            ?: logged.takeIf { it.isNotEmpty() && random.nextBoolean() }?.let { pick(it) } ?: (exercise to set)
+        val correct = { Msg.Workout(WorkoutEvent.CorrectReps(corrected.first, corrected.second, random.nextInt(8) - 1)) }
+        // While a hold timer is open, its own Msgs come half the time, as they would from the lifter and the clock.
+        if (model.hold != null && random.nextBoolean()) return pick(listOf(Msg.Hold.SkipLeadIn, Msg.Hold.Stop, Msg.Hold.Cancel, Msg.Hold.Tick, Msg.Hold.Tick))
+        val choices: List<() -> Msg> = listOf(
+            { Msg.Workout(WorkoutEvent.Start) }, tap, tap, tap, tap, tap, tap, tapHold, tapHold, tapHold,
+            { Msg.Workout(WorkoutEvent.LogReps(exercise, set, random.nextInt(12).takeIf { it > 0 })) },
+            { Msg.Workout(WorkoutEvent.LogHold(exercise, set, random.nextInt(100))) },
+            correct, correct, correct, correct, correct, correct,
+            { Msg.Hold.SkipLeadIn },
+            { Msg.Hold.Stop },
+            { Msg.Hold.Stop },
+            { Msg.Hold.Cancel },
+            { Msg.Hold.Tick },
+            { Msg.Hold.Tick },
+            { Msg.Hold.Tick },
+            { Msg.Workout(WorkoutEvent.SetWeight(exercise, random.nextInt(200) * 2.5 - 10)) },
+            { Msg.Workout(WorkoutEvent.SetWorkingWeight(exerciseId, random.nextInt(100) * 2.5)) },
+            { Msg.Workout(WorkoutEvent.AddExercise(exerciseId)) },
+            { Msg.Workout(WorkoutEvent.RemoveExercise(exercise)) },
+            { Msg.Workout(WorkoutEvent.Defer(exercise)) },
+            { Msg.Workout(WorkoutEvent.Move(exercise, index(logs.size))) },
+            { Msg.Workout(WorkoutEvent.Rise(exerciseId)) },
+            // Finishing takes two Msgs in a row, so they come more often than the rest.
+            { Msg.Workout(WorkoutEvent.RequestFinish) },
+            { Msg.Workout(WorkoutEvent.RequestFinish) },
+            { Msg.Workout(WorkoutEvent.RequestFinish) },
+            { Msg.Workout(WorkoutEvent.RequestDiscard) },
+            { Msg.Workout(WorkoutEvent.Confirm) },
+            { Msg.Workout(WorkoutEvent.Confirm) },
+            { Msg.Workout(WorkoutEvent.Confirm) },
+            { Msg.Workout(WorkoutEvent.Confirm) },
+            { Msg.Workout(WorkoutEvent.Cancel) },
+            { Msg.Workout(WorkoutEvent.Undo) },
+            { Msg.Workout(WorkoutEvent.Forget) },
+            { Msg.WorkoutScreen.ToggleWarmup(warmupKey(exerciseId, set)) },
+            { Msg.WorkoutScreen.CloseRepsEntry },
+            { Msg.WorkoutScreen.Settle(exerciseId, model.settling?.since ?: 0) },
+            { Msg.WorkoutScreen.SettleNow },
+            { Msg.WorkoutScreen.MoveBy(exerciseId, if (random.nextBoolean()) 1 else -1) },
+            { Msg.Nav.SelectTab(pick(Tab.entries)) },
+            { Msg.Nav.OpenWorkout },
+            { Msg.Nav.CloseWorkout },
+            { Msg.Nav.OpenRoutine(routineId) },
+            { Msg.Nav.CloseRoutine },
+            { Msg.Nav.Back },
+            { Msg.Nav.Restore(pick(Tab.entries), random.nextBoolean(), routineId) },
+            { Msg.Home.DismissSummary },
+            { Msg.Routines.Select(routineId) },
+            { Msg.Routines.Add(random.nextBoolean()) },
+            { Msg.Routines.Rename(routineId, pick(listOf("", "  ", "Push", "x".repeat(40)))) },
+            { Msg.Routines.CommitName(routineId) },
+            { Msg.Routines.Move(index(state.routines.size), index(state.routines.size)) },
+            { Msg.Routines.Remove(routineId) },
+            { Msg.Routines.AddSlot(routineId, exerciseId) },
+            { Msg.Routines.UpdateSlot(routineId, slotIndex, slot.copy(sets = 1 + random.nextInt(6))) },
+            { Msg.Routines.MoveSlot(routineId, index(routine.slots.size), index(routine.slots.size)) },
+            { Msg.Routines.RemoveSlot(routineId, slot.exerciseId, random.nextBoolean()) },
+            { Msg.Routines.InsertSlot(routineId, index(routine.slots.size), Slot(exerciseId, 3, 5)) },
+            { Msg.Routines.UndoRemoveSlot },
+            { Msg.Exercises.AddCustom(pick(listOf("", "Cable Fly", "bench press", "Curl", "Hang")), pick(Equipment.entries), pick(listOf(null, AddTarget.Routine(routineId), AddTarget.Workout)), random.nextBoolean()) },
+            { Msg.Exercises.DeleteCustom(exerciseId) },
+            { Msg.History.Edit(workoutId, state.history.firstOrNull { it.id == workoutId }?.exercises.orEmpty().reversed()) },
+            { Msg.History.Delete(workoutId, random.nextBoolean()) },
+            { Msg.History.UndoDelete },
+            { model.undo.deletedWorkout?.let { Msg.History.Restore(it.workout, index(state.history.size)) } ?: Msg.History.UndoDelete },
+            { Msg.Settings.SetUnit(pick(WeightUnit.entries)) },
+            { Msg.Settings.SetBar(random.nextInt(30).toDouble()) },
+            { Msg.Settings.SetRestDone(random.nextInt(400)) },
+            { Msg.Settings.SetRestMissed(random.nextInt(400)) },
+            { Msg.Settings.SetSound(random.nextBoolean()) },
+            { Msg.Settings.SetHaptics(random.nextBoolean()) },
+            { Msg.Settings.SetRestFullScreen(random.nextBoolean()) },
+            { Msg.Settings.SetIncrement(exerciseId, random.nextInt(5) * 1.25) },
+            { Msg.Data.Import(exportJson(model)) },
+            { Msg.Data.Import("not a backup") },
+            { Msg.Data.Restore("content://backup") },
+            { Msg.Data.BackupRead(if (random.nextBoolean()) null else "{}") },
+            { Msg.Data.WriteBackup("content://backup") },
+            { Msg.Data.BackupWritten(random.nextBoolean()) },
+            { Msg.Data.SendBackup },
+            { Msg.Data.SendFailed },
+            { Msg.Data.Reset },
+            { Msg.Rest.Extend },
+            { Msg.Rest.Dismiss },
+            { Msg.Rest.Shorten },
+            { Msg.Rest.Lengthen },
+            { Msg.Rest.Minimise },
+            { Msg.Rest.Open },
+            { Msg.Rest.AlarmTen },
+            { Msg.Rest.AlarmOver },
+            { Msg.Rest.CueFinished(model.rest ?: RestState(0, 0, "")) },
+            { Msg.Rest.Tick },
+            { Msg.Rest.NotificationPermission(random.nextBoolean()) },
+            { Msg.Health.Toggle },
+            { Msg.Health.PermissionChecked(pick(PermissionCheck.entries), random.nextBoolean()) },
+            { Msg.Health.PermissionResult(random.nextBoolean()) },
+            { Msg.Health.PermissionRequestFailed },
+            { Msg.Health.SyncPast },
+            { Msg.Health.SyncedPast(if (random.nextBoolean()) null else random.nextInt(5)) },
+            { Msg.Health.Revoked },
+            { Msg.Health.RowsShown },
+            { Msg.Health.Availability(pick(HealthAvailability.entries)) },
+            { Msg.App.Foreground(random.nextBoolean()) },
+            { Msg.App.Background },
+            { Msg.App.LaunchWorkout(if (random.nextBoolean()) null else routineId, random.nextInt(4) == 0, random.nextInt(4) == 0) },
+        )
+        return pick(choices)()
+    }
+}

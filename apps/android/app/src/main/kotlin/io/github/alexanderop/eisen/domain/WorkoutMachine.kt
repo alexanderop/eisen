@@ -2,13 +2,15 @@ package io.github.alexanderop.eisen.domain
 
 /*
  * The running workout as a finite state machine. Every rule about what a tap, a finish or a
- * discard does lives in [transition]; the Store only keeps the result and the screens only
- * show it and run the effects. Pure Kotlin, so all of it is covered by unit tests.
+ * discard does lives in [transition]. It is the workout's part of the app's `update` (see
+ * `domain/elm/Update.kt`), which keeps the result in the Model and turns the [Effect]s into
+ * model changes and Cmds. Screens send [WorkoutEvent]s as `Msg.Workout(event)`. Pure Kotlin,
+ * so all of it is covered by unit tests.
  *
  *                 ┌──────────────── Start ────────────────┐
  *                 │                                       ▼
- *            ┌────────┐  RequestFinish, all sets done ┌─────────┐  TapSet LogReps SetWeight AddExercise
- *            │  Idle  │ ◀──────── (saves) ─────────── │ Running │  RemoveExercise Defer Move Rise
+ *            ┌────────┐  RequestFinish, all sets done ┌─────────┐  TapSet LogReps LogHold SetWeight AddExercise
+ *            │  Idle  │ ◀──────── (saves) ─────────── │ Running │  CorrectReps RemoveExercise Defer Move Rise
  *            └────────┘                               └─────────┘  (all stay in Running)
  *              ▲    ▲                            │  ▲       │  ▲
  *              │    │     RequestFinish,         │  │       │  │   RequestDiscard,
@@ -106,11 +108,24 @@ sealed interface WorkoutEvent {
     /** Starts the routine the home screen offers next. */
     data object Start : WorkoutEvent
 
-    /** One tap on a set button. A max-reps set asks for the count instead, see [Effect.AskReps]. */
+    /**
+     * One tap on a set button. A max-reps set logs last time's count, or asks for it, see [Effect.AskReps].
+     * An open set of a timed exercise opens the hold timer, see [Effect.OpenHold]; a logged one is cleared.
+     */
     data class TapSet(val exercise: Int, val set: Int) : WorkoutEvent
 
     /** Logs a set with an entered count. Null clears it. */
     data class LogReps(val exercise: Int, val set: Int, val reps: Int?) : WorkoutEvent
+
+    /** The hold timer logs a set of a timed exercise: [seconds] held, at least 1. */
+    data class LogHold(val exercise: Int, val set: Int, val seconds: Int) : WorkoutEvent
+
+    /**
+     * Corrects the count of a logged set, from the rest screen's reps wheel. Unlike a tap it never
+     * clears the set (0 is a set with no reps), asks nothing, and leaves the running rest as it is.
+     * Not for timed sets, whose count only the hold timer logs.
+     */
+    data class CorrectReps(val exercise: Int, val set: Int, val reps: Int) : WorkoutEvent
 
     /**
      * The weight of one exercise in the running workout. It is also its working weight.
@@ -145,14 +160,18 @@ sealed interface WorkoutEvent {
 }
 
 sealed interface Effect {
-    data class StartRest(val seconds: Int, val note: String) : Effect
+    /** A rest after set [set] of the exercise at [exercise], the set that started it. */
+    data class StartRest(val seconds: Int, val note: String, val exercise: Int, val set: Int) : Effect
     data object StopRest : Effect
     data class Haptic(val kind: Feel) : Effect
 
     /** A max-reps set was tapped: ask for the count, starting at [reps]. */
     data class AskReps(val exercise: Int, val set: Int, val reps: Int) : Effect
 
-    /** A new workout started. The Store forgets the last summary and the ticked warmups. */
+    /** An open set of a timed exercise was tapped: the hold timer opens for it. */
+    data class OpenHold(val exercise: Int, val set: Int) : Effect
+
+    /** A new workout started. `update` forgets the last summary and the ticked warmups. */
     data class Started(val workout: Workout) : Effect
 
     /** A workout was finished and saved to the history with these weight changes. */
@@ -162,10 +181,14 @@ sealed interface Effect {
     data class DiscardedWorkout(val workout: Workout) : Effect
 }
 
-/** The new session, the state that goes with it and what the app has to do about it. */
+/** The new session, the state that goes with it and what `update` has to do about it. */
 data class Transition(val session: Session, val state: AppState, val effects: List<Effect> = emptyList())
 
-/** What a transition needs from outside: the clock and new ids. */
+/**
+ * What `update` and a transition need from outside: the clock and new ids. Elm would ask for both
+ * with a Cmd and get the answer back as a Msg. Here the runtime passes them in with every Msg:
+ * one value instead of a round trip, and `update` stays pure because a test passes its own.
+ */
 class Env(val now: Long, val newId: () -> String)
 
 fun transition(session: Session, state: AppState, event: WorkoutEvent, env: Env): Transition {
@@ -184,9 +207,16 @@ fun transition(session: Session, state: AppState, event: WorkoutEvent, env: Env)
     return next.copy(state = next.state.copy(active = next.session.active))
 }
 
+// Each state lists the events it ignores, so a new event does not compile until every state says what it does.
+// SetWorkingWeight never reaches them: [transition] takes it in every state.
+
 private fun idle(state: AppState, event: WorkoutEvent, env: Env): Transition? = when (event) {
     WorkoutEvent.Start -> start(state, env)
-    else -> null
+    is WorkoutEvent.TapSet, is WorkoutEvent.LogReps, is WorkoutEvent.LogHold, is WorkoutEvent.CorrectReps, is WorkoutEvent.SetWeight,
+    is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise, is WorkoutEvent.RemoveExercise, is WorkoutEvent.Defer, is WorkoutEvent.Move,
+    is WorkoutEvent.Rise, WorkoutEvent.RequestFinish, WorkoutEvent.RequestDiscard, WorkoutEvent.Confirm,
+    WorkoutEvent.Cancel, WorkoutEvent.Undo, WorkoutEvent.Forget,
+    -> null
 }
 
 private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): Transition? {
@@ -194,6 +224,8 @@ private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): T
     return when (event) {
         is WorkoutEvent.TapSet -> tapSet(run, state, event)
         is WorkoutEvent.LogReps -> logReps(run, state, event)
+        is WorkoutEvent.LogHold -> logHold(run, state, event)
+        is WorkoutEvent.CorrectReps -> correctReps(run, state, event)
         is WorkoutEvent.SetWeight -> {
             val log = workout.exercises.getOrNull(event.exercise) ?: return null
             val weight = event.weight.coerceAtLeast(0.0)
@@ -238,7 +270,9 @@ private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): T
             // Nothing logged means nothing is lost, so there is nothing to confirm.
             if (stageOf(workout) == Stage.FRESH) discard(run, state)
             else Transition(Session.ConfirmingDiscard(run), state, listOf(Effect.Haptic(Feel.WARNING)))
-        else -> null
+        WorkoutEvent.Start, is WorkoutEvent.SetWorkingWeight, WorkoutEvent.Confirm, WorkoutEvent.Cancel,
+        WorkoutEvent.Undo, WorkoutEvent.Forget,
+        -> null
     }
 }
 
@@ -247,14 +281,22 @@ private fun confirmingFinish(session: Session.ConfirmingFinish, state: AppState,
         // With nothing logged, finishing discards: see [finish].
         WorkoutEvent.Confirm -> finish(session.run, state, env)
         WorkoutEvent.Cancel -> Transition(Session.Running(session.run), state)
-        else -> null
+        WorkoutEvent.Start, is WorkoutEvent.TapSet, is WorkoutEvent.LogReps, is WorkoutEvent.LogHold, is WorkoutEvent.CorrectReps,
+        is WorkoutEvent.SetWeight, is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise, is WorkoutEvent.RemoveExercise,
+        is WorkoutEvent.Defer, is WorkoutEvent.Move, is WorkoutEvent.Rise, WorkoutEvent.RequestFinish,
+        WorkoutEvent.RequestDiscard, WorkoutEvent.Undo, WorkoutEvent.Forget,
+        -> null
     }
 
 private fun confirmingDiscard(session: Session.ConfirmingDiscard, state: AppState, event: WorkoutEvent): Transition? =
     when (event) {
         WorkoutEvent.Confirm -> discard(session.run, state)
         WorkoutEvent.Cancel -> Transition(Session.Running(session.run), state)
-        else -> null
+        WorkoutEvent.Start, is WorkoutEvent.TapSet, is WorkoutEvent.LogReps, is WorkoutEvent.LogHold, is WorkoutEvent.CorrectReps,
+        is WorkoutEvent.SetWeight, is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise, is WorkoutEvent.RemoveExercise,
+        is WorkoutEvent.Defer, is WorkoutEvent.Move, is WorkoutEvent.Rise, WorkoutEvent.RequestFinish,
+        WorkoutEvent.RequestDiscard, WorkoutEvent.Undo, WorkoutEvent.Forget,
+        -> null
     }
 
 private fun discarded(session: Session.Discarded, state: AppState, event: WorkoutEvent, env: Env): Transition? =
@@ -263,7 +305,11 @@ private fun discarded(session: Session.Discarded, state: AppState, event: Workou
         WorkoutEvent.Undo -> Transition(Session.Running(session.run), state.copy(progress = state.progress + session.undo - session.cleared))
         WorkoutEvent.Forget -> Transition(Session.Idle, state)
         WorkoutEvent.Start -> start(state, env)
-        else -> null
+        is WorkoutEvent.TapSet, is WorkoutEvent.LogReps, is WorkoutEvent.LogHold, is WorkoutEvent.CorrectReps, is WorkoutEvent.SetWeight,
+        is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise, is WorkoutEvent.RemoveExercise, is WorkoutEvent.Defer,
+        is WorkoutEvent.Move, is WorkoutEvent.Rise, WorkoutEvent.RequestFinish, WorkoutEvent.RequestDiscard, WorkoutEvent.Confirm,
+        WorkoutEvent.Cancel,
+        -> null
     }
 
 private fun start(state: AppState, env: Env): Transition? {
@@ -278,12 +324,8 @@ private fun start(state: AppState, env: Env): Transition? {
 private fun tapSet(run: Run, state: AppState, event: WorkoutEvent.TapSet): Transition? {
     val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
     if (event.set !in log.sets.indices) return null
-    val target = log.targetReps
-        ?: return Transition(
-            Session.Running(run),
-            state,
-            listOf(Effect.AskReps(event.exercise, event.set, log.sets[event.set] ?: suggestedReps(state.history, log.id, event.set))),
-        )
+    if (log.timed) return tapHold(run, state, event)
+    val target = log.targetReps ?: return tapMaxSet(run, state, event, log)
     val reps = nextReps(log.sets[event.set], target)
     val workout = run.workout.editLog(event.exercise) { it.copy(sets = it.sets.replaced(event.set, reps)) }
     val feel = when {
@@ -293,10 +335,33 @@ private fun tapSet(run: Run, state: AppState, event: WorkoutEvent.TapSet): Trans
     }
     val rest = when {
         reps == null || lastSetLogged(workout, event.exercise) -> Effect.StopRest
-        reps == target -> Effect.StartRest(state.settings.restDone, "All reps done.")
-        else -> Effect.StartRest(state.settings.restMissed, "Missed reps. Rest longer.")
+        reps == target -> Effect.StartRest(state.settings.restDone, "All reps done.", event.exercise, event.set)
+        else -> Effect.StartRest(state.settings.restMissed, "Missed reps. Rest longer.", event.exercise, event.set)
     }
     return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(feel), rest))
+}
+
+/**
+ * An open max-reps set takes last time's count with one tap: most days it is the same again.
+ * A logged one, or one with no last time, asks for the count.
+ */
+private fun tapMaxSet(run: Run, state: AppState, event: WorkoutEvent.TapSet, log: ExerciseLog): Transition? {
+    val logged = log.sets[event.set]
+    val last = lastReps(state.history, log.id, event.set)
+    if (logged == null && last != null) return logReps(run, state, WorkoutEvent.LogReps(event.exercise, event.set, last))
+    return Transition(Session.Running(run), state, listOf(Effect.AskReps(event.exercise, event.set, logged ?: FIRST_MAX_REPS)))
+}
+
+/**
+ * A timed set is not counted down by taps. An open one opens the hold timer, which takes the place
+ * of a running rest; a logged one is cleared.
+ */
+private fun tapHold(run: Run, state: AppState, event: WorkoutEvent.TapSet): Transition {
+    if (run.workout.exercises[event.exercise].sets[event.set] == null) {
+        return Transition(Session.Running(run), state, listOf(Effect.Haptic(Feel.TAP), Effect.StopRest, Effect.OpenHold(event.exercise, event.set)))
+    }
+    val workout = run.workout.editLog(event.exercise) { it.copy(sets = it.sets.replaced(event.set, null)) }
+    return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(Feel.TAP), Effect.StopRest))
 }
 
 /**
@@ -310,8 +375,41 @@ private fun logReps(run: Run, state: AppState, event: WorkoutEvent.LogReps): Tra
     val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
     if (event.set !in log.sets.indices) return null
     val workout = run.workout.editLog(event.exercise) { it.copy(sets = it.sets.replaced(event.set, event.reps)) }
-    val rest = if (event.reps == null || lastSetLogged(workout, event.exercise)) Effect.StopRest else Effect.StartRest(state.settings.restDone, "Max set logged.")
+    val rest = if (event.reps == null || lastSetLogged(workout, event.exercise)) Effect.StopRest
+    else Effect.StartRest(state.settings.restDone, "Max set logged.", event.exercise, event.set)
     return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(Feel.TAP), rest))
+}
+
+/** A logged count corrected after the fact. Only the count changes: no rest, no haptic, no question. */
+private fun correctReps(run: Run, state: AppState, event: WorkoutEvent.CorrectReps): Transition? {
+    val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
+    val logged = log.sets.getOrNull(event.set) ?: return null
+    if (log.timed || event.reps == logged || event.reps !in repsChoices(log.targetReps, logged)) return null
+    val workout = run.workout.editLog(event.exercise) { it.copy(sets = it.sets.replaced(event.set, event.reps)) }
+    return Transition(Session.Running(run.copy(workout = workout)), state)
+}
+
+/**
+ * A hold that lasted its time, or one as long as possible, rests as long as a set with all reps.
+ * One cut short rests as long as one with missed reps.
+ */
+private fun logHold(run: Run, state: AppState, event: WorkoutEvent.LogHold): Transition? {
+    val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
+    if (!log.timed || event.set !in log.sets.indices || event.seconds !in 1..MAX_HELD_SECONDS) return null
+    val workout = run.workout.editLog(event.exercise) { it.copy(sets = it.sets.replaced(event.set, event.seconds)) }
+    val target = log.targetReps
+    val short = target != null && event.seconds < target
+    val feel = when {
+        short -> Feel.WARNING
+        outcome(workout.exercises[event.exercise]) == Outcome.SUCCESS && lastSetLogged(workout, event.exercise) -> Feel.SUCCESS
+        else -> Feel.TAP
+    }
+    val rest = when {
+        lastSetLogged(workout, event.exercise) -> Effect.StopRest
+        short -> Effect.StartRest(state.settings.restMissed, "Hold cut short. Rest longer.", event.exercise, event.set)
+        else -> Effect.StartRest(state.settings.restDone, "Held ${holdText(event.seconds)}.", event.exercise, event.set)
+    }
+    return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(feel), rest))
 }
 
 /** Saves the workout, moves the weights on and offers the next routine. Nothing logged discards instead. */
@@ -419,13 +517,16 @@ fun order(run: Run, settling: String?): List<OrderedExercise> {
 fun canDefer(ordered: List<OrderedExercise>, item: OrderedExercise): Boolean =
     ordered.count { !it.done } > 1 && !isDone(item.log)
 
-/** Starting point for a max-reps entry: what this set got last time. */
-fun suggestedReps(history: List<Workout>, id: String, setIndex: Int): Int {
+/** What this set of the exercise got the last time it was logged. Null when it never was. */
+fun lastReps(history: List<Workout>, id: String, setIndex: Int): Int? {
     for (workout in history) {
         workout.exercises.firstOrNull { it.id == id }?.sets?.getOrNull(setIndex)?.let { return it }
     }
-    return 8
+    return null
 }
+
+/** Starting point for a max-reps entry when there is no last time to go by. */
+const val FIRST_MAX_REPS = 8
 
 /** The built-in exercise or the lifter's own with this id. */
 fun AppState.findExercise(id: String): Exercise? = catalogExercise(id) ?: customExercises.firstOrNull { it.id == id }

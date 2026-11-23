@@ -72,7 +72,7 @@ import kotlin.math.abs
  *   inside the item do not fire when the finger lifts.
  *
  * onMove(from, to) gets indices into `keys` and must apply the move to the list right away
- * (call the Store). In a LazyColumn it is called live, one place at a time (`to` is `from ± 1`),
+ * (send the Msg). In a LazyColumn it is called live, one place at a time (`to` is `from ± 1`),
  * each time the dragged item passes a neighbour, and the list's own item animation moves the
  * neighbour. In a Column it is called once, on drop, and `to` can be several places away; the
  * neighbours move aside with an offset while dragging. Either way, each call is one whole move.
@@ -89,7 +89,7 @@ import kotlin.math.abs
  * LazyColumn:
  *
  *     val listState = rememberLazyListState()
- *     val reorder = rememberLazyReorderState(listState, keys = rows.map { it.id }, onMove = { from, to -> Store.move(from, to) })
+ *     val reorder = rememberLazyReorderState(listState, keys = rows.map { it.id }, onMove = { from, to -> dispatch(Msg.Routines.Move(from, to)) })
  *     LazyColumn(state = listState) {
  *         item(key = "header") { Header() }
  *         items(rows, key = { it.id }) { row ->            // the lazy key must be the same as in `keys`

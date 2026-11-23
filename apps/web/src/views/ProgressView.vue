@@ -5,7 +5,15 @@ import TimeChart, { type ChartPoint, type ChartSeries } from '../components/Time
 import TrainingCalendar from '../components/TrainingCalendar.vue'
 import { calendarWeeks, weekStreak } from '../domain/chart'
 import type { Equipment } from '../domain/exercises'
-import { outcome, stepFor, totalReps, type ExerciseLog } from '../domain/program'
+import {
+  holdText,
+  longestHold,
+  outcome,
+  setText,
+  stepFor,
+  totalReps,
+  type ExerciseLog,
+} from '../domain/program'
 import { recordIds, recordOf } from '../domain/records'
 import { convert, roundTo, type Unit } from '../domain/units'
 import { fmt, formatDate, formatShortDate } from '../format'
@@ -15,6 +23,7 @@ interface Option {
   id: string
   name: string
   equipment: Equipment
+  timed?: boolean
 }
 
 /** Exercises in the current workouts first, then ones that only exist in the history. */
@@ -93,9 +102,14 @@ const entries = computed<Entry[]>(() => {
     .reverse()
 })
 
+/** A bodyweight exercise charts its total reps, or its longest hold when it is timed. */
+function bodyweightValue(log: ExerciseLog): number {
+  return log.timed ? longestHold(log) : totalReps(log)
+}
+
 function valueOf(entry: Entry): number {
   return entry.log.equipment === 'bodyweight'
-    ? totalReps(entry.log)
+    ? bodyweightValue(entry.log)
     : inCurrentUnit(entry.log.weight, entry.unit, entry.log.equipment)
 }
 
@@ -155,6 +169,7 @@ const selected = computed<Option | null>(
   () => options.value.find((option) => option.id === picked.value) ?? options.value[0] ?? null,
 )
 const bodyweight = computed(() => selected.value?.equipment === 'bodyweight')
+const timed = computed(() => selected.value?.timed === true)
 const points = computed(() => (selected.value ? pointsOf(selected.value.id) : []))
 const series = computed<ChartSeries[]>(() =>
   selected.value && points.value.length > 0
@@ -172,7 +187,15 @@ const pointAt = ref<number | null>(null)
 watch([selected, range], () => (pointAt.value = null))
 
 function format(value: number): string {
-  return bodyweight.value ? `${value} reps` : fmt(value)
+  if (!bodyweight.value) return fmt(value)
+  if (!timed.value) return `${value} reps`
+  return value < 0 ? `-${holdText(-value)}` : holdText(value)
+}
+
+/** Axis labels. Ticks between whole seconds would read as "1:0.5". */
+function formatAxis(value: number): string {
+  if (!bodyweight.value) return fmt(value)
+  return timed.value ? holdText(Math.round(value)) : String(value)
 }
 
 /** The workout under the crosshair, or the latest one when the chart is at rest. */
@@ -183,10 +206,10 @@ const shown = computed(() => {
   return {
     date: formatDate(point.time),
     value: format(point.value),
-    sets: point.log.sets.map((reps) => reps ?? '–').join(' '),
+    sets: point.log.sets.map((reps) => (reps === null ? '–' : setText(point.log.timed, reps))).join(' '),
     notes: [
       point.best ? 'Best ever' : point.record ? 'Record that day' : '',
-      point.missed ? 'Missed reps' : '',
+      point.missed ? (point.log.timed ? 'Missed time' : 'Missed reps') : '',
       point.deload ? 'Deload' : '',
     ].filter(Boolean),
   }
@@ -194,7 +217,8 @@ const shown = computed(() => {
 
 const current = computed(() => {
   if (!selected.value) return ''
-  return bodyweight.value ? 'Total reps per workout' : `Now ${fmt(progressOf(selected.value.id).weight)}`
+  if (!bodyweight.value) return `Now ${fmt(progressOf(selected.value.id).weight)}`
+  return timed.value ? 'Longest hold per workout' : 'Total reps per workout'
 })
 
 /** The best fully completed workout of the exercise ever, and the day it happened. */
@@ -205,7 +229,7 @@ const record = computed(() => {
   return {
     value: format(
       log.equipment === 'bodyweight'
-        ? totalReps(log)
+        ? bodyweightValue(log)
         : inCurrentUnit(log.weight, workout.unit, log.equipment),
     ),
     date: formatShortDate(workout.startedAt),
@@ -301,7 +325,7 @@ const gained = computed(() =>
           v-model:active="pointAt"
           :key="`${selected.id}-${range}`"
           :series="series"
-          :format="(value: number) => (bodyweight ? String(value) : fmt(value))"
+          :format="formatAxis"
           :format-time="formatShortDate"
           :label="`${selected.name} over time`"
           events
@@ -309,11 +333,11 @@ const gained = computed(() =>
         <ul class="marks" aria-label="What the marks mean">
           <li>
             <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" class="done" /></svg>
-            All reps
+            {{ timed ? 'Full hold' : 'All reps' }}
           </li>
           <li v-if="!bodyweight">
             <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" class="missed" /></svg>
-            Missed reps
+            {{ timed ? 'Missed time' : 'Missed reps' }}
           </li>
           <li v-if="!bodyweight">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5,3.5 L13.5,3.5 L8,13.5 Z" class="done" /></svg>

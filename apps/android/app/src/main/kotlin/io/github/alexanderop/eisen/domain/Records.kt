@@ -11,11 +11,15 @@ fun lastLogged(history: List<Workout>, id: String): Logged? =
 
 /**
  * What a logged exercise counts as for records, comparable across units.
- * Bodyweight exercises count their total reps. Weighted ones count the weight in kg,
- * and only when every rep was done: a weight with missed reps is not a record.
+ * Bodyweight exercises count their total reps, timed ones their longest hold in seconds.
+ * Weighted ones count the weight in kg, and only when every rep was done: a weight with missed
+ * reps is not a record. A timed one with a weight counts the same way.
  */
 fun recordValue(log: ExerciseLog, unit: WeightUnit): Double? {
-    if (log.equipment == Equipment.BODYWEIGHT) return totalReps(log).takeIf { it > 0 }?.toDouble()
+    if (log.equipment == Equipment.BODYWEIGHT) {
+        val value = if (log.timed) longestHold(log) else totalReps(log)
+        return value.takeIf { it > 0 }?.toDouble()
+    }
     return if (outcome(log) == Outcome.SUCCESS) convert(log.weight, unit, WeightUnit.KG) else null
 }
 

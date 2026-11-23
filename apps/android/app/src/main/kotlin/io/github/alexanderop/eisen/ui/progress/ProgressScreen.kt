@@ -55,14 +55,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
-import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.calendarWeeks
 import io.github.alexanderop.eisen.domain.formatNumber
 import io.github.alexanderop.eisen.domain.recordOf
-import io.github.alexanderop.eisen.domain.totalReps
+import io.github.alexanderop.eisen.domain.holdText
+import io.github.alexanderop.eisen.domain.setText
+import kotlin.math.roundToInt
 import io.github.alexanderop.eisen.domain.weekStreak
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.exercises
+import io.github.alexanderop.eisen.domain.elm.progressOf
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.fmt
 import io.github.alexanderop.eisen.ui.formatDate
@@ -85,11 +90,17 @@ private val SERIES_COLORS = listOf(
 
 private val Gutter = Modifier.padding(horizontal = 16.dp)
 
+/**
+ * Reads the model and sends nothing: the range, the picked exercise and the crosshair only change
+ * what is drawn, so they stay local.
+ */
 @Composable
-fun ProgressScreen() {
-    val state = Store.state
+fun ProgressScreen(model: Model) {
+    val state = model.state
+    val unit = state.settings.unit
     // Fixed while the screen is open, like the web view, so the calendar does not shift under a finger.
-    val now = remember { System.currentTimeMillis() }
+    // Selecting the tab puts the time of that tap into the model.
+    val now = remember { model.now }
 
     Column(
         Modifier
@@ -113,25 +124,27 @@ fun ProgressScreen() {
             return@Column
         }
 
-        Consistency(state, now)
+        Consistency(state.history, now)
 
         var range by rememberSaveable { mutableStateOf(Range.THREE_MONTHS) }
         RangePicker(range, onChange = { range = it })
 
-        val options = remember(state.routines, state.history, state.customExercises) { optionsOf(state) }
-        val entries = remember(state.history, state.settings.unit, range) { entriesOf(state, range, now) }
+        val options = remember(state.routines, state.history, state.customExercises) {
+            optionsOf(state.routines, state.history, exercises(model))
+        }
+        val entries = remember(state.history, unit, range) { entriesOf(state.history, range, now) }
 
-        AllLifts(state, options, entries, range)
-        ExerciseCard(state, options, entries, range)
+        AllLifts(state.history, unit, options, entries, range)
+        ExerciseCard(state.history, unit, options, entries, range, workingWeight = { id -> progressOf(model, id).weight })
     }
 }
 
 @Composable
-private fun Consistency(state: AppState, now: Long) {
-    val weeks = remember(state.history) { calendarWeeks(state.history, now, WEEKS) }
+private fun Consistency(history: List<Workout>, now: Long) {
+    val weeks = remember(history) { calendarWeeks(history, now, WEEKS) }
     val counts = weeks.map { week -> week.sumOf { it.workouts.size } }
     val firstTrained = counts.indexOfFirst { it > 0 }
-    val streak = remember(state.history) { weekStreak(state.history.map { it.startedAt }, now) }
+    val streak = remember(history) { weekStreak(history.map { it.startedAt }, now) }
     // Weeks before the first workout do not pull the average down.
     val perWeek = if (firstTrained == -1) 0.0 else counts.sum().toDouble() / (counts.size - firstTrained)
 
@@ -170,7 +183,7 @@ private fun RangePicker(range: Range, onChange: (Range) -> Unit) {
 
 /** Every weighted exercise as its own line on one axis. */
 @Composable
-private fun AllLifts(state: AppState, options: List<Option>, entries: List<Entry>, range: Range) {
+private fun AllLifts(history: List<Workout>, unit: WeightUnit, options: List<Option>, entries: List<Entry>, range: Range) {
     val weighted = options.filter { it.equipment != Equipment.BODYWEIGHT }
     val lifts = remember(weighted.map { it.id }, entries) {
         weighted.take(SERIES_COLORS.size)
@@ -179,7 +192,7 @@ private fun AllLifts(state: AppState, options: List<Option>, entries: List<Entry
                     id = option.id,
                     name = option.name,
                     color = SERIES_COLORS[index],
-                    points = pointsOf(option.id, entries, state).map { ChartPoint(it.time, it.value) },
+                    points = pointsOf(option.id, entries, history, unit).map { ChartPoint(it.time, it.value) },
                 )
             }
             .filter { it.points.isNotEmpty() }
@@ -195,7 +208,7 @@ private fun AllLifts(state: AppState, options: List<Option>, entries: List<Entry
             series = lifts,
             active = liftsAt,
             onActiveChange = { liftsAt = it },
-            format = { fmt(it) },
+            format = { fmt(it, unit) },
             formatTime = ::formatShortDate,
             label = "Weight of every lift over time",
         )
@@ -203,7 +216,7 @@ private fun AllLifts(state: AppState, options: List<Option>, entries: List<Entry
             for (line in lifts) {
                 // Each lift's weight on the day under the crosshair: the last one logged up to then.
                 val upTo = liftsAt ?: Long.MAX_VALUE
-                val value = line.points.lastOrNull { it.time <= upTo }?.let { fmt(it.value) } ?: "–"
+                val value = line.points.lastOrNull { it.time <= upTo }?.let { fmt(it.value, unit) } ?: "–"
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 6.dp).semantics(mergeDescendants = true) {},
                     verticalAlignment = Alignment.CenterVertically,
@@ -228,21 +241,38 @@ private fun AllLifts(state: AppState, options: List<Option>, entries: List<Entry
 
 /** One exercise, with what happened in every workout. */
 @Composable
-private fun ExerciseCard(state: AppState, options: List<Option>, entries: List<Entry>, range: Range) {
+private fun ExerciseCard(
+    history: List<Workout>,
+    unit: WeightUnit,
+    options: List<Option>,
+    entries: List<Entry>,
+    range: Range,
+    workingWeight: (String) -> Double,
+) {
     var picked by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = options.firstOrNull { it.id == picked } ?: options.firstOrNull() ?: return
     val bodyweight = selected.equipment == Equipment.BODYWEIGHT
-    val points = remember(selected.id, entries) { pointsOf(selected.id, entries, state) }
+    // A timed bodyweight exercise charts its longest hold, in seconds.
+    val holds = bodyweight && selected.timed
+    val points = remember(selected.id, entries) { pointsOf(selected.id, entries, history, unit) }
     var pointAt by rememberSaveable(selected.id, range) { mutableStateOf<Long?>(null) }
 
-    fun format(value: Double): String = if (bodyweight) "${formatNumber(value)} reps" else fmt(value)
+    fun format(value: Double): String = when {
+        holds -> holdText(value.roundToInt())
+        bodyweight -> "${formatNumber(value)} reps"
+        else -> fmt(value, unit)
+    }
 
     ExerciseChips(options, selected.id, onPick = { picked = it })
 
     Section(Gutter) {
         SectionHead(
             selected.name,
-            if (bodyweight) "Total reps per workout" else "Now ${fmt(Store.progressOf(selected.id).weight)}",
+            when {
+                holds -> "Longest hold per workout"
+                bodyweight -> "Total reps per workout"
+                else -> "Now ${fmt(workingWeight(selected.id), unit)}"
+            },
         )
 
         // The workout under the crosshair, or the latest one when the chart is at rest.
@@ -259,11 +289,11 @@ private fun ExerciseCard(state: AppState, options: List<Option>, entries: List<E
 
         Readout(
             value = format(shown.value),
-            sets = shown.log.sets.joinToString(" ") { it?.toString() ?: "–" },
+            sets = shown.log.sets.joinToString(" ") { it?.let { count -> setText(count, shown.log.timed) } ?: "–" },
             date = (
                 listOf(formatDate(shown.time)) + listOfNotNull(
                     if (shown.best) "Best ever" else if (shown.record) "Record that day" else null,
-                    if (shown.missed) "Missed reps" else null,
+                    if (shown.missed) (if (shown.log.timed) "Hold cut short" else "Missed reps") else null,
                     if (shown.deload) "Deload" else null,
                 )
                 ).joinToString(" · "),
@@ -283,32 +313,29 @@ private fun ExerciseCard(state: AppState, options: List<Option>, entries: List<E
             series = series,
             active = pointAt,
             onActiveChange = { pointAt = it },
-            format = { if (bodyweight) formatNumber(it) else fmt(it) },
+            format = {
+                when {
+                    holds -> holdText(it.roundToInt())
+                    bodyweight -> formatNumber(it)
+                    else -> fmt(it, unit)
+                }
+            },
             formatTime = ::formatShortDate,
             label = "${selected.name} over time",
             events = true,
         )
 
-        Marks(bodyweight)
+        Marks(bodyweight, holds)
 
         // The best fully completed workout of the exercise ever, and the day it happened.
-        val record = recordOf(state.history, selected.id)
+        val record = recordOf(history, selected.id)
         val gained = points.last().value - points.first().value
         Stats(
             listOf(
                 Stat("Workouts", points.size.toString()),
                 Stat(
                     "Best ever",
-                    record?.let { found ->
-                        val log = found.log
-                        format(
-                            if (log.equipment == Equipment.BODYWEIGHT) {
-                                totalReps(log).toDouble()
-                            } else {
-                                inCurrentUnit(log.weight, found.workout.unit, log.equipment, state.settings.unit)
-                            },
-                        )
-                    } ?: "–",
+                    record?.let { found -> format(valueOf(found.log, found.workout.unit, unit)) } ?: "–",
                     record?.let { formatShortDate(it.workout.startedAt) },
                 ),
                 Stat("Gained", (if (gained >= 0) "+" else "") + format(gained)),
@@ -375,13 +402,13 @@ private fun Readout(value: String, sets: String, date: String) {
 
 /** What the chart's markers mean. The legend only lists what this exercise can show. */
 @Composable
-private fun Marks(bodyweight: Boolean) {
+private fun Marks(bodyweight: Boolean, holds: Boolean) {
     FlowRow(
         Modifier.fillMaxWidth().padding(top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Mark("All reps", MarkKind.DONE)
+        Mark(if (holds) "Held" else "All reps", MarkKind.DONE)
         if (!bodyweight) Mark("Missed reps", MarkKind.MISSED)
         if (!bodyweight) Mark("Deload", MarkKind.DELOAD)
         Mark("Best ever", MarkKind.BEST)

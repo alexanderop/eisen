@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.domain
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -20,6 +22,7 @@ enum class Equipment(val label: String) {
 val GROUPS = listOf("Legs", "Chest", "Back", "Shoulders", "Arms", "Core")
 const val CUSTOM_GROUP = "Custom"
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class Exercise(
     val id: String,
@@ -32,14 +35,21 @@ data class Exercise(
     val increment: Double,
     /** File name in the shared `exercises` assets, without extension. The lifter's own have none. */
     val image: String? = null,
+    /**
+     * Held for time, like a plank. Every reps number of a timed exercise counts seconds instead.
+     * Left out of the file when false, as the PWA leaves it out.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val timed: Boolean = false,
 )
 
 /** What the lists show next to an exercise. eGym machines are named, not filed under dumbbells. */
 fun kindLabel(id: String, equipment: Equipment): String =
     if (id.startsWith("egym")) "eGym" else equipment.label
 
-private fun row(group: String, id: String, name: String, equipment: Equipment, start: Number, increment: Number, image: String) =
-    Exercise(id, name, group, equipment, start.toDouble(), increment.toDouble(), image)
+private fun row(group: String, id: String, name: String, equipment: Equipment, start: Number, increment: Number, image: String, timed: Boolean = false) =
+    Exercise(id, name, group, equipment, start.toDouble(), increment.toDouble(), image, timed)
+
+private const val TIMED = true
 
 private val B = Equipment.BARBELL
 private val M = Equipment.MACHINE
@@ -60,6 +70,8 @@ val CATALOG: List<Exercise> = listOf(
     row("Legs", "legCurl", "Leg Curl", W, 25, 2.5, "seated-leg-curl"),
     row("Legs", "calfRaise", "Calf Raise", W, 40, 2.5, "standing-calf-raise"),
     row("Legs", "egymSquat", "eGym Squat", W, 60, 2, "egym-squat"),
+    row("Legs", "wallSit", "Wall Sit", BW, 0, 0, "wall-sit", TIMED),
+    row("Legs", "gluteBridgeHold", "Glute Bridge Hold", BW, 0, 0, "glute-bridge", TIMED),
     row("Chest", "bench", "Bench Press", B, 80, 2.5, "bench-press"),
     row("Chest", "inclineBench", "Incline Bench Press", B, 50, 2.5, "incline-bench-press"),
     row("Chest", "closeGripBench", "Close-Grip Bench Press", B, 50, 2.5, "bench-press"),
@@ -81,6 +93,8 @@ val CATALOG: List<Exercise> = listOf(
     row("Back", "pullups", "Pull-ups", BW, 0, 0, "pull-up"),
     row("Back", "chinups", "Chin-ups", BW, 0, 0, "chin-up"),
     row("Back", "backExtension", "Back Extension", BW, 0, 0, "back-extension"),
+    row("Back", "deadHang", "Dead Hang", BW, 0, 0, "pull-up", TIMED),
+    row("Back", "supermanHold", "Superman Hold", BW, 0, 0, "plank", TIMED),
     row("Shoulders", "ohp", "Overhead Press", B, 40, 2.5, "overhead-press"),
     row("Shoulders", "dumbbellShoulderPress", "Dumbbell Shoulder Press", W, 14, 2, "shoulder-press"),
     row("Shoulders", "lateralRaise", "Lateral Raise", W, 6, 1, "lateral-raise"),
@@ -93,24 +107,29 @@ val CATALOG: List<Exercise> = listOf(
     row("Arms", "skullCrusher", "Skull Crusher", W, 20, 2.5, "skull-crusher"),
     row("Arms", "tricepsPushdown", "Triceps Pushdown", W, 20, 2.5, "rope-triceps-pushdown"),
     row("Arms", "overheadTricepsExtension", "Overhead Triceps Extension", W, 12, 1, "overhead-triceps-extension"),
+    row("Arms", "farmersCarry", "Farmer's Carry", W, 20, 2, "farmers-carry", TIMED),
     row("Core", "hangingLegRaise", "Hanging Leg Raise", BW, 0, 0, "hanging-leg-raise"),
     row("Core", "situps", "Sit-ups", BW, 0, 0, "crunch"),
     row("Core", "abWheel", "Ab Wheel Rollout", BW, 0, 0, "ab-wheel-rollout"),
     row("Core", "cableCrunch", "Cable Crunch", W, 25, 2.5, "cable-crunch"),
     row("Core", "egymAbdominalCrunch", "eGym Abdominal Crunch", W, 30, 2, "egym-abdominal-crunch"),
     row("Core", "egymRotaryTorso", "eGym Rotary Torso", W, 25, 2, "egym-rotary-torso"),
+    row("Core", "plank", "Plank", BW, 0, 0, "plank", TIMED),
+    row("Core", "sidePlank", "Side Plank", BW, 0, 0, "side-plank", TIMED),
+    row("Core", "hollowHold", "Hollow Hold", BW, 0, 0, "hollow-hold", TIMED),
+    row("Core", "lSit", "L-Sit", BW, 0, 0, "l-sit", TIMED),
 )
 
 private val BY_ID = CATALOG.associateBy { it.id }
 
 fun catalogExercise(id: String): Exercise? = BY_ID[id]
 
-fun customExercise(id: String, name: String, equipment: Equipment): Exercise {
+fun customExercise(id: String, name: String, equipment: Equipment, timed: Boolean = false): Exercise {
     val (start, increment) = when (equipment) {
         Equipment.BARBELL -> 20.0 to 2.5
         Equipment.MACHINE -> 20.0 to 5.0
         Equipment.WEIGHT -> 10.0 to 1.0
         Equipment.BODYWEIGHT -> 0.0 to 0.0
     }
-    return Exercise(id, name, CUSTOM_GROUP, equipment, start, increment)
+    return Exercise(id, name, CUSTOM_GROUP, equipment, start, increment, timed = timed)
 }

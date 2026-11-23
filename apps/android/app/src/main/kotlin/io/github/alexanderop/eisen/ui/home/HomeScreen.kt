@@ -40,16 +40,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Change
 import io.github.alexanderop.eisen.domain.ChangeKind
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Outcome
+import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.durationMinutes
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.findExercise
+import io.github.alexanderop.eisen.domain.elm.nextRoutine
+import io.github.alexanderop.eisen.domain.elm.progressOf
+import io.github.alexanderop.eisen.domain.elm.settings
 import io.github.alexanderop.eisen.domain.outcome
 import io.github.alexanderop.eisen.domain.recordIds
+import io.github.alexanderop.eisen.domain.holdText
+import io.github.alexanderop.eisen.domain.longestHold
+import io.github.alexanderop.eisen.domain.targetText
 import io.github.alexanderop.eisen.domain.totalReps
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
@@ -62,53 +71,55 @@ import io.github.alexanderop.eisen.ui.picker.EisenCard
 import io.github.alexanderop.eisen.ui.picker.Eyebrow
 import io.github.alexanderop.eisen.ui.picker.PillBadge
 import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
-import io.github.alexanderop.eisen.ui.workout.rememberWorkoutEffects
 
 private const val WEEK_MS = 7L * 24 * 60 * 60 * 1000
 
 /** One exercise of the workout on the card. [load] is "80kg", "BW" or "BW + 10kg". */
-private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val load: String)
+private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val timed: Boolean, val load: String)
 
 /** The running workout as it was started, or the next one as it is set up right now. */
-private fun rows(): List<ExerciseRow> {
-    val active = Store.state.active
+private fun rows(model: Model): List<ExerciseRow> {
+    val unit = model.settings.unit
+    val active = model.state.active
     if (active != null) {
         return active.exercises.map { log ->
             ExerciseRow(
                 log.id,
                 log.name,
-                Store.findExercise(log.id)?.image,
+                findExercise(model, log.id)?.image,
                 log.sets.size,
                 log.targetReps,
-                fmtLoad(log.equipment, log.weight),
+                log.timed,
+                fmtLoad(log.equipment, log.weight, unit),
             )
         }
     }
-    return Store.nextRoutine.slots.mapNotNull { slot ->
-        val exercise = Store.findExercise(slot.exerciseId) ?: return@mapNotNull null
+    return nextRoutine(model).slots.mapNotNull { slot ->
+        val exercise = findExercise(model, slot.exerciseId) ?: return@mapNotNull null
         ExerciseRow(
             exercise.id,
             exercise.name,
             exercise.image,
             slot.sets,
             slot.reps,
-            fmtLoad(exercise.equipment, Store.progressOf(exercise.id).weight),
+            exercise.timed,
+            fmtLoad(exercise.equipment, progressOf(model, exercise.id).weight, unit),
         )
     }
 }
 
 @Composable
-fun HomeScreen(onOpenWorkout: () -> Unit) {
-    val history = Store.state.history
+fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
+    val history = model.state.history
     val lastWorkout = history.firstOrNull()
-    val changes = Store.lastChanges
+    val changes = model.lastChanges
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Column {
-            Eyebrow(formatDate(System.currentTimeMillis()))
+            Eyebrow(formatDate(model.now))
             Text(
                 "Eisen 5×5",
                 modifier = Modifier.semantics { heading() },
@@ -117,13 +128,14 @@ fun HomeScreen(onOpenWorkout: () -> Unit) {
                 letterSpacing = (-0.6).sp,
             )
         }
-        if (changes != null) SavedCard(changes, lastWorkout)
-        NextCard(onOpenWorkout)
+        if (changes != null) {
+            SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) })
+        }
+        NextCard(model, dispatch)
         if (lastWorkout != null) {
-            val now = System.currentTimeMillis()
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard(history.size.toString(), "workouts", Modifier.weight(1f))
-                StatCard(history.count { now - it.startedAt < WEEK_MS }.toString(), "last 7 days", Modifier.weight(1f))
+                StatCard(history.count { model.now - it.startedAt < WEEK_MS }.toString(), "last 7 days", Modifier.weight(1f))
                 StatCard(formatShortDate(lastWorkout.startedAt), "last workout", Modifier.weight(1f))
             }
         }
@@ -136,21 +148,25 @@ private fun changeText(kind: ChangeKind) = when (kind) {
     ChangeKind.DELOAD -> "Deload"
 }
 
-/** Records the workout that was just saved set, as "Hack Squat 85kg". */
-private fun records(workout: Workout): List<String> {
-    val ids = recordIds(Store.state.history, 0)
+/** Records the workout that was just saved set, as "Hack Squat 85kg", "Dips 30 reps" or "Plank 1:30". */
+private fun records(workout: Workout, history: List<Workout>): List<String> {
+    val ids = recordIds(history, 0)
     return workout.exercises.filter { it.id in ids }.map { log ->
-        if (log.equipment == Equipment.BODYWEIGHT) "${log.name} ${totalReps(log)} reps" else "${log.name} ${fmt(log.weight, workout.unit)}"
+        when {
+            log.equipment != Equipment.BODYWEIGHT -> "${log.name} ${fmt(log.weight, workout.unit)}"
+            log.timed -> "${log.name} ${holdText(longestHold(log))}"
+            else -> "${log.name} ${totalReps(log)} reps"
+        }
     }
 }
 
 @Composable
-private fun SavedCard(changes: List<Change>, workout: Workout?) {
+private fun SavedCard(changes: List<Change>, workout: Workout?, history: List<Workout>, unit: WeightUnit, onDismiss: () -> Unit) {
     EisenCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Workout saved", modifier = Modifier.weight(1f).semantics { heading() }, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                TextButton(onClick = { Store.lastChanges = null }, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
                     Text("Dismiss", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 }
             }
@@ -162,7 +178,7 @@ private fun SavedCard(changes: List<Change>, workout: Workout?) {
                     Text("·", fontSize = 20.sp, color = EisenColors.MutedForeground)
                     Text("${sets.count { it != null }} of ${sets.size} sets", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
-                val records = records(workout)
+                val records = records(workout, history)
                 if (records.isNotEmpty()) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -180,7 +196,7 @@ private fun SavedCard(changes: List<Change>, workout: Workout?) {
                 Column {
                     changes.forEachIndexed { index, change ->
                         if (index > 0) HorizontalDivider(color = EisenColors.Border)
-                        ChangeRow(change)
+                        ChangeRow(change, unit)
                     }
                 }
             }
@@ -189,14 +205,14 @@ private fun SavedCard(changes: List<Change>, workout: Workout?) {
                 if (skipped.isNotEmpty()) {
                     Text("Skipped: ${skipped.joinToString(", ")}", color = EisenColors.MutedForeground, fontSize = 13.sp)
                 }
-                ShareButton(workout)
+                ShareButton(workout, history)
             }
         }
     }
 }
 
 @Composable
-private fun ChangeRow(change: Change) {
+private fun ChangeRow(change: Change, unit: WeightUnit) {
     val color = when (change.kind) {
         ChangeKind.UP -> EisenColors.Primary
         ChangeKind.DELOAD -> EisenColors.Warn
@@ -205,13 +221,13 @@ private fun ChangeRow(change: Change) {
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(change.name, modifier = Modifier.weight(1f))
         Text(changeText(change.kind), color = EisenColors.MutedForeground)
-        Text(fmt(change.to), modifier = Modifier.width(76.dp), color = color, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+        Text(fmt(change.to, unit), modifier = Modifier.width(76.dp), color = color, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
     }
 }
 
 /** Opens the sheet that shares the workout as a picture, a link or Markdown. */
 @Composable
-private fun ShareButton(workout: Workout) {
+private fun ShareButton(workout: Workout, history: List<Workout>) {
     var sharing by rememberSaveable { mutableStateOf(false) }
     FilledTonalButton(
         onClick = { sharing = true },
@@ -221,15 +237,15 @@ private fun ShareButton(workout: Workout) {
     ) {
         Text("Share workout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
-    if (sharing) ShareWorkoutSheet(workout, onDismiss = { sharing = false })
+    if (sharing) ShareWorkoutSheet(workout, history, onDismiss = { sharing = false })
 }
 
 @Composable
-private fun NextCard(onOpenWorkout: () -> Unit) {
-    val active = Store.state.active
-    val routines = Store.state.routines
-    val next = Store.nextRoutine
-    val rows = rows()
+private fun NextCard(model: Model, dispatch: (Msg) -> Unit) {
+    val active = model.state.active
+    val routines = model.state.routines
+    val next = nextRoutine(model)
+    val rows = rows(model)
 
     EisenCard(Modifier.fillMaxWidth()) {
         // Children pad themselves, so the chip row can scroll to the card's edges.
@@ -245,7 +261,7 @@ private fun NextCard(onOpenWorkout: () -> Unit) {
                     items(routines, key = { it.id }) { routine ->
                         FilterChip(
                             selected = routine.id == next.id,
-                            onClick = { Store.selectRoutine(routine.id) },
+                            onClick = { dispatch(Msg.Routines.Select(routine.id)) },
                             label = { Text(routine.name, fontWeight = FontWeight.SemiBold) },
                             modifier = Modifier.height(40.dp),
                             shape = CircleShape,
@@ -283,7 +299,7 @@ private fun NextCard(onOpenWorkout: () -> Unit) {
                         ) {
                             ExerciseTile(row.image, row.name, size = 40.dp)
                             Text(row.name, modifier = Modifier.weight(1f))
-                            Text("${row.sets}×${row.reps ?: "max"}", color = EisenColors.MutedForeground)
+                            Text("${row.sets}×${targetText(row.reps, row.timed)}", color = EisenColors.MutedForeground)
                             Text(
                                 row.load,
                                 modifier = Modifier.widthIn(min = 76.dp),
@@ -297,13 +313,12 @@ private fun NextCard(onOpenWorkout: () -> Unit) {
             }
             val button = inset.fillMaxWidth().height(ButtonHeight)
             if (active != null) {
-                Button(onClick = onOpenWorkout, modifier = button, shape = MaterialTheme.shapes.medium) {
+                Button(onClick = { dispatch(Msg.Nav.OpenWorkout) }, modifier = button, shape = MaterialTheme.shapes.medium) {
                     Text("Resume workout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 // The same question and Undo as the workout screen's menu, see WorkoutSessionHost.
-                val effects = rememberWorkoutEffects()
                 TextButton(
-                    onClick = { effects.send(WorkoutEvent.RequestDiscard) },
+                    onClick = { dispatch(Msg.Workout(WorkoutEvent.RequestDiscard)) },
                     modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 48.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = EisenColors.Destructive),
                     contentPadding = PaddingValues(horizontal = 12.dp),
@@ -312,8 +327,9 @@ private fun NextCard(onOpenWorkout: () -> Unit) {
                 }
             } else {
                 // A workout whose exercises were all deleted cannot start. The button stays put, like the PWA.
+                // A workout that starts shows by itself.
                 Button(
-                    onClick = { if (Store.startWorkout()) onOpenWorkout() },
+                    onClick = { dispatch(Msg.Workout(WorkoutEvent.Start)) },
                     enabled = rows.isNotEmpty(),
                     modifier = button,
                     shape = MaterialTheme.shapes.medium,

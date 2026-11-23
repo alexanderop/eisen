@@ -1,4 +1,12 @@
-import { loadText, MAX_REPS, MAX_SETS, type Workout } from './program'
+import {
+  loadText,
+  MAX_HELD_SECONDS,
+  MAX_HOLD_SECONDS,
+  MAX_REPS,
+  MAX_SETS,
+  setText,
+  type Workout,
+} from './program'
 import type { Unit } from './units'
 
 export function durationMinutes(workout: Workout): number | null {
@@ -33,6 +41,8 @@ export interface SharedExercise {
   sets: (number | null)[]
   /** Set a record on that day. */
   record: boolean
+  /** Held for time: target and sets are seconds. Left out when false. */
+  timed?: boolean
 }
 
 /**
@@ -63,6 +73,7 @@ export function toShared(workout: Workout, records: ReadonlySet<string> = new Se
         targetReps: log.targetReps,
         sets: [...log.sets],
         record: records.has(log.id),
+        ...(log.timed ? { timed: true } : {}),
       })),
   }
 }
@@ -71,6 +82,7 @@ export interface SharedStats {
   /**
    * Weight times reps over all exercises, in the workout's unit.
    * A bodyweight exercise adds only its added weight: the app does not know what the lifter weighs.
+   * A hold is seconds, not reps, so it adds to neither the volume nor the reps.
    */
   volume: number
   sets: number
@@ -83,6 +95,7 @@ export function sharedStats(shared: SharedWorkout): SharedStats {
     for (const reps of exercise.sets) {
       if (reps === null) continue
       stats.sets += 1
+      if (exercise.timed) continue
       stats.reps += reps
       stats.volume += exercise.weight * reps
     }
@@ -90,13 +103,16 @@ export function sharedStats(shared: SharedWorkout): SharedStats {
   return stats
 }
 
-/** "5×5" when every set hit the target, otherwise each set: "5, 5, 4, –, –". */
-export function repsText(exercise: Pick<SharedExercise, 'sets' | 'targetReps'>): string {
-  const full =
-    exercise.targetReps !== null && exercise.sets.every((reps) => reps === exercise.targetReps)
+/**
+ * "5×5" when every set hit the target, otherwise each set: "5, 5, 4, –, –".
+ * Holds read the same in time: "3×1:00" or "1:00, 45s, –".
+ */
+export function repsText(exercise: Pick<SharedExercise, 'sets' | 'targetReps' | 'timed'>): string {
+  const target = exercise.targetReps
+  const full = target !== null && exercise.sets.every((reps) => reps === target)
   return full
-    ? `${exercise.sets.length}×${exercise.targetReps}`
-    : exercise.sets.map((count) => count ?? '–').join(', ')
+    ? `${exercise.sets.length}×${setText(exercise.timed, target)}`
+    : exercise.sets.map((count) => (count === null ? '–' : setText(exercise.timed, count))).join(', ')
 }
 
 const SHARE_VERSION = 1
@@ -123,6 +139,7 @@ function fromBase64Url(code: string): string {
  * A workout as text for a link. Arrays instead of named fields keep the link short:
  * [version, name, unit, start minute, minutes, [name, bodyweight, weight, target, record, sets][]].
  * 0 stands for "max reps" as a target and -1 for a set that was not logged.
+ * A timed exercise appends a 1. Others stay six long, so their links read as before.
  */
 export function encodeShared(shared: SharedWorkout): string {
   return toBase64Url(
@@ -139,6 +156,7 @@ export function encodeShared(shared: SharedWorkout): string {
         exercise.targetReps ?? 0,
         exercise.record ? 1 : 0,
         exercise.sets.map((reps) => reps ?? -1),
+        ...(exercise.timed ? [1] : []),
       ]),
     ]),
   )
@@ -154,11 +172,14 @@ function isName(value: unknown): value is string {
 
 function decodeExercise(value: unknown): SharedExercise | null {
   if (!Array.isArray(value)) return null
-  const [name, bodyweight, weight, target, record, sets] = value as unknown[]
-  if (!isName(name) || !isCount(target, MAX_REPS) || !Array.isArray(sets)) return null
+  const [name, bodyweight, weight, target, record, sets, timedFlag] = value as unknown[]
+  const timed = timedFlag === 1
+  const maxTarget = timed ? MAX_HOLD_SECONDS : MAX_REPS
+  if (!isName(name) || !isCount(target, maxTarget) || !Array.isArray(sets)) return null
   if (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0 || weight > 10000) return null
   if (sets.length === 0 || sets.length > MAX_SETS) return null
-  if (!sets.every((reps) => reps === -1 || isCount(reps, 999))) return null
+  const maxSet = timed ? MAX_HELD_SECONDS : 999
+  if (!sets.every((reps) => reps === -1 || isCount(reps, maxSet))) return null
   return {
     name,
     bodyweight: bodyweight === 1,
@@ -167,6 +188,7 @@ function decodeExercise(value: unknown): SharedExercise | null {
     targetReps: target === 0 ? null : target,
     sets: (sets as number[]).map((reps) => (reps === -1 ? null : reps)),
     record: record === 1,
+    ...(timed ? { timed } : {}),
   }
 }
 

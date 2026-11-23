@@ -4,9 +4,9 @@ import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
-import io.github.alexanderop.eisen.data.Store
 
 enum class Haptic {
     /** A set logged or cleared. */
@@ -22,9 +22,9 @@ enum class Haptic {
 }
 
 /** The phone's own haptic effects, so a tap feels like it does in every other app. */
-class Haptics(private val view: View) {
+class Haptics(private val view: View, private val enabled: Boolean) {
     fun perform(kind: Haptic) {
-        if (!Store.state.settings.haptics) return
+        if (!enabled) return
         val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
         val constant = when (kind) {
             Haptic.TAP -> HapticFeedbackConstants.VIRTUAL_KEY
@@ -36,8 +36,15 @@ class Haptics(private val view: View) {
     }
 }
 
+/**
+ * The lifter's "Vibrate on taps" setting. The root provides it from the model, the way a theme
+ * is provided, so a stepper deep inside a sheet does not need the setting handed down by hand.
+ */
+val LocalHapticsEnabled = compositionLocalOf { true }
+
 @Composable
 fun rememberHaptics(): Haptics {
     val view = LocalView.current
-    return remember(view) { Haptics(view) }
+    val enabled = LocalHapticsEnabled.current
+    return remember(view, enabled) { Haptics(view, enabled) }
 }

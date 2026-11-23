@@ -138,4 +138,17 @@ class HealthMappingTest {
         assertEquals("", fields.notes)
         assertEquals(emptyList<SegmentFields>(), fields.segments)
     }
+
+    @Test fun `a plank is a plank segment, with its seconds in the notes and never as repetitions`() {
+        val plank = ExerciseLog("plank", "Plank", Equipment.BODYWEIGHT, 0.0, 60, listOf(60, 45, null), timed = true)
+        val wallSit = ExerciseLog("wallSit", "Wall Sit", Equipment.BODYWEIGHT, 0.0, null, listOf(90, 75), timed = true)
+        val fields = sessionFields(workout(plank, wallSit), berlin)!!
+        assertEquals(
+            listOf(SegmentFields(Instant.ofEpochMilli(start), Instant.ofEpochMilli(start + hour / 2), ExerciseSegment.EXERCISE_SEGMENT_TYPE_PLANK, 0)),
+            fields.segments,
+        )
+        assertEquals("Plank bodyweight: 1:00, 45s, –\nWall Sit bodyweight: 1:30, 1:15", fields.notes)
+        assertEquals(ExerciseSegment.EXERCISE_SEGMENT_TYPE_PLANK, segmentTypeFor("sidePlank"))
+        assertNull(segmentTypeFor("hollowHold"))
+    }
 }

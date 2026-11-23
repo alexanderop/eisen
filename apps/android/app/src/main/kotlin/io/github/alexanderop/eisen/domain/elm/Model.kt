@@ -1,0 +1,181 @@
+package io.github.alexanderop.eisen.domain.elm
+
+import io.github.alexanderop.eisen.domain.AppState
+import io.github.alexanderop.eisen.domain.Change
+import io.github.alexanderop.eisen.domain.Session
+import io.github.alexanderop.eisen.domain.Slot
+import io.github.alexanderop.eisen.domain.Workout
+import io.github.alexanderop.eisen.domain.active
+import io.github.alexanderop.eisen.domain.freshState
+
+/**
+ * Everything that decides what the app does, as one immutable value. Only [update] makes a new one.
+ *
+ * Only [state] is saved to the file the PWA shares. [rest], [health] and [notifications] are kept by
+ * Android-only preferences (see `runtime/`). Everything else lives while the process lives.
+ */
+data class Model(
+    /** The saved data. Its JSON shape and `STATE_VERSION` are shared with the PWA and must not change. */
+    val state: AppState,
+    /**
+     * The running workout and the question asked about it, see `domain/WorkoutMachine.kt`.
+     * `state.active` is always `session.active`: the workout belongs to the session.
+     */
+    val session: Session = Session.restore(state),
+    /** Null when no rest runs. A rest that is over stays until it is dismissed. */
+    val rest: RestState? = null,
+    /** The rest over the whole workout screen, with the set that started it. Null when none is open. */
+    val restScreen: RestScreen? = null,
+    /** What the last finished workout changed. Shown once on the home screen. */
+    val lastChanges: List<Change>? = null,
+    /** Warmup sets ticked off in the running workout, as [warmupKey]. */
+    val warmupDone: Set<String> = emptySet(),
+    /** A max-reps set was tapped: the workout screen asks for the count. */
+    val repsQuestion: RepsQuestion? = null,
+    /** An open set of a timed exercise was tapped: its hold timer shows. Null when none is open. */
+    val hold: HoldTimer? = null,
+    /** The exercise tapped last, which holds its place on the workout screen for a moment. */
+    val settling: Settling? = null,
+    val nav: Navigation = Navigation(workoutOpen = state.active != null),
+    /** What an Undo snackbar can still bring back. The discarded workout lives in [session]. */
+    val undo: Undo = Undo(),
+    val health: HealthModel = HealthModel(),
+    val notifications: Notifications = Notifications(granted = true, asked = false),
+    /** The status line under "Your data" in Settings. */
+    val dataNotice: String? = null,
+    /** True while the activity is on screen. Decides which [subscriptions] run. */
+    val visible: Boolean = false,
+    /**
+     * The clock as of the start, the last [Msg.Rest.Tick] or [Msg.Hold.Tick], [Msg.App.Foreground], change of
+     * screen ([Msg.Nav], a workout that starts, asks to discard or ends). Ticks keep it fresh every second only
+     * while a rest runs and the app shows, or while a hold timer is open. Views read the time only from here:
+     * the home screen's date and "last 7 days", the discard question's "N min", the Progress calendar, the timers.
+     */
+    val now: Long = 0,
+)
+
+/** A running rest. Based on timestamps, so it stays right when the app is closed. */
+data class RestState(val startedAt: Long, val endsAt: Long, val note: String)
+
+/**
+ * The rest screen of the running [Model.rest], for set [set] of the exercise at [exercise] in the running
+ * workout: the set that started the rest, which its wheels correct. [exerciseId] makes sure it is still
+ * the same exercise there. [minimised]: put away by the lifter, the rest bar shows instead and a tap on
+ * it brings the screen back. It only exists while its rest runs and its set is logged, see [restScreenFits].
+ */
+data class RestScreen(val exercise: Int, val set: Int, val exerciseId: String, val minimised: Boolean = false)
+
+/**
+ * The hold timer of set [set] of the exercise at [exercise] in the running workout, a timed one.
+ * [exerciseId] makes sure it is still the same exercise there. Based on timestamps like the rest, so it
+ * stays right while the app sleeps: "Get ready" until [startsAt], then the hold counts down from
+ * [target] seconds, or up from 0 when [target] is null (as long as possible). [started] is true once
+ * the start of the hold was signalled, so its beep comes once.
+ */
+data class HoldTimer(
+    val exercise: Int,
+    val set: Int,
+    val exerciseId: String,
+    val target: Int?,
+    val startsAt: Long,
+    val started: Boolean = false,
+)
+
+/** The max-reps set being asked about, and the count the entry starts at. */
+data class RepsQuestion(val exercise: Int, val set: Int, val reps: Int)
+
+/**
+ * The exercise [id] was tapped at [since]. It counts as open in `order` even when that tap finished it,
+ * so the card does not jump away under the thumb: the tap after a full set is how missed reps are
+ * entered. After [SETTLE_MS] it takes its place, see [Msg.WorkoutScreen.Settle].
+ */
+data class Settling(val id: String, val since: Long)
+
+enum class Tab { HOME, WORKOUTS, HISTORY, PROGRESS, SETTINGS }
+
+data class Navigation(
+    val tab: Tab = Tab.HOME,
+    /** The lifter wants to see the workout. It only shows while there is one, see [showsWorkout]. */
+    val workoutOpen: Boolean = false,
+    /** The routine open in the editor of the Workouts tab. */
+    val routine: String? = null,
+)
+
+data class DeletedWorkout(val workout: Workout, val index: Int)
+
+data class RemovedSlot(val routineId: String, val index: Int, val slot: Slot)
+
+/** Only the newest delete of each kind can be undone, like the snackbar that offers it. */
+data class Undo(val deletedWorkout: DeletedWorkout? = null, val removedSlot: RemovedSlot? = null)
+
+/**
+ * Health Connect sync. [enabled] is the lifter's switch, kept in an Android-only preference.
+ * [notice] is the status line under the switch. [availability] decides which rows Settings shows;
+ * the runtime asks Android each time the app comes to the front, see [Msg.Health.Availability].
+ */
+data class HealthModel(
+    val enabled: Boolean = false,
+    val syncing: Boolean = false,
+    val notice: String? = null,
+    val availability: HealthAvailability = HealthAvailability.UNAVAILABLE,
+)
+
+/** Whether Health Connect can be used on this phone. It changes outside the app (the Play Store). */
+enum class HealthAvailability {
+    AVAILABLE,
+
+    /** Installed but too old, or not installed where it can be: the Play Store fixes it. */
+    NEEDS_INSTALL,
+    UNAVAILABLE,
+}
+
+/**
+ * Android 13 and newer ask before an app may show notifications. [granted] is always true before that.
+ * [asked] is true once the app asked: it asks only once, the system settings do the rest.
+ */
+data class Notifications(val granted: Boolean, val asked: Boolean)
+
+/** How a ticked warmup set is known in [Model.warmupDone]. */
+fun warmupKey(exerciseId: String, set: Int): String = "$exerciseId:$set"
+
+/**
+ * What the process knows when it starts: read from the file and the preferences by the runtime,
+ * then turned into the first [Model] by [init].
+ */
+data class Flags(
+    /** Null when the state file is missing or cannot be read. */
+    val state: AppState?,
+    val savedRest: RestState?,
+    val healthEnabled: Boolean,
+    val notifications: Notifications,
+    /** The clock when the process started, so the first screen dates itself before anything ticks. */
+    val now: Long = 0,
+)
+
+/** The first model, and what has to happen right away. Elm's `init`. */
+fun init(flags: Flags): Pair<Model, List<Cmd>> {
+    val model = Model(
+        // A first start, or storage that cannot be read: a fresh start instead of a blocked app.
+        state = flags.state ?: freshState(),
+        health = HealthModel(enabled = flags.healthEnabled),
+        notifications = flags.notifications,
+        now = flags.now,
+    )
+    val cmds = mutableListOf<Cmd>()
+    val saved = flags.savedRest
+    val restored = when {
+        saved == null -> model
+        // After the process died during a rest: the alarms are still set, the rest goes on.
+        model.session.active != null -> model.copy(rest = saved)
+        // The workout is gone (finished or discarded elsewhere): its rest is stale.
+        else -> {
+            cmds += stopRestCmds()
+            model
+        }
+    }
+    // Health Connect may have taken the permission away while the app was closed.
+    if (flags.healthEnabled) cmds += Cmd.Health(HealthJob.CheckPermission(PermissionCheck.STARTUP))
+    // After an install the shortcuts are published, after an update the widgets redrawn.
+    cmds += refreshHomeSurfaces(restored.state)
+    return restored to cmds
+}

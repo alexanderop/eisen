@@ -23,6 +23,8 @@ import {
   type ExerciseProgress,
   type Routine,
 } from './domain/program'
+import { lastSetReps } from './domain/records'
+import { withCorrectedReps } from './domain/rest'
 import { freshState, isAppState, migrate, type AppState } from './domain/state'
 import type { Unit } from './domain/units'
 
@@ -172,19 +174,24 @@ export function setActiveWeight(exerciseIndex: number, weight: number): void {
   entry.weight = weight
 }
 
-/** Logs a max-reps set, where the lifter enters the count instead of tapping it down. */
+/** Logs a max-reps set, where the lifter enters the count instead of tapping it down, or clears a set. */
 export function logReps(exerciseIndex: number, setIndex: number, reps: number | null): void {
   const log = state.active?.exercises[exerciseIndex]
   if (log) log.sets[setIndex] = reps
 }
 
-/** Starting point for a max-reps entry: what this set got last time. */
-export function suggestedReps(id: string, setIndex: number): number {
-  for (const workout of state.history) {
-    const reps = workout.exercises.find((log) => log.id === id)?.sets[setIndex]
-    if (reps !== null && reps !== undefined) return reps
-  }
-  return 8
+/**
+ * Corrects the count of a logged set from the rest screen. Unlike a tap it leaves the rest alone
+ * and never clears the set.
+ */
+export function correctReps(exerciseIndex: number, setIndex: number, reps: number): void {
+  const log = state.active?.exercises[exerciseIndex]
+  if (log) log.sets = withCorrectedReps(log.sets, setIndex, reps)
+}
+
+/** What this set of the exercise got the last time it was logged. Null when it never was. */
+export function lastReps(id: string, setIndex: number): number | null {
+  return lastSetReps(state.history, id, setIndex)
 }
 
 export function setProgressWeight(id: string, weight: number): void {
@@ -270,13 +277,13 @@ export function removeSlot(routine: Routine, index: number): void {
   routine.slots.splice(index, 1)
 }
 
-export function addCustomExercise(name: string, equipment: Equipment): Exercise | null {
+export function addCustomExercise(name: string, equipment: Equipment, timed = false): Exercise | null {
   const trimmed = name.trim().slice(0, 40)
   if (!trimmed) return null
   const lower = trimmed.toLowerCase()
   const existing = exercises.value.find((exercise) => exercise.name.toLowerCase() === lower)
   if (existing) return existing
-  const exercise = customExercise(`custom-${newId()}`, trimmed, equipment)
+  const exercise = customExercise(`custom-${newId()}`, trimmed, equipment, timed)
   state.customExercises.push(exercise)
   return exercise
 }

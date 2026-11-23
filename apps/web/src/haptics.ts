@@ -12,13 +12,17 @@ const PATTERNS = {
   success: [12, 60, 24],
   /** Workout finished. */
   done: [20, 60, 20, 60, 40],
+  /** A hold starts after the lead-in. */
+  holdStart: 60,
+  /** A hold ran its full time. Long enough to feel with the phone on the floor. */
+  holdEnd: [300, 120, 300, 120, 300],
 } as const
 
 export type Haptic = keyof typeof PATTERNS
 
 export const hapticsSupported = typeof navigator !== 'undefined' && 'vibrate' in navigator
 
-/** Call from a tap handler: browsers only vibrate after a user gesture. */
+/** Browsers only vibrate once the page was tapped: call from a tap handler or after one. */
 export function haptic(kind: Haptic): void {
   if (!hapticsSupported || !state.settings.haptics) return
   const pattern = PATTERNS[kind]

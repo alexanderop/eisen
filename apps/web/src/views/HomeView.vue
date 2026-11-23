@@ -3,7 +3,7 @@ import { Badge, Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
 import { computed } from 'vue'
 import ShareWorkout from '../components/ShareWorkout.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
-import { outcome, totalReps } from '../domain/program'
+import { holdText, longestHold, outcome, setText, totalReps } from '../domain/program'
 import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
 import { fmt, fmtLoad, formatDate, formatShortDate } from '../format'
@@ -31,6 +31,7 @@ const rows = computed(() => {
       name: log.name,
       sets: log.sets.length,
       reps: log.targetReps,
+      timed: log.timed,
       load: fmtLoad(log.equipment, log.weight),
     }))
   }
@@ -43,6 +44,7 @@ const rows = computed(() => {
         name: exercise.name,
         sets: slot.sets,
         reps: slot.reps,
+        timed: exercise.timed,
         load: fmtLoad(exercise.equipment, progressOf(exercise.id).weight),
       },
     ]
@@ -68,18 +70,17 @@ const saved = computed(() => {
   }
 })
 
-/** Records the workout that was just saved set, as "Hack Squat 85kg". */
+/** Records the workout that was just saved set, as "Hack Squat 85kg" or "Plank 1:30". */
 const records = computed(() => {
   const workout = lastWorkout.value
   if (!workout) return []
   const ids = recordIds(state.history, 0)
   return workout.exercises
     .filter((log) => ids.has(log.id))
-    .map((log) =>
-      log.equipment === 'bodyweight'
-        ? `${log.name} ${totalReps(log)} reps`
-        : `${log.name} ${fmt(log.weight, workout.unit)}`,
-    )
+    .map((log) => {
+      if (log.equipment !== 'bodyweight') return `${log.name} ${fmt(log.weight, workout.unit)}`
+      return log.timed ? `${log.name} ${holdText(longestHold(log))}` : `${log.name} ${totalReps(log)} reps`
+    })
 })
 
 const CHANGE_TEXT = { up: 'Up', repeat: 'Repeat', deload: 'Deload' } as const
@@ -150,7 +151,7 @@ function start() {
       <li v-for="row in rows" :key="row.id" class="exercise">
         <ExerciseImage :image="findExercise(row.id)?.image" :name="row.name" :size="40" />
         <span>{{ row.name }}</span>
-        <span class="muted">{{ row.sets }}×{{ row.reps ?? 'max' }}</span>
+        <span class="muted">{{ row.sets }}×{{ row.reps === null ? 'max' : setText(row.timed, row.reps) }}</span>
         <strong>{{ row.load }}</strong>
       </li>
     </ul>

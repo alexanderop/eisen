@@ -1,14 +1,14 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.data.Store
-import io.github.alexanderop.eisen.data.moved
 import io.github.alexanderop.eisen.domain.Slot
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.moved
+import io.github.alexanderop.eisen.domain.elm.nextRoutine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
-import org.junit.Before
 import org.junit.Test
 
-/** Drag to reorder in the Workouts tab: the list move and the Store changes it calls. */
+/** Drag to reorder in the Workouts tab: the list move and the Msgs it sends through `update`. */
 class ReorderTest {
     private val list = listOf("a", "b", "c", "d")
 
@@ -37,47 +37,49 @@ class ReorderTest {
         assertSame(emptyList<String>(), emptyList<String>().moved(0, 0))
     }
 
-    @Before fun reset() {
-        Store.resetAll()
+    private var at = stepOf()
+
+    private fun send(msg: Msg) {
+        at = at.send(msg)
     }
 
-    private fun slotIds(routineId: String) = Store.state.routines.first { it.id == routineId }.slots.map { it.exerciseId }
+    private fun slotIds(routineId: String) = at.state.routines.first { it.id == routineId }.slots.map { it.exerciseId }
 
     @Test fun `moving a workout keeps the same workout next`() {
-        Store.addRoutine()
-        Store.selectRoutine("B")
-        Store.moveRoutine(1, 0)
-        assertEquals(listOf("B", "A"), Store.state.routines.take(2).map { it.id })
-        assertEquals("B", Store.state.nextRoutineId)
-        Store.moveRoutine(0, 2)
-        assertEquals("B", Store.state.routines.last().id)
-        assertEquals("B", Store.nextRoutine.id)
+        send(Msg.Routines.Add())
+        send(Msg.Routines.Select("B"))
+        send(Msg.Routines.Move(1, 0))
+        assertEquals(listOf("B", "A"), at.state.routines.take(2).map { it.id })
+        assertEquals("B", at.state.nextRoutineId)
+        send(Msg.Routines.Move(0, 2))
+        assertEquals("B", at.state.routines.last().id)
+        assertEquals("B", nextRoutine(at.model).id)
     }
 
     @Test fun `a slot moves any distance in one change`() {
         val before = slotIds("A")
-        Store.moveSlotTo("A", 0, before.lastIndex)
+        send(Msg.Routines.MoveSlot("A", 0, before.lastIndex))
         assertEquals(before.drop(1) + before.first(), slotIds("A"))
-        Store.moveSlotTo("A", 0, 99)
+        send(Msg.Routines.MoveSlot("A", 0, 99))
         assertEquals(before.drop(1) + before.first(), slotIds("A"))
     }
 
     @Test fun `undo puts a removed slot back at its place with its sets and reps`() {
-        val before = Store.state.routines.first { it.id == "A" }.slots
+        val before = at.state.routines.first { it.id == "A" }.slots
         val removed = before[1].copy(sets = 3, reps = 8)
-        Store.removeSlot("A", 1)
-        Store.insertSlot("A", 1, removed)
-        assertEquals(before.toMutableList().apply { set(1, removed) }, Store.state.routines.first { it.id == "A" }.slots)
+        send(Msg.Routines.RemoveSlot("A", before[1].exerciseId))
+        send(Msg.Routines.InsertSlot("A", 1, removed))
+        assertEquals(before.toMutableList().apply { set(1, removed) }, at.state.routines.first { it.id == "A" }.slots)
         // A second undo of the same slot does not add it twice.
-        Store.insertSlot("A", 0, removed)
+        send(Msg.Routines.InsertSlot("A", 0, removed))
         assertEquals(before.size, slotIds("A").size)
     }
 
     @Test fun `undo after the list got shorter puts the slot at the end`() {
         val slot = Slot("bench", 5, 5)
-        Store.removeSlot("A", 1)
-        Store.removeSlot("A", 0)
-        Store.insertSlot("A", 10, slot)
+        send(Msg.Routines.RemoveSlot("A", "bench"))
+        send(Msg.Routines.RemoveSlot("A", "hackSquat"))
+        send(Msg.Routines.InsertSlot("A", 10, slot))
         assertEquals("bench", slotIds("A").last())
     }
 }

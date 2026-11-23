@@ -4,11 +4,12 @@ import androidx.health.connect.client.records.ExerciseSegment
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.loadText
+import io.github.alexanderop.eisen.domain.repsText
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 
-/** One exercise of the session, as Health Connect wants it: a time span, a type and the reps in it. */
+/** One exercise of the session, as Health Connect wants it: a time span, a type and the reps in it (0 for a hold). */
 data class SegmentFields(val start: Instant, val end: Instant, val type: Int, val repetitions: Int)
 
 /** Everything an exercise session record is built from. Kept free of Android so it can be unit tested. */
@@ -60,6 +61,8 @@ private val SEGMENT_TYPES: Map<String, Int> = mapOf(
     "situps" to ExerciseSegment.EXERCISE_SEGMENT_TYPE_SIT_UP,
     "cableCrunch" to ExerciseSegment.EXERCISE_SEGMENT_TYPE_CRUNCH,
     "egymAbdominalCrunch" to ExerciseSegment.EXERCISE_SEGMENT_TYPE_CRUNCH,
+    "plank" to ExerciseSegment.EXERCISE_SEGMENT_TYPE_PLANK,
+    "sidePlank" to ExerciseSegment.EXERCISE_SEGMENT_TYPE_PLANK,
 )
 
 fun segmentTypeFor(exerciseId: String): Int? = SEGMENT_TYPES[exerciseId]
@@ -73,9 +76,7 @@ fun workoutNotes(workout: Workout): String = workout.exercises
     .joinToString("\n") { log ->
         // Spelled out: health apps show the notes to people who never saw the app's "BW".
         val load = loadText(log.equipment == Equipment.BODYWEIGHT, log.weight, workout.unit, label = "bodyweight")
-        val full = log.targetReps != null && log.sets.all { it == log.targetReps }
-        val reps = if (full) "${log.sets.size}×${log.targetReps}" else log.sets.joinToString(", ") { it?.toString() ?: "–" }
-        "${log.name} $load: $reps"
+        "${log.name} $load: ${repsText(log.sets, log.targetReps, log.timed)}"
     }
 
 /**
@@ -85,7 +86,7 @@ fun workoutNotes(workout: Workout): String = workout.exercises
  * Eisen does not keep when each exercise started, only when the workout did. The segments split
  * the session into equal parts in the order the exercises were done, so the reps are right and the
  * times are an estimate. Health Connect needs every segment to have a time span, so there is no
- * way to send reps without one.
+ * way to send reps without one. A hold has no reps: its seconds are in the notes, never counted as repetitions.
  */
 fun sessionFields(workout: Workout, zone: ZoneId): SessionFields? {
     val finishedAt = workout.finishedAt ?: return null
@@ -102,7 +103,7 @@ fun sessionFields(workout: Workout, zone: ZoneId): SessionFields? {
             start = Instant.ofEpochMilli(from),
             end = Instant.ofEpochMilli(from + slice),
             type = type,
-            repetitions = log.sets.sumOf { it ?: 0 },
+            repetitions = if (log.timed) 0 else log.sets.sumOf { it ?: 0 },
         )
     }
 

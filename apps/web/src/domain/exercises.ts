@@ -34,6 +34,8 @@ export interface Exercise {
   increment: number
   /** File name in `src/assets/exercises`, without extension. The lifter's own exercises have none. */
   image?: string
+  /** Held for time, like a plank: every reps number of it counts seconds. Left out when false. */
+  timed?: boolean
 }
 
 type Row = [
@@ -43,6 +45,7 @@ type Row = [
   start: number,
   increment: number,
   image: string,
+  timed?: true,
 ]
 
 const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
@@ -60,6 +63,8 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['legCurl', 'Leg Curl', 'weight', 25, 2.5, 'seated-leg-curl'],
     ['calfRaise', 'Calf Raise', 'weight', 40, 2.5, 'standing-calf-raise'],
     ['egymSquat', 'eGym Squat', 'weight', 60, 2, 'egym-squat'],
+    ['wallSit', 'Wall Sit', 'bodyweight', 0, 0, 'wall-sit', true],
+    ['gluteBridgeHold', 'Glute Bridge Hold', 'bodyweight', 0, 0, 'glute-bridge', true],
   ],
   Chest: [
     ['bench', 'Bench Press', 'barbell', 80, 2.5, 'bench-press'],
@@ -85,6 +90,8 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['pullups', 'Pull-ups', 'bodyweight', 0, 0, 'pull-up'],
     ['chinups', 'Chin-ups', 'bodyweight', 0, 0, 'chin-up'],
     ['backExtension', 'Back Extension', 'bodyweight', 0, 0, 'back-extension'],
+    ['deadHang', 'Dead Hang', 'bodyweight', 0, 0, 'pull-up', true],
+    ['supermanHold', 'Superman Hold', 'bodyweight', 0, 0, 'plank', true],
   ],
   Shoulders: [
     ['ohp', 'Overhead Press', 'barbell', 40, 2.5, 'overhead-press'],
@@ -101,6 +108,7 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['skullCrusher', 'Skull Crusher', 'weight', 20, 2.5, 'skull-crusher'],
     ['tricepsPushdown', 'Triceps Pushdown', 'weight', 20, 2.5, 'rope-triceps-pushdown'],
     ['overheadTricepsExtension', 'Overhead Triceps Extension', 'weight', 12, 1, 'overhead-triceps-extension'],
+    ['farmersCarry', "Farmer's Carry", 'weight', 20, 2, 'farmers-carry', true],
   ],
   Core: [
     ['hangingLegRaise', 'Hanging Leg Raise', 'bodyweight', 0, 0, 'hanging-leg-raise'],
@@ -109,11 +117,15 @@ const TABLE: Record<(typeof GROUPS)[number], Row[]> = {
     ['cableCrunch', 'Cable Crunch', 'weight', 25, 2.5, 'cable-crunch'],
     ['egymAbdominalCrunch', 'eGym Abdominal Crunch', 'weight', 30, 2, 'egym-abdominal-crunch'],
     ['egymRotaryTorso', 'eGym Rotary Torso', 'weight', 25, 2, 'egym-rotary-torso'],
+    ['plank', 'Plank', 'bodyweight', 0, 0, 'plank', true],
+    ['sidePlank', 'Side Plank', 'bodyweight', 0, 0, 'side-plank', true],
+    ['hollowHold', 'Hollow Hold', 'bodyweight', 0, 0, 'hollow-hold', true],
+    ['lSit', 'L-Sit', 'bodyweight', 0, 0, 'l-sit', true],
   ],
 }
 
 export const CATALOG: Exercise[] = GROUPS.flatMap((group) =>
-  TABLE[group].map(([id, name, equipment, start, increment, image]) => ({
+  TABLE[group].map(([id, name, equipment, start, increment, image, timed]) => ({
     id,
     name,
     group,
@@ -121,6 +133,7 @@ export const CATALOG: Exercise[] = GROUPS.flatMap((group) =>
     start,
     increment,
     image,
+    ...(timed ? { timed } : {}),
   })),
 )
 
@@ -137,7 +150,12 @@ const CUSTOM_START: Record<Equipment, [start: number, increment: number]> = {
   bodyweight: [0, 0],
 }
 
-export function customExercise(id: string, name: string, equipment: Equipment): Exercise {
+export function customExercise(
+  id: string,
+  name: string,
+  equipment: Equipment,
+  timed = false,
+): Exercise {
   const [start, increment] = CUSTOM_START[equipment]
-  return { id, name, group: 'Custom', equipment, start, increment }
+  return { id, name, group: 'Custom', equipment, start, increment, ...(timed ? { timed } : {}) }
 }

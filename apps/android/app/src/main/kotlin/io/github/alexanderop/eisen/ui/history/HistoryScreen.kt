@@ -36,15 +36,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,13 +64,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.StateJson
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.durationMinutes
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.HOLD_STEP_SECONDS
+import io.github.alexanderop.eisen.domain.MAX_HELD_SECONDS
+import io.github.alexanderop.eisen.domain.holdText
 import io.github.alexanderop.eisen.domain.nextReps
+import io.github.alexanderop.eisen.domain.setText
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.stepFor
 import io.github.alexanderop.eisen.domain.typedWeightSnap
@@ -96,6 +95,7 @@ import io.github.alexanderop.eisen.ui.rememberHaptics
 import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
 private val ShareIcon = pathIcon(
     "Share",
@@ -120,82 +120,67 @@ private val DraftSaver = Saver<Workout?, String>(
 
 private fun duration(workout: Workout): String = durationMinutes(workout)?.let { "$it min" } ?: ""
 
+/**
+ * The finished workouts, newest first. Which card's menu, dialog or sheet is open and the corrections
+ * typed into the edit sheet before "Save changes" stay here: nothing else depends on them.
+ */
 @Composable
-fun HistoryScreen() {
-    val history = Store.state.history
+fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
+    val history = model.state.history
     // Per workout, the exercises that set a record on that day.
     val records = remember(history) { history.indices.map { recordIds(history, it) } }
     var draft by rememberSaveable(stateSaver = DraftSaver) { mutableStateOf(null) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
     var sharing by rememberSaveable { mutableStateOf<String?>(null) }
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
 
-    // A swipe deletes at once. The snackbar offers the way back instead of a dialog in the way.
+    // A swipe deletes at once. The root's snackbar offers the way back instead of a dialog in the way.
     fun deleteWithUndo(workout: Workout) {
-        val index = Store.state.history.indexOfFirst { it.id == workout.id }
-        if (index == -1) return
-        Store.deleteWorkout(workout.id)
+        if (history.none { it.id == workout.id }) return
+        dispatch(Msg.History.Delete(workout.id, offerUndo = true))
         haptics.perform(Haptic.TAP)
-        scope.launch {
-            // A second delete replaces the first snackbar, so only the newest one can be undone.
-            snackbar.currentSnackbarData?.dismiss()
-            val result = snackbar.showSnackbar("Workout deleted", actionLabel = "Undo", duration = SnackbarDuration.Short)
-            if (result == SnackbarResult.ActionPerformed) Store.restoreWorkout(workout, index)
-        }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item(key = "title") {
-                Text(
-                    "History",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-0.6).sp,
-                    modifier = Modifier.semantics { heading() },
-                )
-            }
-            if (history.isEmpty()) {
-                item(key = "empty") {
-                    EisenCard {
-                        Text(
-                            "No workouts yet. Finish your first one and it shows up here.",
-                            color = EisenColors.MutedForeground,
-                            fontSize = 16.sp,
-                        )
-                    }
-                }
-            }
-            itemsIndexed(history, key = { _, workout -> workout.id }) { position, workout ->
-                SwipeToDelete(workout.name, onDelete = { deleteWithUndo(workout) }, modifier = Modifier.animateItem()) {
-                    WorkoutCard(
-                        workout = workout,
-                        records = records.getOrElse(position) { emptySet() },
-                        onShare = { sharing = workout.id },
-                        onEdit = { draft = workout },
-                        onDelete = { deleting = workout.id },
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item(key = "title") {
+            Text(
+                "History",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.6).sp,
+                modifier = Modifier.semantics { heading() },
+            )
+        }
+        if (history.isEmpty()) {
+            item(key = "empty") {
+                EisenCard {
+                    Text(
+                        "No workouts yet. Finish your first one and it shows up here.",
+                        color = EisenColors.MutedForeground,
+                        fontSize = 16.sp,
                     )
                 }
             }
         }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(horizontal = 8.dp)) { data ->
-            Snackbar(
-                data,
-                containerColor = EisenColors.Border,
-                contentColor = EisenColors.Foreground,
-                actionColor = EisenColors.Primary,
-            )
+        itemsIndexed(history, key = { _, workout -> workout.id }) { position, workout ->
+            SwipeToDelete(workout.name, onDelete = { deleteWithUndo(workout) }, modifier = Modifier.animateItem()) {
+                WorkoutCard(
+                    workout = workout,
+                    records = records.getOrElse(position) { emptySet() },
+                    onShare = { sharing = workout.id },
+                    onEdit = { draft = workout },
+                    onDelete = { deleting = workout.id },
+                )
+            }
         }
     }
 
     history.firstOrNull { it.id == sharing }?.let { workout ->
-        ShareWorkoutSheet(workout, onDismiss = { sharing = null })
+        ShareWorkoutSheet(workout, history, onDismiss = { sharing = null })
     }
 
     draft?.let { current ->
@@ -203,7 +188,7 @@ fun HistoryScreen() {
             draft = current,
             onChange = { draft = it },
             onSave = {
-                Store.updateWorkout(current.id, current.exercises)
+                dispatch(Msg.History.Edit(current.id, current.exercises))
                 draft = null
             },
             onClose = { draft = null },
@@ -219,7 +204,7 @@ fun HistoryScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        Store.deleteWorkout(doomed.id)
+                        dispatch(Msg.History.Delete(doomed.id))
                         deleting = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = EisenColors.Destructive),
@@ -348,14 +333,14 @@ private fun LogRow(log: ExerciseLog, workout: Workout, record: Boolean) {
         Spacer(Modifier.width(8.dp))
         Row(
             Modifier.widthIn(min = 92.dp).clearAndSetSemantics {
-                contentDescription = "Sets: " + log.sets.joinToString(", ") { it?.toString() ?: "not logged" }
+                contentDescription = "Sets: " + log.sets.joinToString(", ") { it?.let { count -> setText(count, log.timed) } ?: "not logged" }
             },
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
         ) {
             for (reps in log.sets) {
                 val missed = reps == null || (log.targetReps != null && reps != log.targetReps)
                 Text(
-                    reps?.toString() ?: "–",
+                    reps?.let { setText(it, log.timed) } ?: "–",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (missed) EisenColors.Warn else EisenColors.Primary,
@@ -375,7 +360,7 @@ private fun setState(log: ExerciseLog, reps: Int?): SetState = when {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () -> Unit, onClose: () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
     fun closeThen(action: () -> Unit) {
@@ -435,7 +420,24 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
                         }
                     }
                     val target = log.targetReps
-                    if (target != null) {
+                    if (log.timed) {
+                        // A hold is corrected in seconds, five at a time. 0 is a set that was not done.
+                        log.sets.forEachIndexed { setIndex, seconds ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Set ${setIndex + 1}", color = EisenColors.MutedForeground, modifier = Modifier.weight(1f))
+                                IntStepper(
+                                    value = seconds ?: 0,
+                                    onValueChange = { setReps(index, setIndex, if (it == 0) null else it) },
+                                    label = "${log.name} set ${setIndex + 1} seconds held",
+                                    step = HOLD_STEP_SECONDS,
+                                    max = MAX_HELD_SECONDS,
+                                    format = { if (it == 0) "–" else holdText(it) },
+                                    snap = 1,
+                                    typedSuffix = "s",
+                                )
+                            }
+                        }
+                    } else if (target != null) {
                         for (row in log.sets.indices.chunked(5)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 for (setIndex in row) {

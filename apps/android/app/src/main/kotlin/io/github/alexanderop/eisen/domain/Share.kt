@@ -29,7 +29,7 @@ fun workoutMarkdown(workout: Workout, date: String): String {
     val lines = mutableListOf("## ${workout.name}", "", if (minutes == null) date else "$date · $minutes min", "")
     for (log in workout.exercises) {
         if (log.sets.all { it == null }) continue
-        lines += "- **${log.name}** ${loadText(log, workout.unit)}: ${repsText(log.sets, log.targetReps)}"
+        lines += "- **${log.name}** ${loadText(log, workout.unit)}: ${repsText(log.sets, log.targetReps, log.timed)}"
     }
     return lines.joinToString("\n")
 }
@@ -45,6 +45,8 @@ data class SharedExercise(
     val sets: List<Int?>,
     /** Set a record on that day. */
     val record: Boolean,
+    /** Held for time: [targetReps] and [sets] are seconds. */
+    val timed: Boolean = false,
 )
 
 /**
@@ -75,6 +77,7 @@ fun toShared(workout: Workout, records: Set<String> = emptySet()): SharedWorkout
                 targetReps = log.targetReps,
                 sets = log.sets,
                 record = log.id in records,
+                timed = log.timed,
             )
         },
 )
@@ -82,7 +85,8 @@ fun toShared(workout: Workout, records: Set<String> = emptySet()): SharedWorkout
 data class SharedStats(
     /**
      * Weight times reps over all exercises, in the workout's unit. A bodyweight exercise counts
-     * only the weight added on top: the app does not know what the lifter weighs.
+     * only the weight added on top: the app does not know what the lifter weighs. A hold counts as
+     * a set, but its seconds are no reps and add no volume.
      */
     val volume: Double,
     val sets: Int,
@@ -97,6 +101,7 @@ fun sharedStats(shared: SharedWorkout): SharedStats {
         for (count in exercise.sets) {
             if (count == null) continue
             sets += 1
+            if (exercise.timed) continue
             reps += count
             volume += exercise.weight * count
         }
@@ -104,10 +109,13 @@ fun sharedStats(shared: SharedWorkout): SharedStats {
     return SharedStats(volume, sets, reps)
 }
 
-/** "5×5" when every set hit the target, otherwise each set: "5, 5, 4, –, –". */
-fun repsText(sets: List<Int?>, targetReps: Int?): String {
-    val full = targetReps != null && sets.all { it == targetReps }
-    return if (full) "${sets.size}×$targetReps" else sets.joinToString(", ") { it?.toString() ?: "–" }
+/**
+ * "5×5" when every set hit the target, otherwise each set: "5, 5, 4, –, –".
+ * Holds the same way in [holdText]: "3×1:00", or "1:00, 45s, –".
+ */
+fun repsText(sets: List<Int?>, targetReps: Int?, timed: Boolean = false): String {
+    return if (targetReps != null && sets.all { it == targetReps }) "${sets.size}×${setText(targetReps, timed)}"
+    else sets.joinToString(", ") { it?.let { count -> setText(count, timed) } ?: "–" }
 }
 
 private const val SHARE_VERSION = 1
@@ -162,7 +170,8 @@ private fun jsRound(value: Double): Long = floor(value + 0.5).toLong()
 /**
  * A workout as text for a link. Arrays instead of named fields keep the link short:
  * [version, name, unit, start minute, minutes, [name, bodyweight, weight, target, record, sets][]].
- * 0 stands for "max reps" as a target and -1 for a set that was not logged.
+ * 0 stands for "max reps" as a target and -1 for a set that was not logged. A timed exercise has a
+ * 7th element, 1, and its target and sets are seconds. Other exercises keep 6, so older links stay the same.
  */
 fun encodeShared(shared: SharedWorkout): String {
     val json = buildString {
@@ -180,7 +189,9 @@ fun encodeShared(shared: SharedWorkout): String {
             append(',').append(twoDecimals(exercise.weight))
             append(',').append(exercise.targetReps ?: 0)
             append(',').append(if (exercise.record) 1 else 0)
-            append(",[").append(exercise.sets.joinToString(",") { (it ?: -1).toString() }).append("]]")
+            append(",[").append(exercise.sets.joinToString(",") { (it ?: -1).toString() }).append(']')
+            if (exercise.timed) append(",1")
+            append(']')
         }
         append("]]")
     }
@@ -243,11 +254,12 @@ private fun decodeExercise(value: JsonElement): SharedExercise? {
     val target = numberOf(value.getOrNull(3))
     val record = numberOf(value.getOrNull(4)) == 1.0
     val sets = value.getOrNull(5)
-    if (!isCount(target, MAX_REPS.toDouble()) || sets !is JsonArray) return null
+    val timed = numberOf(value.getOrNull(6)) == 1.0
+    if (!isCount(target, (if (timed) MAX_HOLD_SECONDS else MAX_REPS).toDouble()) || sets !is JsonArray) return null
     if (weight == null || !weight.isFinite() || weight < 0 || weight > 10000) return null
     if (sets.isEmpty() || sets.size > MAX_SETS) return null
     val reps = sets.map(::numberOf)
-    if (!reps.all { it == -1.0 || isCount(it, 999.0) }) return null
+    if (!reps.all { it == -1.0 || isCount(it, if (timed) MAX_HELD_SECONDS.toDouble() else 999.0) }) return null
     return SharedExercise(
         name = name,
         bodyweight = bodyweight,
@@ -256,6 +268,7 @@ private fun decodeExercise(value: JsonElement): SharedExercise? {
         targetReps = if (target == 0.0) null else target!!.toInt(),
         sets = reps.map { if (it == -1.0) null else it!!.toInt() },
         record = record,
+        timed = timed,
     )
 }
 

@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import HoldTimer from './components/HoldTimer.vue'
+import RestScreen from './components/RestScreen.vue'
 import UpdatePrompt from './components/UpdatePrompt.vue'
 import { sharedFromHash } from './domain/share'
+import { hold } from './hold'
+import { minimiseRestScreen, restScreenOpen } from './rest'
 import { state } from './store'
 import HistoryView from './views/HistoryView.vue'
 import HomeView from './views/HomeView.vue'
@@ -33,9 +37,14 @@ const tab = ref<Tab>('home')
 /** Reopen an unfinished workout after a reload or after the phone closed the app. */
 const workoutOpen = ref(state.active !== null)
 const showWorkout = computed(() => workoutOpen.value && state.active !== null)
+const showRest = computed(() => showWorkout.value && restScreenOpen.value)
 
 function isWorkoutEntry(): boolean {
   return (history.state as { workout?: boolean } | null)?.workout === true
+}
+
+function isRestEntry(): boolean {
+  return (history.state as { rest?: boolean } | null)?.rest === true
 }
 
 /** The workout gets its own history entry so the phone's back button closes it, not the app. */
@@ -48,8 +57,20 @@ watch(
   { immediate: true },
 )
 
+/** The rest screen gets one on top, so the back button minimises it and leaves the workout open. */
+watch(
+  showRest,
+  (open) => {
+    if (open && !isRestEntry()) history.pushState({ workout: true, rest: true }, '')
+    else if (!open && isRestEntry()) history.back()
+  },
+  { immediate: true },
+)
+
 function onPopState() {
-  workoutOpen.value = false
+  minimiseRestScreen()
+  // Back from the rest screen's entry lands on the workout's: the workout stays.
+  if (!isWorkoutEntry()) workoutOpen.value = false
 }
 
 /** A link to a shared workout carries the workout after the `#`. It shows before anything else. */
@@ -104,6 +125,9 @@ watch([tab, showWorkout, shared], () => window.scrollTo(0, 0), { flush: 'post' }
     <!-- Not during a workout: an update can wait until the last set is done. -->
     <UpdatePrompt />
   </template>
+  <RestScreen v-if="showRest" />
+  <!-- Above every screen: a hold keeps running when the workout is closed with the back button. -->
+  <HoldTimer v-if="hold.active" />
 </template>
 
 <style scoped>

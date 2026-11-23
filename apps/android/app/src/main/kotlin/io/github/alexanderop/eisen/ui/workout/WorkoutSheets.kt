@@ -21,7 +21,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,9 +35,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
+import io.github.alexanderop.eisen.domain.Settings
 import io.github.alexanderop.eisen.domain.incrementStep
 import io.github.alexanderop.eisen.domain.isPlateLoaded
 import io.github.alexanderop.eisen.domain.stepFor
@@ -54,6 +53,7 @@ import io.github.alexanderop.eisen.ui.loadFor
 import io.github.alexanderop.eisen.ui.platesText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
 /**
  * A bottom sheet with a title and a close button, in reach of the thumb.
@@ -62,7 +62,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WorkoutSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.(close: () -> Unit) -> Unit) {
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val state = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     val close: () -> Unit = { scope.launch { state.hide() }.invokeOnCompletion { onDismiss() } }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = EisenColors.Card) {
@@ -88,26 +88,32 @@ internal fun WorkoutSheet(title: String, onDismiss: () -> Unit, content: @Compos
     }
 }
 
-/** Weight (or added weight), plates and increment of one exercise in the running workout, putting it off and removing it. */
+/**
+ * Weight (or added weight), plates and increment of one exercise in the running workout, putting it off
+ * and removing it. [increment] is the exercise's working increment, changed with [onIncrementChange].
+ */
 @Composable
 internal fun EditExerciseSheet(
     log: ExerciseLog,
+    settings: Settings,
+    increment: Double,
     onWeightChange: (Double) -> Unit,
+    onIncrementChange: (Double) -> Unit,
     canDefer: Boolean,
     onDefer: () -> Unit,
     canRemove: Boolean,
     onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val settings = Store.state.settings
+    val unit = settings.unit
     WorkoutSheet(log.name, onDismiss) { close ->
         if (log.equipment == Equipment.BODYWEIGHT) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SheetRow("Added weight") { AddedWeightStepper(log.weight, onWeightChange, settings.unit) }
+                SheetRow("Added weight") { AddedWeightStepper(log.weight, onWeightChange, unit) }
                 Text(ADDED_WEIGHT_HINT, color = EisenColors.MutedForeground, fontSize = 13.sp)
             }
         } else {
-            val step = stepFor(log.equipment, settings.unit)
+            val step = stepFor(log.equipment, unit)
             SheetRow("Weight") {
                 Stepper(
                     value = log.weight,
@@ -115,17 +121,17 @@ internal fun EditExerciseSheet(
                     step = step,
                     min = step,
                     label = "weight",
-                    format = { fmt(it) },
-                    snap = typedWeightSnap(log.equipment, Store.state.settings.unit),
+                    format = { fmt(it, unit) },
+                    snap = typedWeightSnap(log.equipment, unit),
                 )
             }
         }
         if (isPlateLoaded(log.equipment)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                BarbellPlates(loadFor(log.weight, log.equipment).plates, largest = unitDefaults(settings.unit).plates[0])
-                Text(platesText(log.weight, log.equipment), Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+                BarbellPlates(loadFor(log.weight, log.equipment, settings).plates, largest = unitDefaults(unit).plates[0])
+                Text(platesText(log.weight, log.equipment, settings), Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
                 Text(
-                    if (log.equipment == Equipment.MACHINE) "Plates only. The sled is not counted." else "Bar ${fmt(settings.bar)}",
+                    if (log.equipment == Equipment.MACHINE) "Plates only. The sled is not counted." else "Bar ${fmt(settings.bar, unit)}",
                     Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     color = EisenColors.MutedForeground,
@@ -134,16 +140,16 @@ internal fun EditExerciseSheet(
             }
         }
         if (log.targetReps != null && log.equipment != Equipment.BODYWEIGHT) {
-            val step = incrementStep(settings.unit)
-            SheetRow("Add after all reps") {
+            val step = incrementStep(unit)
+            SheetRow(if (log.timed) "Add after all holds" else "Add after all reps") {
                 Stepper(
-                    value = Store.progressOf(log.id).increment,
-                    onValueChange = { Store.setIncrement(log.id, it) },
+                    value = increment,
+                    onValueChange = onIncrementChange,
                     step = step,
                     min = step,
                     label = "weight added after a full workout",
-                    format = { "+${fmt(it)}" },
-                    snap = typedIncrementSnap(Store.state.settings.unit),
+                    format = { "+${fmt(it, unit)}" },
+                    snap = typedIncrementSnap(unit),
                 )
             }
         }

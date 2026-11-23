@@ -3,22 +3,16 @@ package io.github.alexanderop.eisen.widget
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import io.github.alexanderop.eisen.MainActivity
-import io.github.alexanderop.eisen.data.Store
+import io.github.alexanderop.eisen.domain.elm.Msg
 
 /**
  * The way into a workout from outside the app. The widget's button and the launcher shortcuts
- * both send this intent to [MainActivity], which hands it to [handle].
+ * both send this intent to [MainActivity], which turns it into a Msg with [message].
  */
 object WorkoutLaunch {
     const val ACTION_START_WORKOUT = "io.github.alexanderop.eisen.START_WORKOUT"
     const val EXTRA_ROUTINE_ID = "routineId"
-
-    /** True after an intent started or resumed a workout. The activity shows the workout and sets it back. */
-    var openRequested by mutableStateOf(false)
 
     /** Starts [routineId], or resumes the running workout when it is null. */
     fun intent(context: Context, routineId: String?): Intent {
@@ -33,22 +27,18 @@ object WorkoutLaunch {
     }
 
     /**
-     * Starts the workout the intent asks for. Each intent counts once: Android hands the same
-     * intent back after a configuration change, after the process was killed, and when the app
-     * is reopened from recents. [restored] is true in those first two cases.
+     * The Msg for an intent that asks to start a workout, null for any other intent. It is read
+     * once: the action is taken off, so the same intent object handed back later is no longer one.
+     * What Android hands back in other ways (after a configuration change or the end of the process:
+     * [restored]; from recents: a flag) the Msg says, and `update` ignores it.
      */
-    fun handle(intent: Intent?, restored: Boolean) {
-        if (intent?.action != ACTION_START_WORKOUT) return
+    fun message(intent: Intent?, restored: Boolean): Msg.App.LaunchWorkout? {
+        if (intent?.action != ACTION_START_WORKOUT) return null
         intent.action = null
-        if (restored || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
-        val state = Store.state
-        if (state.active == null) {
-            if (state.routines.isEmpty()) return
-            val id = intent.getStringExtra(EXTRA_ROUTINE_ID)
-            if (id != null && state.routines.any { it.id == id }) Store.selectRoutine(id)
-            // A workout whose exercises were all deleted cannot start. The app opens on the home screen.
-            if (!Store.startWorkout()) return
-        }
-        openRequested = true
+        return Msg.App.LaunchWorkout(
+            routineId = intent.getStringExtra(EXTRA_ROUTINE_ID),
+            restored = restored,
+            fromHistory = intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0,
+        )
     }
 }

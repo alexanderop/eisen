@@ -1,9 +1,5 @@
 package io.github.alexanderop.eisen.ui.settings
 
-import android.content.ClipData
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -40,7 +36,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,7 +48,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -65,20 +59,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import io.github.alexanderop.eisen.BuildConfig
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Exercise
+import io.github.alexanderop.eisen.domain.ExerciseProgress
 import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.WorkoutEvent
+import io.github.alexanderop.eisen.domain.elm.Model
+import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.backupFileName
+import io.github.alexanderop.eisen.domain.elm.findExercise
+import io.github.alexanderop.eisen.domain.elm.progressOf
+import io.github.alexanderop.eisen.domain.elm.settings
+import io.github.alexanderop.eisen.domain.elm.workoutRunning
 import io.github.alexanderop.eisen.domain.incrementStep
 import io.github.alexanderop.eisen.domain.stepFor
 import io.github.alexanderop.eisen.domain.typedIncrementSnap
 import io.github.alexanderop.eisen.domain.typedWeightSnap
 import io.github.alexanderop.eisen.domain.unitDefaults
 import io.github.alexanderop.eisen.health.HealthConnectRows
-import io.github.alexanderop.eisen.rest.Cues
-import io.github.alexanderop.eisen.rest.Rest
 import io.github.alexanderop.eisen.ui.ADDED_WEIGHT_HINT
 import io.github.alexanderop.eisen.ui.AddedWeightStepper
 import io.github.alexanderop.eisen.ui.EisenColors
@@ -92,12 +91,8 @@ import io.github.alexanderop.eisen.ui.fmtLoad
 import io.github.alexanderop.eisen.ui.formatClock
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.time.LocalDate
-import java.time.ZoneOffset
+import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
 // The Lucide icons of the PWA's settings. Circles and rectangles are written as paths.
 private val ScaleIcon = pathIcon(
@@ -161,7 +156,6 @@ private val TagIcon = pathIcon(
 private val CommitIcon = pathIcon("Commit", "M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0", "M3 12h6", "M15 12h6")
 
 private const val RELEASES_URL = "https://github.com/alexanderop/eisen/releases"
-private const val NOT_A_BACKUP = "That file is not an Eisen backup. Nothing was changed."
 
 private val UNITS = listOf(WeightUnit.KG to "Kilograms", WeightUnit.LB to "Pounds")
 
@@ -184,82 +178,45 @@ private object Editing {
     const val EXERCISE = "exercise:"
 }
 
-/** The same name the PWA gives its download, so backups from both apps sort together. */
-private fun backupName(): String = "eisen-backup-${LocalDate.now(ZoneOffset.UTC)}.json"
-
 /** Every exercise that is part of a workout, once. Bodyweight ones are here for their added weight. */
-private fun workoutExercises(): List<Exercise> =
-    Store.state.routines.flatMap { routine -> routine.slots.map { it.exerciseId } }.distinct()
-        .mapNotNull { Store.findExercise(it) }
+private fun workoutExercises(model: Model): List<Exercise> =
+    model.state.routines.flatMap { routine -> routine.slots.map { it.exerciseId } }.distinct()
+        .mapNotNull { findExercise(model, it) }
 
-/** Writes the backup into the folder the FileProvider shares and opens the share sheet with it. */
-private suspend fun shareBackup(context: Context) {
-    val name = backupName()
-    val data = Store.exportData()
-    val file = withContext(Dispatchers.IO) {
-        val folder = File(context.cacheDir, "backups")
-        // Only today's file is kept, so old backups do not pile up in the cache.
-        folder.mkdirs()
-        folder.listFiles()?.forEach { it.delete() }
-        File(folder, name).apply { writeText(data) }
-    }
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "application/json"
-        putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_TITLE, name)
-        clipData = ClipData.newRawUri(name, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(Intent.createChooser(send, null))
-}
-
-private suspend fun saveBackup(context: Context, uri: Uri): Boolean {
-    val data = Store.exportData()
-    return withContext(Dispatchers.IO) {
-        runCatching {
-            // "wt" empties the file first, so a shorter backup over an old one leaves no tail behind.
-            context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(data.toByteArray()) } != null
-        }.getOrDefault(false)
-    }
-}
-
-private suspend fun readText(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
-    runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
-}
-
+/**
+ * The settings list. Every change is a Msg; `update` decides what follows (the sound preview, the unit
+ * lock during a workout, stopping the rest on a restore). Which sheet or dialog is open stays here:
+ * opening one changes nothing else. The file pickers stay here too, as Android needs an activity for
+ * them, but they only hand the picked file on: the runtime reads and writes it.
+ */
 @Composable
-fun SettingsScreen() {
-    val state = Store.state
-    val settings = state.settings
-    val context = LocalContext.current
+fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
+    val settings = model.settings
     val uriHandler = LocalUriHandler.current
-    val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
     var erasing by rememberSaveable { mutableStateOf(false) }
-    var message by rememberSaveable { mutableStateOf("") }
 
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) scope.launch { message = if (saveBackup(context, uri)) "Backup saved." else "Could not save the backup." }
+        if (uri != null) dispatch(Msg.Data.WriteBackup(uri.toString()))
     }
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val restored = readText(context, uri)?.let { Store.importData(it) } == true
-            if (restored) Rest.stop()
-            message = if (restored) "Backup restored." else NOT_A_BACKUP
-        }
+        if (uri != null) dispatch(Msg.Data.Restore(uri.toString()))
     }
 
     fun toggleSound() {
-        Store.updateSettings { it.copy(sound = !it.sound) }
+        // Switching it on plays the cue once: `update` asks for that.
+        dispatch(Msg.Settings.SetSound(!settings.sound))
         haptics.perform(Haptic.TAP)
-        if (Store.state.settings.sound) Cues.preview(context)
+    }
+
+    fun toggleRestFullScreen() {
+        dispatch(Msg.Settings.SetRestFullScreen(!settings.restFullScreen))
+        haptics.perform(Haptic.TAP)
     }
 
     fun toggleHaptics() {
-        Store.updateSettings { it.copy(haptics = !it.haptics) }
+        dispatch(Msg.Settings.SetHaptics(!settings.haptics))
         haptics.perform(Haptic.TAP)
     }
 
@@ -276,22 +233,22 @@ fun SettingsScreen() {
             SettingRow(
                 icon = ScaleIcon,
                 label = "Unit",
-                description = if (state.active != null) "Finish the current workout to change it." else null,
+                description = if (workoutRunning(model)) "Finish the current workout to change it." else null,
                 value = UNITS.first { it.first == settings.unit }.second,
-                enabled = state.active == null,
+                enabled = !workoutRunning(model),
                 onClick = { editing = Editing.UNIT },
             )
-            SettingRow(icon = WeightIcon, label = "Bar weight", value = fmt(settings.bar), onClick = { editing = Editing.BAR })
+            SettingRow(icon = WeightIcon, label = "Bar weight", value = fmt(settings.bar, settings.unit), onClick = { editing = Editing.BAR })
         }
 
         Section("Working weights") {
-            val exercises = workoutExercises()
+            val exercises = workoutExercises(model)
             if (exercises.isEmpty()) Note("No exercises in your workouts.")
             for (exercise in exercises) {
                 SettingRow(
                     leading = { ExerciseTile(exercise.image, exercise.name, size = 36.dp) },
                     label = exercise.name,
-                    value = fmtLoad(exercise.equipment, Store.progressOf(exercise.id).weight),
+                    value = fmtLoad(exercise.equipment, progressOf(model, exercise.id).weight, settings.unit),
                     onClick = { editing = Editing.EXERCISE + exercise.id },
                 )
             }
@@ -305,6 +262,7 @@ fun SettingsScreen() {
                 value = formatClock(settings.restMissed),
                 onClick = { editing = Editing.REST_MISSED },
             )
+            SwitchRow(icon = HourglassIcon, label = "Full-screen rest timer", checked = settings.restFullScreen, onToggle = ::toggleRestFullScreen)
             SwitchRow(icon = VolumeIcon, label = "Sound when rest ends", checked = settings.sound, onToggle = ::toggleSound)
             SwitchRow(icon = VibrateIcon, label = "Vibrate on taps", checked = settings.haptics, onToggle = ::toggleHaptics)
         }
@@ -317,14 +275,14 @@ fun SettingsScreen() {
                 label = "Save backup",
                 description = "Everything is stored on this device only.",
                 trailing = Trailing.NONE,
-                onClick = { save.launch(backupName()) },
+                onClick = { save.launch(backupFileName(model.now)) },
             )
             SettingRow(
                 icon = ShareIcon,
                 label = "Send backup",
                 description = "Email it or keep it in another app.",
                 trailing = Trailing.NONE,
-                onClick = { scope.launch { runCatching { shareBackup(context) }.onFailure { message = "Could not create the backup." } } },
+                onClick = { dispatch(Msg.Data.SendBackup) },
             )
             SettingRow(
                 icon = UploadIcon,
@@ -333,7 +291,7 @@ fun SettingsScreen() {
                 // Some file managers do not call a .json file JSON, so any file can be picked and is checked after.
                 onClick = { restore.launch(arrayOf("application/json", "*/*")) },
             )
-            HealthConnectRows()
+            HealthConnectRows(model.health, dispatch)
             SettingRow(
                 icon = TrashIcon,
                 label = "Erase all data",
@@ -341,7 +299,7 @@ fun SettingsScreen() {
                 trailing = Trailing.NONE,
                 onClick = { erasing = true },
             )
-            if (message.isNotEmpty()) Note(message, live = true)
+            model.dataNotice?.let { Note(it, live = true) }
         }
 
         Section("About") {
@@ -374,7 +332,7 @@ fun SettingsScreen() {
         target == Editing.UNIT -> UnitSheet(
             current = settings.unit,
             onPick = { unit ->
-                Store.setUnit(unit)
+                dispatch(Msg.Settings.SetUnit(unit))
                 haptics.perform(Haptic.TAP)
             },
             onClose = { editing = null },
@@ -386,11 +344,11 @@ fun SettingsScreen() {
         ) {
             Stepper(
                 value = settings.bar,
-                onValueChange = { bar -> Store.updateSettings { it.copy(bar = bar) } },
+                onValueChange = { bar -> dispatch(Msg.Settings.SetBar(bar)) },
                 step = unitDefaults(settings.unit).step,
                 min = 0.0,
                 label = "bar weight",
-                format = { fmt(it) },
+                format = { fmt(it, settings.unit) },
                 snap = BAR_SNAP,
                 large = true,
             )
@@ -402,7 +360,7 @@ fun SettingsScreen() {
         ) {
             IntStepper(
                 value = settings.restDone,
-                onValueChange = { seconds -> Store.updateSettings { it.copy(restDone = seconds) } },
+                onValueChange = { seconds -> dispatch(Msg.Settings.SetRestDone(seconds)) },
                 step = 15,
                 min = 15,
                 max = MAX_REST,
@@ -420,7 +378,7 @@ fun SettingsScreen() {
         ) {
             IntStepper(
                 value = settings.restMissed,
-                onValueChange = { seconds -> Store.updateSettings { it.copy(restMissed = seconds) } },
+                onValueChange = { seconds -> dispatch(Msg.Settings.SetRestMissed(seconds)) },
                 step = 30,
                 min = 30,
                 max = MAX_REST,
@@ -432,14 +390,14 @@ fun SettingsScreen() {
             )
         }
         target != null && target.startsWith(Editing.EXERCISE) -> {
-            val exercise = Store.findExercise(target.removePrefix(Editing.EXERCISE))
+            val exercise = findExercise(model, target.removePrefix(Editing.EXERCISE))
             if (exercise == null) {
                 // A restored backup can drop the exercise while its sheet is open.
                 LaunchedEffect(target) { editing = null }
             } else if (exercise.equipment == Equipment.BODYWEIGHT) {
-                AddedWeightSheet(exercise, settings.unit, onClose = { editing = null })
+                AddedWeightSheet(exercise, progressOf(model, exercise.id), settings.unit, dispatch, onClose = { editing = null })
             } else {
-                WorkingWeightSheet(exercise, settings.unit, onClose = { editing = null })
+                WorkingWeightSheet(exercise, progressOf(model, exercise.id), settings.unit, dispatch, onClose = { editing = null })
             }
         }
     }
@@ -457,11 +415,10 @@ fun SettingsScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        Rest.stop()
-                        Store.resetAll()
+                        // `update` stops the rest too and puts "All data erased." in the model.
+                        dispatch(Msg.Data.Reset)
                         erasing = false
                         editing = null
-                        message = "All data erased."
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = EisenColors.Destructive),
                 ) { Text("Erase everything") }
@@ -567,7 +524,7 @@ private fun SwitchRow(icon: ImageVector, label: String, checked: Boolean, onTogg
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Sheet(title: String, onClose: () -> Unit, content: @Composable ColumnScope.(close: () -> Unit) -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     val close: () -> Unit = { scope.launch { sheetState.hide() }.invokeOnCompletion { onClose() } }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
@@ -629,13 +586,13 @@ private fun NumberSheet(title: String, hint: String, onClose: () -> Unit, steppe
 
 /** The weight added to a bodyweight exercise. It never goes up by itself, so there is no increment to set. */
 @Composable
-private fun AddedWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: () -> Unit) {
+private fun AddedWeightSheet(exercise: Exercise, progress: ExerciseProgress, unit: WeightUnit, dispatch: (Msg) -> Unit, onClose: () -> Unit) {
     Sheet(exercise.name, onClose) { close ->
         Column(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Added weight", fontSize = 13.sp, color = EisenColors.MutedForeground)
             AddedWeightStepper(
-                value = Store.progressOf(exercise.id).weight,
-                onValueChange = { Store.setProgressWeight(exercise.id, it) },
+                value = progress.weight,
+                onValueChange = { dispatch(Msg.Workout(WorkoutEvent.SetWorkingWeight(exercise.id, it))) },
                 unit = unit,
                 label = "${exercise.name} added weight",
                 large = true,
@@ -649,19 +606,18 @@ private fun AddedWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: () -
 
 /** The weight the next workout starts with, and how much is added after a workout with all reps. */
 @Composable
-private fun WorkingWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: () -> Unit) {
-    val progress = Store.progressOf(exercise.id)
+private fun WorkingWeightSheet(exercise: Exercise, progress: ExerciseProgress, unit: WeightUnit, dispatch: (Msg) -> Unit, onClose: () -> Unit) {
     val step = stepFor(exercise.equipment, unit)
     val increment = incrementStep(unit)
     Sheet(exercise.name, onClose) { close ->
         Box(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
             Stepper(
                 value = progress.weight,
-                onValueChange = { Store.setProgressWeight(exercise.id, it) },
+                onValueChange = { dispatch(Msg.Workout(WorkoutEvent.SetWorkingWeight(exercise.id, it))) },
                 step = step,
                 min = step,
                 label = "${exercise.name} weight",
-                format = { fmt(it) },
+                format = { fmt(it, unit) },
                 snap = typedWeightSnap(exercise.equipment, unit),
                 large = true,
             )
@@ -669,14 +625,14 @@ private fun WorkingWeightSheet(exercise: Exercise, unit: WeightUnit, onClose: ()
         Hint("The weight your next workout starts with. Changing it clears missed attempts.")
         HorizontalDivider(color = EisenColors.Border)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Add after all reps", color = EisenColors.MutedForeground, modifier = Modifier.weight(1f))
+            Text(if (exercise.timed) "Add after all holds" else "Add after all reps", color = EisenColors.MutedForeground, modifier = Modifier.weight(1f))
             Stepper(
                 value = progress.increment,
-                onValueChange = { Store.setIncrement(exercise.id, it) },
+                onValueChange = { dispatch(Msg.Settings.SetIncrement(exercise.id, it)) },
                 step = increment,
                 min = increment,
                 label = "weight added after a full workout",
-                format = { "+${fmt(it)}" },
+                format = { "+${fmt(it, unit)}" },
                 snap = typedIncrementSnap(unit),
             )
         }

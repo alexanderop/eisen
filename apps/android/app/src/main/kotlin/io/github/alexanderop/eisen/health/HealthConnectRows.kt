@@ -3,7 +3,6 @@ package io.github.alexanderop.eisen.health
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -15,13 +14,6 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
@@ -32,13 +24,12 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.health.connect.client.HealthConnectClient
-import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import io.github.alexanderop.eisen.data.Store
+import io.github.alexanderop.eisen.domain.elm.HealthAvailability
+import io.github.alexanderop.eisen.domain.elm.HealthModel
+import io.github.alexanderop.eisen.domain.elm.Msg
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.pathIcon
-import kotlinx.coroutines.launch
 
 // Lucide "heart-pulse" and "refresh-cw", the same icon set as the rest of the settings.
 private val HealthIcon = pathIcon(
@@ -68,93 +59,52 @@ private fun openPlayStore(context: Context) {
     runCatching { context.startActivity(store) }.recoverCatching { context.startActivity(web) }
 }
 
-private fun syncedText(count: Int) = if (count == 1) "1 workout synced." else "$count workouts synced."
-
 /**
  * The Health Connect rows of the settings list. They look like the other rows: the whole line is
- * the tap target and the switch only shows the state.
+ * the tap target and the switch only shows the state. Whether Health Connect is installed comes
+ * from the model; the runtime asks Android when the app comes to the front and when these rows show.
  */
 @Composable
-fun HealthConnectRows() {
+fun HealthConnectRows(health: HealthModel, dispatch: (Msg) -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var status by remember { mutableIntStateOf(HealthSync.status(context)) }
-    var message by rememberSaveable { mutableStateOf("") }
-    var syncing by remember { mutableStateOf(false) }
 
-    // Back from the Play Store or from the Health Connect settings: it may be installed now,
-    // or the permission may have been taken away.
+    // Back from the Play Store: Health Connect may be installed or updated now.
     LifecycleResumeEffect(Unit) {
-        status = HealthSync.status(context)
-        if (HealthSync.enabled) scope.launch { HealthSync.hasPermission() }
+        dispatch(Msg.Health.RowsShown)
         onPauseOrDispose { }
     }
 
-    val request = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
-        val allowed = granted.containsAll(HealthSync.PERMISSIONS)
-        HealthSync.updateEnabled(allowed)
-        message = if (allowed) "" else "Health Connect did not allow Eisen to write workouts."
-    }
-
-    fun toggle() {
-        message = ""
-        if (HealthSync.enabled) {
-            HealthSync.updateEnabled(false)
-            return
-        }
-        scope.launch {
-            // Already allowed, for example after turning sync off and on again: no need to ask.
-            if (HealthSync.hasPermission()) HealthSync.updateEnabled(true)
-            else runCatching { request.launch(HealthSync.PERMISSIONS) }.onFailure { message = "Could not open Health Connect." }
-        }
-    }
-
-    fun syncPast() {
-        if (syncing) return
-        syncing = true
-        message = "Syncing…"
-        scope.launch {
-            val count = HealthSync.syncPast(Store.state.history)
-            syncing = false
-            message = when {
-                count == null -> "Could not reach Health Connect."
-                !HealthSync.enabled -> "Health Connect no longer allows Eisen to write workouts."
-                else -> syncedText(count)
-            }
-        }
-    }
-
-    when (status) {
-        HealthConnectClient.SDK_AVAILABLE -> {
+    when (health.availability) {
+        HealthAvailability.AVAILABLE -> {
             ListItem(
                 headlineContent = { Text(LABEL, fontSize = 16.sp) },
                 supportingContent = { Text("Finished workouts show up in Google Fit, Samsung Health and other apps.", fontSize = 13.sp) },
-                modifier = Modifier.toggleable(value = HealthSync.enabled, role = Role.Switch, onValueChange = { toggle() })
+                modifier = Modifier.toggleable(value = health.enabled, role = Role.Switch, onValueChange = { dispatch(Msg.Health.Toggle) })
                     .heightIn(min = 56.dp),
                 leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
-                trailingContent = { Switch(checked = HealthSync.enabled, onCheckedChange = null) },
+                trailingContent = { Switch(checked = health.enabled, onCheckedChange = null) },
                 colors = rowColors(),
             )
-            if (HealthSync.enabled) {
+            if (health.enabled) {
                 ListItem(
                     headlineContent = { Text("Sync past workouts", fontSize = 16.sp) },
                     supportingContent = { Text("Writes every workout in your history once.", fontSize = 13.sp) },
-                    modifier = Modifier.clickable(enabled = !syncing, role = Role.Button, onClick = ::syncPast)
+                    modifier = Modifier.clickable(enabled = !health.syncing, role = Role.Button, onClick = { dispatch(Msg.Health.SyncPast) })
                         .heightIn(min = 56.dp)
-                        .alpha(if (syncing) 0.5f else 1f),
+                        .alpha(if (health.syncing) 0.5f else 1f),
                     leadingContent = { Icon(SyncIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
                     colors = rowColors(),
                 )
             }
         }
-        HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> ListItem(
+        HealthAvailability.NEEDS_INSTALL -> ListItem(
             headlineContent = { Text(LABEL, fontSize = 16.sp) },
             supportingContent = { Text("Health Connect needs to be installed or updated first. Opens the Play Store.", fontSize = 13.sp) },
             modifier = Modifier.clickable(role = Role.Button, onClick = { openPlayStore(context) }).heightIn(min = 56.dp),
             leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
             colors = rowColors(),
         )
-        else -> ListItem(
+        HealthAvailability.UNAVAILABLE -> ListItem(
             headlineContent = { Text(LABEL, fontSize = 16.sp) },
             supportingContent = { Text("Health Connect is not available on this phone.", fontSize = 13.sp) },
             modifier = Modifier.heightIn(min = 56.dp).alpha(0.5f),
@@ -163,9 +113,10 @@ fun HealthConnectRows() {
         )
     }
 
-    if (message.isNotEmpty()) {
+    val notice = health.notice
+    if (notice != null) {
         Text(
-            message,
+            notice,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).semantics { liveRegion = LiveRegionMode.Polite },
             fontSize = 13.sp,
             color = EisenColors.MutedForeground,

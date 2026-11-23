@@ -3,7 +3,7 @@
 import { computed } from 'vue'
 import { Badge, Button, Card } from '../components/ui'
 import { sharedStats, type SharedWorkout } from '../domain/share'
-import { loadText } from '../domain/program'
+import { loadText, setText } from '../domain/program'
 import { formatDate } from '../format'
 
 const props = defineProps<{ shared: SharedWorkout }>()
@@ -32,7 +32,8 @@ const stats = computed(() => sharedStats(props.shared))
         <strong>{{ stats.sets }}</strong>
         <span class="muted">sets</span>
       </Card>
-      <Card>
+      <!-- Holds are seconds, not reps: a workout of only holds has no reps to show. -->
+      <Card v-if="stats.reps > 0">
         <strong>{{ stats.reps }}</strong>
         <span class="muted">reps</span>
       </Card>
@@ -53,7 +54,7 @@ const stats = computed(() => sharedStats(props.shared))
               :class="{
                 missed: reps === null || (exercise.targetReps !== null && reps !== exercise.targetReps),
               }"
-              >{{ reps ?? '–' }}</span
+              >{{ reps === null ? '–' : setText(exercise.timed, reps) }}</span
             >
           </span>
         </li>

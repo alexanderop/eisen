@@ -1,12 +1,14 @@
 package io.github.alexanderop.eisen.ui.progress
 
-import io.github.alexanderop.eisen.data.Store
-import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.Exercise
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.Outcome
+import io.github.alexanderop.eisen.domain.Routine
 import io.github.alexanderop.eisen.domain.WeightUnit
+import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.convert
+import io.github.alexanderop.eisen.domain.longestHold
 import io.github.alexanderop.eisen.domain.outcome
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.recordOf
@@ -14,7 +16,8 @@ import io.github.alexanderop.eisen.domain.roundTo
 import io.github.alexanderop.eisen.domain.stepFor
 import io.github.alexanderop.eisen.domain.totalReps
 
-class Option(val id: String, val name: String, val equipment: Equipment)
+/** [timed]: held for time. A timed bodyweight exercise charts its longest hold. */
+class Option(val id: String, val name: String, val equipment: Equipment, val timed: Boolean = false)
 
 /** How far back both charts look. */
 enum class Range(val label: String, val days: Long?) {
@@ -38,20 +41,30 @@ class Point(
     val deload: Boolean,
 )
 
-/** Exercises in the current workouts first, then ones that only exist in the history. */
-fun optionsOf(state: AppState): List<Option> {
+/**
+ * Exercises in the current workouts first, then ones that only exist in the history.
+ * [exercises] is every known exercise, built-in first, as `exercises(model)` gives them.
+ */
+fun optionsOf(routines: List<Routine>, history: List<Workout>, exercises: List<Exercise>): List<Option> {
+    // The first exercise with an id wins, like the lookup the rest of the app uses.
+    val known = LinkedHashMap<String, Exercise>()
+    for (exercise in exercises) known.putIfAbsent(exercise.id, exercise)
     val found = LinkedHashMap<String, Option>()
-    for (routine in state.routines) {
+    for (routine in routines) {
         for (slot in routine.slots) {
-            val exercise = Store.findExercise(slot.exerciseId) ?: continue
-            found[exercise.id] = Option(exercise.id, exercise.name, exercise.equipment)
+            val exercise = known[slot.exerciseId] ?: continue
+            found[exercise.id] = Option(exercise.id, exercise.name, exercise.equipment, exercise.timed)
         }
     }
-    for (workout in state.history) {
+    for (workout in history) {
         for (log in workout.exercises) {
             if (log.id in found) continue
-            val exercise = Store.findExercise(log.id)
-            found[log.id] = if (exercise != null) Option(exercise.id, exercise.name, exercise.equipment) else Option(log.id, log.name, log.equipment)
+            val exercise = known[log.id]
+            found[log.id] = if (exercise != null) {
+                Option(exercise.id, exercise.name, exercise.equipment, exercise.timed)
+            } else {
+                Option(log.id, log.name, log.equipment, log.timed)
+            }
         }
     }
     return found.values.toList()
@@ -62,33 +75,44 @@ fun inCurrentUnit(weight: Double, unit: WeightUnit, equipment: Equipment, curren
     if (unit == current) weight else roundTo(convert(weight, unit, current), stepFor(equipment, current))
 
 /** Every logged exercise in the range, oldest first. Records count against the whole history. */
-fun entriesOf(state: AppState, range: Range, now: Long): List<Entry> {
+fun entriesOf(history: List<Workout>, range: Range, now: Long): List<Entry> {
     val cutoff = range.days?.let { now - it * 24 * 60 * 60 * 1000 } ?: Long.MIN_VALUE
-    return state.history.flatMapIndexed { index, workout ->
+    return history.flatMapIndexed { index, workout ->
         if (workout.startedAt < cutoff) return@flatMapIndexed emptyList()
-        val records = recordIds(state.history, index)
+        val records = recordIds(history, index)
         workout.exercises
             .filter { log -> log.sets.any { it != null } }
             .map { log -> Entry(workout.startedAt, workout.unit, log, log.id in records) }
     }.asReversed()
 }
 
-fun valueOf(entry: Entry, current: WeightUnit): Double =
-    if (entry.log.equipment == Equipment.BODYWEIGHT) {
-        totalReps(entry.log).toDouble()
-    } else {
-        inCurrentUnit(entry.log.weight, entry.unit, entry.log.equipment, current)
-    }
+/** What a workout of an exercise charts: the weight, the total reps of a bodyweight one, the longest hold of a timed one. */
+fun valueOf(log: ExerciseLog, unit: WeightUnit, current: WeightUnit): Double = when {
+    log.equipment != Equipment.BODYWEIGHT -> inCurrentUnit(log.weight, unit, log.equipment, current)
+    log.timed -> longestHold(log).toDouble()
+    else -> totalReps(log).toDouble()
+}
+
+fun valueOf(entry: Entry, current: WeightUnit): Double = valueOf(entry.log, entry.unit, current)
+
+/**
+ * Reps were missed at this weight. A plain hold has no weight to repeat: it only counts as missed when
+ * a hold was cut short, not when one lasted longer than its target or was left out.
+ */
+private fun missedIn(log: ExerciseLog): Boolean {
+    val target = log.targetReps
+    if (!log.timed || log.equipment != Equipment.BODYWEIGHT) return outcome(log) == Outcome.FAIL
+    return target != null && log.sets.any { it != null && it < target }
+}
 
 /**
  * `record` says the workout beat everything before it. With steady progress that is every
  * workout, so the chart only marks `best`: the record that still stands.
  */
-fun pointsOf(id: String, entries: List<Entry>, state: AppState): List<Point> {
-    val current = state.settings.unit
+fun pointsOf(id: String, entries: List<Entry>, history: List<Workout>, current: WeightUnit): List<Point> {
     val own = entries.filter { it.log.id == id }
     // The same log object, not an equal one: two logs of a workout can hold the same numbers.
-    val standing = recordOf(state.history, id)?.log
+    val standing = recordOf(history, id)?.log
     return own.mapIndexed { index, entry ->
         val value = valueOf(entry, current)
         Point(
@@ -97,7 +121,7 @@ fun pointsOf(id: String, entries: List<Entry>, state: AppState): List<Point> {
             log = entry.log,
             record = entry.record,
             best = entry.log === standing,
-            missed = outcome(entry.log) == Outcome.FAIL,
+            missed = missedIn(entry.log),
             deload = entry.log.equipment != Equipment.BODYWEIGHT && index > 0 && value < valueOf(own[index - 1], current),
         )
     }

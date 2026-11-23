@@ -1,4 +1,4 @@
-import { outcome, totalReps, type ExerciseLog, type Workout } from './program'
+import { longestHold, outcome, totalReps, type ExerciseLog, type Workout } from './program'
 import { convert, type Unit } from './units'
 
 export interface Logged {
@@ -19,11 +19,12 @@ export function lastLogged(history: Workout[], id: string): Logged | null {
 
 /**
  * What a logged exercise counts as for records, comparable across units.
- * Bodyweight exercises count their total reps. Weighted ones count the weight in kg,
- * and only when every rep was done: a weight with missed reps is not a record.
+ * Bodyweight exercises count their total reps, timed ones their longest hold in seconds.
+ * Weighted ones count the weight in kg, and only when every rep was done:
+ * a weight with missed reps is not a record.
  */
 export function recordValue(log: ExerciseLog, unit: Unit): number | null {
-  if (log.equipment === 'bodyweight') return totalReps(log) || null
+  if (log.equipment === 'bodyweight') return (log.timed ? longestHold(log) : totalReps(log)) || null
   return outcome(log) === 'success' ? convert(log.weight, unit, 'kg') : null
 }
 
@@ -60,4 +61,13 @@ export function recordIds(history: Workout[], index: number): Set<string> {
     if (value > beaten + NOISE) ids.add(log.id)
   }
   return ids
+}
+
+/** What this set of the exercise got the last time it was logged. Null when it never was. */
+export function lastSetReps(history: Workout[], id: string, setIndex: number): number | null {
+  for (const workout of history) {
+    const reps = workout.exercises.find((log) => log.id === id)?.sets[setIndex]
+    if (reps !== null && reps !== undefined) return reps
+  }
+  return null
 }

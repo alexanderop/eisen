@@ -4,7 +4,18 @@ import { computed, ref, watch } from 'vue'
 import ExercisePicker from '../components/ExercisePicker.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
 import { kindLabel } from '../domain/exercises'
-import { MAX_REPS, MAX_SETS, type Routine, type Slot } from '../domain/program'
+import {
+  DEFAULT_HOLD_SECONDS,
+  HOLD_STEP_SECONDS,
+  holdText,
+  MAX_HOLD_SECONDS,
+  MAX_REPS,
+  MAX_SETS,
+  MIN_HOLD_SECONDS,
+  setText,
+  type Routine,
+  type Slot,
+} from '../domain/program'
 import { fmtLoad } from '../format'
 import {
   addRoutine,
@@ -39,7 +50,8 @@ function summary(routine: Routine): string {
 function detail(slot: Slot): string {
   const exercise = findExercise(slot.exerciseId)
   if (!exercise) return ''
-  const scheme = `${slot.sets} × ${slot.reps ?? 'max'}`
+  const reps = slot.reps === null ? 'max' : setText(exercise.timed, slot.reps)
+  const scheme = `${slot.sets} × ${reps}`
   const weight = progressOf(exercise.id).weight
   // Plain bodyweight needs no load: the kind already says "Bodyweight".
   return exercise.equipment === 'bodyweight' && weight === 0
@@ -47,8 +59,13 @@ function detail(slot: Slot): string {
     : `${scheme} · ${fmtLoad(exercise.equipment, weight)} · ${kindLabel(exercise)}`
 }
 
+function isTimed(slot: Slot): boolean {
+  return findExercise(slot.exerciseId)?.timed === true
+}
+
 function toggleMax(slot: Slot) {
-  slot.reps = slot.reps === null ? 5 : null
+  if (slot.reps !== null) slot.reps = null
+  else slot.reps = isTimed(slot) ? DEFAULT_HOLD_SECONDS : 5
 }
 
 function onRemove(routine: Routine, index: number) {
@@ -105,7 +122,20 @@ function onDelete(routine: Routine) {
           <span class="muted">Sets</span>
           <Stepper v-model="slot.sets" :step="1" :min="1" :max="MAX_SETS" label="sets" />
         </div>
-        <div class="row">
+        <div v-if="isTimed(slot)" class="row">
+          <span class="muted">Hold</span>
+          <Stepper
+            v-if="slot.reps !== null"
+            v-model="slot.reps"
+            :step="HOLD_STEP_SECONDS"
+            :min="MIN_HOLD_SECONDS"
+            :max="MAX_HOLD_SECONDS"
+            label="hold"
+            :format="holdText"
+          />
+          <span v-else class="max-note">As long as possible</span>
+        </div>
+        <div v-else class="row">
           <span class="muted">Reps</span>
           <Stepper
             v-if="slot.reps !== null"
@@ -119,7 +149,7 @@ function onDelete(routine: Routine) {
         </div>
         <button class="max" :aria-pressed="slot.reps === null" @click="toggleMax(slot)">
           <span class="box" aria-hidden="true">✓</span>
-          Max reps instead of a fixed number
+          {{ isTimed(slot) ? 'Max hold instead of a fixed time' : 'Max reps instead of a fixed number' }}
         </button>
         <div class="row tools">
           <Button variant="secondary" :disabled="index === 0" @click="moveSlot(editing, index, -1)">↑ Move up</Button>

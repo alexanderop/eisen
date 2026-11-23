@@ -6,33 +6,44 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.ToneGenerator
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import io.github.alexanderop.eisen.data.Store
+import io.github.alexanderop.eisen.domain.elm.Cue
 
-/** The spoken cues of the rest timer. The same recordings the PWA plays. */
+/**
+ * The spoken cues of the rest timer, the same recordings the PWA plays, and the vibration at its end.
+ * The hold timer beeps. Whether a cue plays at all (the sound setting) and whether it may beep instead
+ * is decided in `update`.
+ */
 object Cues {
+    /** The PWA's beep: short tones 220 ms apart. */
+    private const val BEEP_MS = 160
+    private const val BEEP_GAP_MS = 220L
+
+    private val main = Handler(Looper.getMainLooper())
+
     private val attributes = AudioAttributes.Builder()
         // Spoken guidance: music playing from another app is turned down for it, not stopped.
         .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
 
-    fun ten(context: Context) {
-        if (Store.state.settings.sound) say(context, "voice/ten-seconds.mp3", fallback = false)
+    /** Plays [cue]'s recording. Without the file, a cue that asks for it beeps instead. */
+    fun play(context: Context, cue: Cue) = say(context, cue.asset, cue.beepWhenSilent)
+
+    fun beep(times: Int) {
+        val tone = runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 80) }.getOrNull() ?: return
+        repeat(times) { index -> main.postDelayed({ tone.startTone(ToneGenerator.TONE_PROP_BEEP, BEEP_MS) }, index * BEEP_GAP_MS) }
+        main.postDelayed({ tone.release() }, times * BEEP_GAP_MS + BEEP_MS)
     }
 
-    /** The end of a rest: the cue when sound is on, and the phone always shakes. */
-    fun over(context: Context) {
-        if (Store.state.settings.sound) say(context, "voice/rest-over.mp3", fallback = true)
-        context.getSystemService(Vibrator::class.java)
-            ?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 300, 120, 300, 120, 300), -1))
+    fun vibrate(context: Context, pattern: List<Long>) {
+        context.getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createWaveform(pattern.toLongArray(), -1))
     }
 
-    /** Plays the end-of-rest cue once, so the lifter hears what switching it on does. */
-    fun preview(context: Context) = say(context.applicationContext, "voice/rest-over.mp3", fallback = true)
-
-    private fun say(context: Context, asset: String, fallback: Boolean) {
+    private fun say(context: Context, asset: String, beep: Boolean) {
         val audio = context.getSystemService(AudioManager::class.java)
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attributes).build()
         audio.requestAudioFocus(focus)
@@ -52,9 +63,8 @@ object Cues {
             player.prepare()
             player.start()
         } catch (_: Exception) {
-            // No voice file: the end of the rest falls back to a beep.
             audio.abandonAudioFocusRequest(focus)
-            if (fallback) runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP2, 600) }
+            if (beep) runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP2, 600) }
         }
     }
 }

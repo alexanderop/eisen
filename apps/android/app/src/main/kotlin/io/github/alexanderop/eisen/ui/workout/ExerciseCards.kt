@@ -50,14 +50,18 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.OrderedExercise
+import io.github.alexanderop.eisen.domain.Settings
+import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.isPlateLoaded
 import io.github.alexanderop.eisen.domain.lastLogged
+import io.github.alexanderop.eisen.domain.setText
+import io.github.alexanderop.eisen.domain.targetText
 import io.github.alexanderop.eisen.domain.warmupSets
 import io.github.alexanderop.eisen.domain.warmupStep
+import io.github.alexanderop.eisen.domain.elm.warmupKey
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.ExerciseTile
 import io.github.alexanderop.eisen.ui.Icons
@@ -85,10 +89,13 @@ private fun WorkoutCard(modifier: Modifier = Modifier, content: @Composable () -
     }
 }
 
-/** "Nov 12: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. Plain bodyweight shows only the reps. */
-internal fun lastTime(id: String): String? {
-    val last = lastLogged(Store.state.history, id) ?: return null
-    val reps = last.log.sets.joinToString(" ") { it?.toString() ?: "–" }
+/**
+ * "Nov 12: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. Plain bodyweight shows only the
+ * reps, a timed exercise its holds: "Nov 12: 1:00 1:00 45s".
+ */
+internal fun lastTime(history: List<Workout>, id: String): String? {
+    val last = lastLogged(history, id) ?: return null
+    val reps = last.log.sets.joinToString(" ") { it?.let { count -> setText(count, last.log.timed) } ?: "–" }
     val plain = last.log.equipment == Equipment.BODYWEIGHT && last.log.weight == 0.0
     val load = if (plain) "" else "${fmtLoad(last.log.equipment, last.log.weight, last.workout.unit)} · "
     return "${formatShortDate(last.workout.startedAt)}: $load$reps"
@@ -102,14 +109,18 @@ private fun setState(log: ExerciseLog, reps: Int?): SetState = when {
 
 /**
  * One exercise: its sets, what it did last time and the plates to load.
- * A finished one folds up into a single row that opens on a tap.
+ * A finished one folds up into a single row that opens on a tap. [image] is the exercise's picture.
  */
 @Composable
 internal fun ExerciseCard(
     item: OrderedExercise,
     first: Boolean,
     expanded: Boolean,
+    image: String?,
+    settings: Settings,
     lastTime: String?,
+    /** Per set, what it got last time. A max-reps set offers it on its button. */
+    lastSets: List<Int?>,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onTap: (setIndex: Int) -> Unit,
@@ -117,7 +128,6 @@ internal fun ExerciseCard(
     actions: List<CustomAccessibilityAction> = emptyList(),
 ) {
     val log = item.log
-    val image = Store.findExercise(log.id)?.image
     WorkoutCard(modifier) {
         if (item.done) {
             Row(
@@ -131,7 +141,7 @@ internal fun ExerciseCard(
             ) {
                 ExerciseTile(image, log.name, size = 40.dp)
                 Text(log.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                Text(log.sets.joinToString(" · ") { it?.toString() ?: "" }, color = EisenColors.Primary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(log.sets.joinToString(" · ") { it?.let { count -> setText(count, log.timed) } ?: "" }, color = EisenColors.Primary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Icon(if (expanded) Icons.ChevronUp else Icons.ChevronDown, contentDescription = null, tint = EisenColors.Primary)
             }
         } else if (first) {
@@ -157,9 +167,9 @@ internal fun ExerciseCard(
                     Text(if (item.done) "Sets" else log.name, Modifier.weight(1f), fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
                         buildAnnotatedString {
-                            append("${log.sets.size}×${log.targetReps ?: "max"} ")
+                            append("${log.sets.size}×${targetText(log.targetReps, log.timed)} ")
                             withStyle(SpanStyle(color = EisenColors.Foreground, fontWeight = FontWeight.Bold)) {
-                                append(fmtLoad(log.equipment, log.weight))
+                                append(fmtLoad(log.equipment, log.weight, settings.unit))
                             }
                         },
                         color = EisenColors.MutedForeground,
@@ -167,23 +177,50 @@ internal fun ExerciseCard(
                     )
                     Icon(Icons.ChevronRight, contentDescription = null, tint = EisenColors.Primary, modifier = Modifier.size(20.dp))
                 }
-                SetsGrid(log, onTap)
+                SetsGrid(log, lastSets, onTap)
                 if (lastTime != null) {
                     Text("Last time, $lastTime", color = EisenColors.Foreground, fontSize = 13.sp)
                 }
-                if (log.targetReps == null) {
-                    Text("As many reps as you can. Tap a set to enter them.", color = EisenColors.MutedForeground, fontSize = 13.sp)
+                if (log.timed) {
+                    Text(
+                        if (log.targetReps == null) "Hold as long as you can. Tap a set to start the timer." else "Tap a set to start the timer.",
+                        color = EisenColors.MutedForeground,
+                        fontSize = 13.sp,
+                    )
+                } else if (log.targetReps == null) {
+                    Text(
+                        if (lastSets.any { it != null }) "As many reps as you can. Tap a set to log last time's reps, tap it again to change them."
+                        else "As many reps as you can. Tap a set to enter them.",
+                        color = EisenColors.MutedForeground, fontSize = 13.sp)
                 } else if (isPlateLoaded(log.equipment)) {
-                    Text(platesText(log.weight, log.equipment), color = EisenColors.MutedForeground, fontSize = 13.sp)
+                    Text(platesText(log.weight, log.equipment, settings), color = EisenColors.MutedForeground, fontSize = 13.sp)
                 }
             }
         }
     }
 }
 
+/**
+ * What a set button shows: the count logged, or the target in muted colour. A max hold shows "max",
+ * a max set what it got last time ([last]) or "+" the first time.
+ */
+private fun setButtonText(log: ExerciseLog, reps: Int?, last: Int?): String = when {
+    reps != null -> setText(reps, log.timed)
+    log.targetReps != null -> setText(log.targetReps, log.timed)
+    log.timed -> "max"
+    else -> last?.toString() ?: "+"
+}
+
+/** How TalkBack reads a set. */
+internal fun setDescription(log: ExerciseLog, reps: Int?): String = when {
+    reps == null -> "not logged"
+    log.timed -> "held ${setText(reps, true)}"
+    else -> "$reps reps"
+}
+
 /** Five sets to a row; an exercise with more sets wraps into a second row. */
 @Composable
-private fun SetsGrid(log: ExerciseLog, onTap: (Int) -> Unit) {
+private fun SetsGrid(log: ExerciseLog, lastSets: List<Int?>, onTap: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         log.sets.indices.chunked(5).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -191,10 +228,10 @@ private fun SetsGrid(log: ExerciseLog, onTap: (Int) -> Unit) {
                     val reps = log.sets[j]
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         SetButton(
-                            text = (reps ?: log.targetReps)?.toString() ?: "+",
+                            text = setButtonText(log, reps, lastSets.getOrNull(j)),
                             state = setState(log, reps),
                             onClick = { onTap(j) },
-                            description = "${log.name} set ${j + 1}: ${if (reps == null) "not logged" else "$reps reps"}",
+                            description = "${log.name} set ${j + 1}: ${setDescription(log, reps)}",
                         )
                     }
                 }
@@ -213,53 +250,60 @@ private fun Banner(image: String?) {
     }
 }
 
-/** The ramp up to the work weight of one exercise, ticked off set by set. */
+/** The ramp up to the work weight of one exercise, ticked off set by set. [done] holds the ticked [warmupKey]s. */
 @Composable
-internal fun WarmupCard(log: ExerciseLog, modifier: Modifier = Modifier) {
-    val sets = warmupSets(log.weight, emptyWeightFor(log.equipment), warmupStep(log.equipment, Store.state.settings.unit))
+internal fun WarmupCard(
+    log: ExerciseLog,
+    settings: Settings,
+    done: Set<String>,
+    onToggle: (key: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val unit = settings.unit
+    val sets = warmupSets(log.weight, emptyWeightFor(log.equipment, settings), warmupStep(log.equipment, unit))
     WorkoutCard(modifier) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(log.name, Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Text("Work set ${fmt(log.weight)}", color = EisenColors.MutedForeground)
+                Text("Work set ${fmt(log.weight, unit)}", color = EisenColors.MutedForeground)
             }
             if (sets.isEmpty()) {
                 Text("No warmup needed at this weight.", color = EisenColors.MutedForeground)
             } else {
                 Column {
                     sets.forEachIndexed { k, set ->
-                        val key = "${log.id}:$k"
-                        val done = key in Store.warmupDone
-                        val decoration = if (done) TextDecoration.LineThrough else null
+                        val key = warmupKey(log.id, k)
+                        val ticked = key in done
+                        val decoration = if (ticked) TextDecoration.LineThrough else null
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .heightIn(min = 48.dp)
                                 .toggleable(
-                                    value = done,
+                                    value = ticked,
                                     role = Role.Checkbox,
-                                    onValueChange = { Store.warmupDone = if (done) Store.warmupDone - key else Store.warmupDone + key },
+                                    onValueChange = { onToggle(key) },
                                 ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Box(Modifier.width(32.dp)) { Check(done) }
+                            Box(Modifier.width(32.dp)) { Check(ticked) }
                             Text(
                                 "${set.sets}×${set.reps}",
                                 Modifier.width(44.dp),
-                                color = if (done) EisenColors.MutedForeground else EisenColors.Primary,
+                                color = if (ticked) EisenColors.MutedForeground else EisenColors.Primary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 textDecoration = decoration,
                             )
                             Text(
-                                fmt(set.weight),
+                                fmt(set.weight, unit),
                                 Modifier.width(72.dp),
-                                color = if (done) EisenColors.MutedForeground else EisenColors.Foreground,
+                                color = if (ticked) EisenColors.MutedForeground else EisenColors.Foreground,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp,
                                 textDecoration = decoration,
                             )
-                            Text(platesText(set.weight, log.equipment), Modifier.weight(1f), color = EisenColors.MutedForeground, fontSize = 13.sp)
+                            Text(platesText(set.weight, log.equipment, settings), Modifier.weight(1f), color = EisenColors.MutedForeground, fontSize = 13.sp)
                         }
                     }
                 }

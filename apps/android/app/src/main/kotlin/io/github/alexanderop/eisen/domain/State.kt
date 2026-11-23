@@ -24,6 +24,8 @@ data class Settings(
     val sound: Boolean,
     /** Short vibration when a set, a stepper or a finished workout is tapped. */
     val haptics: Boolean,
+    /** The rest opens as a full screen with the wheels. Off: only the small bar, which still opens it on a tap. */
+    val restFullScreen: Boolean = true,
 )
 
 /** The same shape the PWA stores and exports, so a backup moves between the two apps. */

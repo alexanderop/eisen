@@ -19,20 +19,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -41,60 +32,36 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.alexanderop.eisen.data.Store
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Workout
+import io.github.alexanderop.eisen.domain.setText
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.isStarted
+import io.github.alexanderop.eisen.domain.elm.Msg
 import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.Icons
 import io.github.alexanderop.eisen.ui.fmtLoad
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 import kotlin.math.roundToLong
-
-/** How long "Workout discarded" offers Undo. Longer when accessibility settings ask for it. */
-private const val UNDO_MS = 6_000L
+import io.github.alexanderop.eisen.ui.rememberFullSheetState
 
 /**
- * The parts of the workout flow that outlive the workout screen: the discard question, which the
- * workout screen and the home screen both ask, and the "Workout discarded" snackbar with Undo,
- * which shows on the home screen after the workout screen closed. Place it once, above both.
- * [onDiscarded] runs when a workout was discarded, [onRestored] after Undo brought it back.
+ * The discard question, which the workout screen and the home screen both ask. Place it once,
+ * above both. It shows while [session] asks it. [now] is the model's clock, read again by `update`
+ * when the question is asked. The "Workout discarded" snackbar with Undo comes from `update` and
+ * shows in the app's one SnackbarHost.
  */
 @Composable
-fun WorkoutSessionHost(snackbar: SnackbarHostState, onDiscarded: () -> Unit, onRestored: () -> Unit) {
-    val effects = rememberWorkoutEffects()
-    val session = Store.session
+fun WorkoutSessionHost(session: Session, now: Long, dispatch: (Msg) -> Unit) {
     if (session is Session.ConfirmingDiscard) {
         DiscardWorkoutSheet(
             workout = session.workout,
-            onDiscard = { effects.send(WorkoutEvent.Confirm) },
-            onKeep = { effects.send(WorkoutEvent.Cancel) },
+            now = now,
+            onDiscard = { dispatch(Msg.Workout(WorkoutEvent.Confirm)) },
+            onKeep = { dispatch(Msg.Workout(WorkoutEvent.Cancel)) },
         )
-    }
-
-    val discarded = (session as? Session.Discarded)?.workout?.id
-    val accessibility = LocalAccessibilityManager.current
-    val closed by rememberUpdatedState(onDiscarded)
-    val restored by rememberUpdatedState(onRestored)
-    LaunchedEffect(discarded) {
-        if (discarded == null) return@LaunchedEffect
-        closed()
-        val timeout = accessibility?.calculateRecommendedTimeoutMillis(UNDO_MS, containsText = true, containsControls = true) ?: UNDO_MS
-        // Indefinite plus a timeout: the snackbar's own durations are 4 or 10 seconds.
-        val result = withTimeoutOrNull(timeout) {
-            snackbar.showSnackbar("Workout discarded", actionLabel = "Undo", duration = SnackbarDuration.Indefinite)
-        }
-        // Starting a new workout meanwhile cancels this effect: that start already forgot the old one.
-        if (result == SnackbarResult.ActionPerformed) {
-            effects.send(WorkoutEvent.Undo)
-            restored()
-        } else {
-            effects.send(WorkoutEvent.Forget)
-        }
     }
 }
 
@@ -108,14 +75,13 @@ private fun summary(workout: Workout, now: Long): String {
 /** What discarding loses, and the two ways out. Swiping it away keeps the workout. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DiscardWorkoutSheet(workout: Workout, onDiscard: () -> Unit, onKeep: () -> Unit) {
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+private fun DiscardWorkoutSheet(workout: Workout, now: Long, onDiscard: () -> Unit, onKeep: () -> Unit) {
+    val state = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     // Slides the sheet away before the session moves on, so it does not vanish in one frame.
     fun close(then: () -> Unit) {
         scope.launch { state.hide() }.invokeOnCompletion { then() }
     }
-    val now = remember(workout.id) { System.currentTimeMillis() }
     val logged = workout.exercises.filter(::isStarted)
     ModalBottomSheet(onDismissRequest = onKeep, sheetState = state, containerColor = EisenColors.Card) {
         Column(
@@ -168,14 +134,14 @@ private fun LoggedRow(log: ExerciseLog, workout: Workout) {
         Spacer(Modifier.width(8.dp))
         Row(
             Modifier.widthIn(min = 92.dp).clearAndSetSemantics {
-                contentDescription = "Sets: " + log.sets.joinToString(", ") { it?.toString() ?: "not logged" }
+                contentDescription = "Sets: " + log.sets.joinToString(", ") { it?.let { count -> setText(count, log.timed) } ?: "not logged" }
             },
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
         ) {
             for (reps in log.sets) {
                 val missed = reps == null || (log.targetReps != null && reps != log.targetReps)
                 Text(
-                    reps?.toString() ?: "–",
+                    reps?.let { setText(it, log.timed) } ?: "–",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (missed) EisenColors.Warn else EisenColors.Primary,

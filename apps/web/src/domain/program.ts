@@ -4,7 +4,7 @@ import { convert, formatWeight, roundTo, type Unit } from './units'
 export interface Slot {
   exerciseId: string
   sets: number
-  /** null = as many reps as possible. */
+  /** null = as many reps as possible. For a timed exercise the hold in seconds, null = as long as possible. */
   reps: number | null
 }
 
@@ -17,6 +17,16 @@ export interface Routine {
 
 export const MAX_SETS = 10
 export const MAX_REPS = 30
+
+/** Longest hold a timed exercise can have as its target. */
+export const MAX_HOLD_SECONDS = 600
+export const HOLD_STEP_SECONDS = 5
+export const MIN_HOLD_SECONDS = 5
+export const DEFAULT_HOLD_SECONDS = 60
+/** Time to put the phone down and get into position before a hold starts. */
+export const HOLD_LEAD_IN_SECONDS = 5
+/** A max hold nobody stopped ends itself here. */
+export const MAX_HELD_SECONDS = 3600
 
 export function defaultRoutines(): Routine[] {
   return [
@@ -45,6 +55,7 @@ export function defaultRoutines(): Routine[] {
 
 /** Sets and reps a newly added exercise starts with. */
 export function defaultSlot(exercise: Exercise): Slot {
+  if (exercise.timed) return { exerciseId: exercise.id, sets: 3, reps: DEFAULT_HOLD_SECONDS }
   if (exercise.equipment === 'bodyweight') return { exerciseId: exercise.id, sets: 3, reps: null }
   if (exercise.equipment === 'weight') return { exerciseId: exercise.id, sets: 3, reps: 10 }
   return { exerciseId: exercise.id, sets: 5, reps: 5 }
@@ -168,6 +179,8 @@ export interface ExerciseLog {
   targetReps: number | null
   /** null = set not logged yet. */
   sets: (number | null)[]
+  /** Copied from the exercise: target and sets are seconds held. Left out when false. */
+  timed?: boolean
 }
 
 export interface Workout {
@@ -206,6 +219,7 @@ export function createLog(
         : (progress[exercise.id] ?? startProgress(exercise, unit)).weight,
     targetReps: slot.reps,
     sets: Array.from({ length: slot.sets }, () => null),
+    ...(exercise.timed ? { timed: true } : {}),
   }
 }
 
@@ -264,6 +278,22 @@ export function nextRoutineId(routines: Routine[], finishedId: string, current: 
 export function loadText(bodyweight: boolean, weight: number, unit: Unit): string {
   if (!bodyweight) return formatWeight(weight, unit)
   return weight > 0 ? `BW + ${formatWeight(weight, unit)}` : 'BW'
+}
+
+/** A hold as text: "45s" under a minute, "1:30" from a minute on. */
+export function holdText(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/** One set or target as text: the reps, or the hold of a timed exercise. */
+export function setText(timed: boolean | undefined, value: number): string {
+  return timed ? holdText(value) : String(value)
+}
+
+/** The longest single hold of a timed exercise in seconds, 0 when none was logged. */
+export function longestHold(log: ExerciseLog): number {
+  return log.sets.reduce<number>((longest, seconds) => Math.max(longest, seconds ?? 0), 0)
 }
 
 export function totalReps(log: ExerciseLog): number {

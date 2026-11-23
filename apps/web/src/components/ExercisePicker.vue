@@ -19,6 +19,7 @@ const query = ref('')
 const creating = ref(false)
 const name = ref('')
 const equipment = ref<Equipment>('barbell')
+const timed = ref(false)
 
 const ORDER: Group[] = ['Custom', ...GROUPS]
 const GROUP_TITLES: Partial<Record<Group, string>> = { Custom: 'Your exercises' }
@@ -53,7 +54,7 @@ function startCreating() {
 }
 
 function create() {
-  const exercise = addCustomExercise(name.value, equipment.value)
+  const exercise = addCustomExercise(name.value, equipment.value, timed.value)
   if (exercise) emit('pick', exercise.id)
 }
 
@@ -78,6 +79,20 @@ function create() {
           </button>
         </div>
       </Field>
+      <button
+        type="button"
+        class="timed"
+        role="switch"
+        :aria-checked="timed"
+        aria-describedby="timed-hint"
+        @click="timed = !timed"
+      >
+        <span class="timed-text">
+          <strong>Timed</strong>
+          <span id="timed-hint" class="muted">Held for time, like a plank</span>
+        </span>
+        <span class="track" aria-hidden="true"><span class="thumb" /></span>
+      </button>
       <Button class="w-full" :disabled="name.trim() === ''">Create and add</Button>
       <Button variant="secondary" class="w-full" type="button" @click="creating = false">Back to the list</Button>
     </form>
@@ -104,7 +119,11 @@ function create() {
               <ExerciseImage :image="exercise.image" :name="exercise.name" />
               <span class="pick-name">{{ exercise.name }}</span>
               <span class="muted kind">
-                {{ exclude.includes(exercise.id) ? 'Added' : kindLabel(exercise) }}
+                {{
+                  exclude.includes(exercise.id)
+                    ? 'Added'
+                    : `${kindLabel(exercise)}${exercise.timed ? ' · Timed' : ''}`
+                }}
               </span>
             </button>
             <ConfirmButton
@@ -148,6 +167,52 @@ function create() {
 .types button[aria-pressed='true'] {
   background: var(--primary);
   color: var(--primary-foreground);
+}
+
+.timed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  text-align: left;
+}
+
+.timed-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.timed-text .muted {
+  font-size: 13px;
+}
+
+.track {
+  flex: none;
+  width: 52px;
+  height: 32px;
+  padding: 3px;
+  border-radius: var(--r-full);
+  background: var(--secondary);
+  transition: background-color 0.15s ease;
+}
+
+.thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  transition: transform 0.15s ease;
+}
+
+.timed[aria-checked='true'] .track {
+  background: var(--primary);
+}
+
+.timed[aria-checked='true'] .thumb {
+  background: var(--primary-foreground);
+  transform: translateX(20px);
 }
 
 .list {
