@@ -1,14 +1,24 @@
 <script setup lang="ts">
-/** One set of an exercise. Lime when all reps were done, an amber ring when reps were missed. */
-withDefaults(defineProps<{ state?: 'empty' | 'done' | 'missed' }>(), { state: 'empty' })
+/**
+ * One set of an exercise. Lime when all reps were done, an amber ring when reps were missed.
+ * `badge` sits in the top-right corner, for the reps in reserve. The button's label says it aloud.
+ */
+withDefaults(defineProps<{ state?: 'empty' | 'done' | 'missed'; badge?: string }>(), {
+  state: 'empty',
+  badge: undefined,
+})
 </script>
 
 <template>
-  <button class="set" :class="state"><slot /></button>
+  <button class="set" :class="state">
+    <slot />
+    <span v-if="badge" class="badge" aria-hidden="true">{{ badge }}</span>
+  </button>
 </template>
 
 <style scoped>
 .set {
+  position: relative;
   aspect-ratio: 1;
   max-width: 68px;
   width: 100%;
@@ -35,5 +45,24 @@ withDefaults(defineProps<{ state?: 'empty' | 'done' | 'missed' }>(), { state: 'e
   background: transparent;
   color: var(--warn);
   box-shadow: inset 0 0 0 2px var(--warn);
+}
+
+/* Ringed in the card's colour, so it reads apart from the lime or amber set under it. */
+.badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  background: var(--foreground);
+  color: var(--background);
+  box-shadow: 0 0 0 2px var(--card);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
 }
 </style>

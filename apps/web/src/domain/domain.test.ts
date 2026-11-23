@@ -4,6 +4,7 @@ import { CATALOG, catalogExercise, customExercise } from './exercises'
 import { platesPerSide, warmupSets } from './plates'
 import {
   applyProgression,
+  canRate,
   convertProgress,
   createLog,
   createWorkout,
@@ -16,10 +17,17 @@ import {
   nextReps,
   nextRoutineId,
   outcome,
+  rirLine,
+  rirOf,
+  rirSuffix,
+  rirText,
   startProgress,
   stepFor,
   warmupStep,
   withAddedWeight,
+  withReps,
+  withRir,
+  type ExerciseLog,
   type Progress,
   type Routine,
   type Workout,
@@ -848,5 +856,163 @@ describe('rest screen', () => {
     // Over: shorter changes nothing, longer counts from now.
     expect(adjustedRestEnd(20_000, 30_000, -15)).toBe(20_000)
     expect(adjustedRestEnd(20_000, 30_000, 15)).toBe(45_000)
+  })
+})
+
+describe('reps in reserve', () => {
+  const bench = (sets: (number | null)[], rir?: (number | null)[]): ExerciseLog => {
+    const log = workoutWith({ bench: sets }).exercises[1]
+    return rir ? { ...log, rir } : log
+  }
+  const rated = (rir: (number | null)[], sets = ALL): ExerciseLog =>
+    rir.reduce((log, value, index) => withRir(log, index, value), bench(sets))
+
+  it('reads a rating, with no array, a short one or null as not rated', () => {
+    expect(rirOf(bench(ALL), 0)).toBeNull()
+    expect(rirOf(bench(ALL, [2]), 0)).toBe(2)
+    expect(rirOf(bench(ALL, [2]), 3)).toBeNull()
+    expect(rirOf(bench(ALL, [null, 1]), 0)).toBeNull()
+  })
+
+  it('pads with null up to the rated set and drops the field once no set is rated', () => {
+    const log = withRir(bench(ALL), 2, 1)
+    expect(log.rir).toEqual([null, null, 1])
+    expect(withRir(log, 0, 3).rir).toEqual([3, null, 1])
+    expect(withRir(log, 2, 0).rir).toEqual([null, null, 0])
+    const cleared = withRir(log, 2, null)
+    expect(cleared).not.toHaveProperty('rir')
+    expect(cleared).toEqual(bench(ALL))
+  })
+
+  it('keeps ratings between 0 and 4', () => {
+    expect(withRir(bench(ALL), 0, 7).rir).toEqual([4])
+    expect(withRir(bench(ALL), 0, -1).rir).toEqual([0])
+  })
+
+  it('rates only a logged set with a rep target', () => {
+    const open = bench([5, null, null, null, null])
+    expect(canRate(open, 0)).toBe(true)
+    expect(canRate(open, 1)).toBe(false)
+    expect(withRir(open, 1, 2)).toBe(open)
+
+    const dips = workoutWith({ dips: [12, 9, 7] }).exercises[3]
+    expect(canRate(dips, 0)).toBe(false)
+    expect(withRir(dips, 0, 2)).toBe(dips)
+
+    const plank = createLog(catalogExercise('plank')!, { exerciseId: 'plank', sets: 3, reps: 60 }, {}, 'kg')
+    plank.sets = [60, 60, 60]
+    expect(canRate(plank, 0)).toBe(false)
+    expect(withRir(plank, 0, 2)).toBe(plank)
+  })
+
+  it('keeps the rating when a set is corrected and clears it when the set is cleared', () => {
+    const log = rated([2, 1], ALL)
+    expect(withReps(log, 1, 4)).toMatchObject({ sets: [5, 4, 5, 5, 5], rir: [2, 1] })
+    const cleared = withReps(log, 1, null)
+    expect(cleared.sets).toEqual([5, null, 5, 5, 5])
+    expect(cleared.rir).toEqual([2, null])
+    expect(withReps(withReps(log, 0, null), 1, null)).not.toHaveProperty('rir')
+    expect(log.sets).toEqual(ALL)
+  })
+
+  it('writes ratings as 0 to 3 and 4+, with – for a set not rated', () => {
+    expect([0, 1, 2, 3, 4].map(rirText)).toEqual(['0', '1', '2', '3', '4+'])
+    expect(rirLine(bench(ALL))).toBeNull()
+    expect(rirSuffix(bench(ALL))).toBe('')
+    expect(rirSuffix(rated([2, 2, 1, 0]))).toBe(' · RIR 2 2 1 0 –')
+    expect(rirLine(rated([null, null, null, null, 4]))).toBe('RIR – – – – 4+')
+  })
+
+  describe('progression', () => {
+    const progress = (): Progress => ({ bench: { weight: 80, fails: 0, increment: 2.5 } })
+    const run = (log: ExerciseLog, trackRir = true) => {
+      const workout = start('A', progress())
+      workout.exercises = [log]
+      const result = applyProgression(progress(), workout, 20, trackRir)
+      return { weight: result.progress.bench.weight, change: result.changes[0] }
+    }
+
+    it.each([
+      { rir: [null, null, null, null, 3], weight: 85, boosted: true },
+      { rir: [4, 4, 4, 4, 4], weight: 85, boosted: true },
+      { rir: [3, 3, 3, 3, 2], weight: 82.5, boosted: false },
+      { rir: [0, 0, 0, 0, 0], weight: 82.5, boosted: false },
+      { rir: [], weight: 82.5, boosted: false },
+    ])('goes to $weight with ratings $rir', ({ rir, weight, boosted }) => {
+      const result = run(rated(rir))
+      expect(result.weight).toBe(weight)
+      expect(result.change.kind).toBe('up')
+      expect(result.change.boosted ?? false).toBe(boosted)
+    })
+
+    it('leaves boosted out of a change that is not one', () => {
+      expect(run(rated([0, 0, 0, 0, 0])).change).not.toHaveProperty('boosted')
+    })
+
+    it('ignores ratings with tracking off', () => {
+      const result = run(rated([4, 4, 4, 4, 4]), false)
+      expect(result.weight).toBe(82.5)
+      expect(result.change).not.toHaveProperty('boosted')
+    })
+
+    it('repeats a missed weight however much was left', () => {
+      const result = run(rated([4, 4, 4, 4, 4], [5, 5, 5, 5, 4]))
+      expect(result.weight).toBe(80)
+      expect(result.change).toMatchObject({ kind: 'repeat', from: 80, to: 80 })
+    })
+
+    it('counts only the last set, not the ones before it', () => {
+      expect(run(rated([4, 4, 4, 4, 0])).weight).toBe(82.5)
+    })
+
+    it('never boosts a timed exercise, which has no ratings', () => {
+      const carry = catalogExercise('farmersCarry')!
+      const entry = { weight: 20, fails: 0, increment: 2 }
+      const workout = createWorkout(
+        { id: 'c', name: 'Carry', slots: [defaultSlot(carry)] },
+        catalogExercise,
+        { farmersCarry: entry },
+        'kg',
+        0,
+        'c1',
+      )
+      workout.exercises[0].sets = [60, 60, 60]
+      expect(withRir(workout.exercises[0], 2, 4)).toBe(workout.exercises[0])
+      workout.exercises[0].rir = [4, 4, 4]
+      const { progress, changes } = applyProgression({ farmersCarry: entry }, workout, 20)
+      expect(progress.farmersCarry.weight).toBe(22)
+      expect(changes[0]).not.toHaveProperty('boosted')
+    })
+  })
+
+  it('follows the reps in the Markdown', () => {
+    const workout = workoutWith({ hackSquat: ALL, dips: [12, 9, 7] })
+    workout.exercises[0] = withRir(workout.exercises[0], 4, 4)
+    workout.exercises[0] = withRir(workout.exercises[0], 3, 2)
+    expect(workoutMarkdown(workout, 'Thu, Nov 19').split('\n').slice(4)).toEqual([
+      '- **Hack Squat** 80kg: 5×5 · RIR – – – 2 4+',
+      '- **Dips** BW: 12, 9, 7',
+    ])
+  })
+
+  it('leaves the share link as it was', () => {
+    const plain = workoutWith({ hackSquat: ALL, bench: [5, 5, 4, null, null] })
+    const ratedWorkout = structuredClone(plain)
+    ratedWorkout.exercises[0] = withRir(ratedWorkout.exercises[0], 4, 4)
+    ratedWorkout.exercises[1] = withRir(ratedWorkout.exercises[1], 2, 0)
+    expect(ratedWorkout.exercises[0].rir).toEqual([null, null, null, null, 4])
+    expect(encodeShared(toShared(ratedWorkout))).toBe(encodeShared(toShared(plain)))
+    expect(toShared(ratedWorkout)).toEqual(toShared(plain))
+  })
+
+  it('loads a state with ratings and without the setting unchanged', () => {
+    const state = freshState('kg')
+    const workout = workoutWith({ bench: ALL })
+    workout.exercises[1] = withRir(workout.exercises[1], 4, 3)
+    state.history = [workout]
+    const loaded = migrate(JSON.parse(JSON.stringify(state)))
+    expect(isAppState(loaded)).toBe(true)
+    expect(loaded).toEqual(state)
+    expect(state.settings).not.toHaveProperty('trackRir')
   })
 })

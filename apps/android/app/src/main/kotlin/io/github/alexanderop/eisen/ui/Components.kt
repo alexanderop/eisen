@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -77,6 +78,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -567,9 +569,12 @@ fun Modifier.keyboardPadding(): Modifier {
 
 enum class SetState { EMPTY, DONE, MISSED }
 
-/** One set of an exercise. Lime when all reps were done, an amber ring when reps were missed. */
+/**
+ * One set of an exercise. Lime when all reps were done, an amber ring when reps were missed.
+ * [badge] sits on its top-right edge: the reps in reserve of a rated set.
+ */
 @Composable
-fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modifier = Modifier, description: String = text) {
+fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modifier = Modifier, description: String = text, badge: String? = null) {
     val background by animateColorAsState(
         when (state) {
             SetState.DONE -> EisenColors.Primary
@@ -583,19 +588,37 @@ fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modi
         SetState.MISSED -> EisenColors.Warn
         SetState.EMPTY -> EisenColors.MutedForeground
     }
-    Box(
-        modifier
-            .widthIn(max = 68.dp)
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .clip(CircleShape)
-            .background(background)
-            .then(if (state == SetState.MISSED) Modifier.border(2.dp, EisenColors.Warn, CircleShape) else Modifier)
-            .clickable(role = Role.Button, onClickLabel = description, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        // A hold such as "10:00" is longer than any count of reps.
-        Text(text, color = content, fontWeight = FontWeight.Bold, fontSize = if (text.length > 4) 15.sp else 20.sp, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+    Box(modifier.widthIn(max = 68.dp).fillMaxWidth().aspectRatio(1f)) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .background(background)
+                .then(if (state == SetState.MISSED) Modifier.border(2.dp, EisenColors.Warn, CircleShape) else Modifier)
+                .clickable(role = Role.Button, onClickLabel = description, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            // A hold such as "10:00" is longer than any count of reps.
+            Text(text, color = content, fontWeight = FontWeight.Bold, fontSize = if (text.length > 4) 15.sp else 20.sp, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+        }
+        if (badge != null) {
+            // Read as part of the description, not on its own.
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 4.dp, y = (-2).dp)
+                    .clearAndSetSemantics { }
+                    .heightIn(min = 20.dp)
+                    .widthIn(min = 20.dp)
+                    .clip(CircleShape)
+                    .background(EisenColors.Background)
+                    .border(1.5.dp, EisenColors.Primary, CircleShape)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(badge, color = EisenColors.Primary, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 11.sp, maxLines = 1)
+            }
+        }
     }
 }
 

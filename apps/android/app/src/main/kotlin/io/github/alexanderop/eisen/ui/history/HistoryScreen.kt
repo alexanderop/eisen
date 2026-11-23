@@ -88,6 +88,10 @@ import io.github.alexanderop.eisen.domain.HOLD_STEP_SECONDS
 import io.github.alexanderop.eisen.domain.MAX_HELD_SECONDS
 import io.github.alexanderop.eisen.domain.holdText
 import io.github.alexanderop.eisen.domain.nextReps
+import io.github.alexanderop.eisen.domain.rirLine
+import io.github.alexanderop.eisen.domain.rirOf
+import io.github.alexanderop.eisen.domain.rirText
+import io.github.alexanderop.eisen.domain.withReps
 import io.github.alexanderop.eisen.domain.setText
 import io.github.alexanderop.eisen.domain.recordIds
 import io.github.alexanderop.eisen.domain.stepFor
@@ -106,6 +110,7 @@ import io.github.alexanderop.eisen.ui.formatDate
 import io.github.alexanderop.eisen.ui.pathIcon
 import io.github.alexanderop.eisen.ui.rememberHaptics
 import io.github.alexanderop.eisen.ui.share.ShareWorkoutSheet
+import io.github.alexanderop.eisen.ui.workout.setDescription
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.ui.rememberFullSheetState
@@ -425,7 +430,15 @@ private fun WorkoutCard(
 
 @Composable
 private fun LogRow(log: ExerciseLog, workout: Workout, record: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        LogLine(log, workout, record)
+        rirLine(log)?.let { Text(it, Modifier.fillMaxWidth().padding(top = 2.dp), fontSize = 13.sp, color = EisenColors.MutedForeground, textAlign = TextAlign.End) }
+    }
+}
+
+@Composable
+private fun LogLine(log: ExerciseLog, workout: Workout, record: Boolean) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(log.name, fontSize = 15.sp, modifier = Modifier.weight(1f, fill = false))
             if (record) {
@@ -483,8 +496,7 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
     }
     fun editLog(index: Int, change: (ExerciseLog) -> ExerciseLog) =
         onChange(draft.copy(exercises = draft.exercises.mapIndexed { at, log -> if (at == index) change(log) else log }))
-    fun setReps(index: Int, setIndex: Int, reps: Int?) =
-        editLog(index) { log -> log.copy(sets = log.sets.mapIndexed { at, value -> if (at == setIndex) reps else value }) }
+    fun setReps(index: Int, setIndex: Int, reps: Int?) = editLog(index) { withReps(it, setIndex, reps) }
 
     ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -564,8 +576,9 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
                                             setReps(index, setIndex, nextReps(reps, target))
                                             haptics.perform(Haptic.TAP)
                                         },
-                                        description = "${log.name} set ${setIndex + 1}: ${if (reps == null) "not logged" else "$reps reps"}",
+                                        description = "${log.name} set ${setIndex + 1}: ${setDescription(log, reps, rirOf(log, setIndex))}",
                                         modifier = Modifier.weight(1f),
+                                        badge = rirOf(log, setIndex)?.let(::rirText),
                                     )
                                 }
                                 // Keeps a short last row on the same grid as the full rows above it.

@@ -7,6 +7,7 @@ import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.loadText
 import io.github.alexanderop.eisen.domain.repsText
+import io.github.alexanderop.eisen.domain.rirSuffix
 import io.github.alexanderop.eisen.domain.sessionSummary
 import io.github.alexanderop.eisen.domain.timerSummary
 import java.time.Instant
@@ -81,7 +82,7 @@ fun workoutNotes(workout: Workout): String = workout.exercises
     .joinToString("\n") { log ->
         // Spelled out: health apps show the notes to people who never saw the app's "BW".
         val load = loadText(log.equipment == Equipment.BODYWEIGHT, log.weight, workout.unit, label = "bodyweight")
-        "${log.name} $load: ${repsText(log.sets, log.targetReps, log.timed)}"
+        "${log.name} $load: ${repsText(log.sets, log.targetReps, log.timed)}${rirSuffix(log)}"
     }
 
 /**

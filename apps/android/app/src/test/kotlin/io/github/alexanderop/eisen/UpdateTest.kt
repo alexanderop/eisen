@@ -4,6 +4,9 @@ import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseProgress
 import io.github.alexanderop.eisen.domain.Feel
 import io.github.alexanderop.eisen.domain.MAX_HELD_SECONDS
+import io.github.alexanderop.eisen.domain.MAX_RIR
+import io.github.alexanderop.eisen.domain.canRate
+import io.github.alexanderop.eisen.domain.rirOf
 import io.github.alexanderop.eisen.domain.Routine
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Slot
@@ -29,6 +32,7 @@ import io.github.alexanderop.eisen.domain.elm.PermissionCheck
 import io.github.alexanderop.eisen.domain.elm.REST_OVER_VIBRATION
 import io.github.alexanderop.eisen.domain.elm.RemovedSlot
 import io.github.alexanderop.eisen.domain.elm.RepsQuestion
+import io.github.alexanderop.eisen.domain.elm.RestScreen
 import io.github.alexanderop.eisen.domain.elm.RestState
 import io.github.alexanderop.eisen.domain.elm.SLOT_SNACKBAR
 import io.github.alexanderop.eisen.domain.elm.Sub
@@ -751,14 +755,16 @@ class UpdateTest {
         var held = 0
         var screens = 0
         var corrected = 0
+        var rated = 0
+        var doneScreens = 0
         var timed = 0
         var filed = 0
         var ranOut = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
-        // The timer's Msgs dilute the walk, so it takes more seeds to reach everything as often as before.
-        for (seed in 1L..80L) {
+        // The timer's Msgs and the ratings dilute the walk, so it takes more seeds to reach everything as often as before.
+        for (seed in 1L..160L) {
             val random = java.util.Random(seed)
             var step = stepOf(withHolds)
             var now = STARTED_AT
@@ -802,18 +808,35 @@ class UpdateTest {
                 if (after.model.hold == null) assertTrue(where, subscriptions(after.model).none { it is Sub.HoldClock })
                 // An open rest screen belongs to the running rest and a logged set of its exercise, and
                 // never shows with a hold timer.
+                // The "set done" screen has no rest and never minimises.
                 after.model.restScreen?.let { screen ->
-                    assertNotNull(where, after.model.rest)
+                    if (screen.setDone) {
+                        assertNull(where, after.model.rest)
+                        assertFalse(where, screen.minimised)
+                        if (step.model.restScreen != screen) doneScreens++
+                    } else {
+                        assertNotNull(where, after.model.rest)
+                    }
                     assertNull(where, after.model.hold)
                     assertTrue(where, restScreenFits(after.model, screen))
                     if (step.model.restScreen == null) screens++
                 }
-                // The wheels and putting the screen away or back never touch the rest, its alarms or its notification.
+                // A rating only ever sits on a logged set with a target count of reps, and never past the sets.
+                for (log in after.state.history.flatMap { it.exercises } + after.state.active?.exercises.orEmpty()) {
+                    assertTrue(where, log.rir.size <= log.sets.size)
+                    for (set in log.rir.indices) if (log.rir[set] != null) assertTrue(where, canRate(log, set) && rirOf(log, set) != null)
+                }
+                // The wheels, the chips and putting the screen away or back never touch the rest, its alarms or its notification.
                 val event = (msg as? Msg.Workout)?.event
-                if (event is WorkoutEvent.CorrectReps || event is WorkoutEvent.SetWeight || msg == Msg.Rest.Minimise || msg == Msg.Rest.Open) {
+                if (event is WorkoutEvent.CorrectReps || event is WorkoutEvent.RateSet || event is WorkoutEvent.SetWeight || msg == Msg.Rest.Minimise || msg == Msg.Rest.Open) {
                     assertEquals(where, step.model.rest, after.model.rest)
                     assertTrue(where, after.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown })
                     assertEquals(where, step.model.repsQuestion, after.model.repsQuestion)
+                }
+                if (event is WorkoutEvent.RateSet && after.model != step.model) {
+                    rated++
+                    assertEquals(where, event.rir, rirOf(after.workout.exercises[event.exercise], event.set))
+                    assertEquals(where, step.workout.exercises[event.exercise].sets, after.workout.exercises[event.exercise].sets)
                 }
                 if (event is WorkoutEvent.CorrectReps && after.model != step.model) {
                     corrected++
@@ -881,6 +904,8 @@ class UpdateTest {
         assertTrue("only $held holds were logged by the timer", held >= 5)
         assertTrue("only $screens rest screens opened", screens >= 20)
         assertTrue("only $corrected sets were corrected", corrected >= 5)
+        assertTrue("only $rated sets were rated", rated >= 20)
+        assertTrue("only $doneScreens set done screens opened", doneScreens >= 5)
         assertTrue("only $timed timers started", timed >= 30)
         assertTrue("only $filed timers were filed", filed >= 15)
         assertTrue("only $ranOut timers ran out by themselves", ranOut >= 3)
@@ -909,6 +934,18 @@ class UpdateTest {
         val corrected = model.restScreen?.let { it.exercise to it.set }?.takeIf { random.nextInt(4) > 0 }
             ?: logged.takeIf { it.isNotEmpty() && random.nextBoolean() }?.let { pick(it) } ?: (exercise to set)
         val correct = { Msg.Workout(WorkoutEvent.CorrectReps(corrected.first, corrected.second, random.nextInt(8) - 1)) }
+        // The next open set of the exercise with a target count closest to done, on the workout screen, so exercises
+        // get to their last set, which opens the "set done" screen. Random taps rarely get that far.
+        val open = logs.indices.filter { i -> !logs[i].timed && logs[i].targetReps != null && null in logs[i].sets }
+        val tapNext = {
+            when {
+                open.isEmpty() -> tap()
+                !model.nav.workoutOpen -> Msg.Nav.OpenWorkout
+                else -> open.minBy { i -> logs[i].sets.count { it == null } }.let { i -> Msg.Workout(WorkoutEvent.TapSet(i, logs[i].sets.indexOf(null))) }
+            }
+        }
+        // The chips rate the rest screen's set most of the time, with ratings in and out of range.
+        val rate = { Msg.Workout(WorkoutEvent.RateSet(corrected.first, corrected.second, (random.nextInt(8) - 2).takeIf { it >= -1 })) }
         // While an interval timer runs, its own Msgs come most of the time: it covers everything else.
         if (model.timer != null && random.nextInt(4) > 0) {
             return pick(
@@ -927,6 +964,9 @@ class UpdateTest {
             { Msg.Workout(WorkoutEvent.LogReps(exercise, set, random.nextInt(12).takeIf { it > 0 })) },
             { Msg.Workout(WorkoutEvent.LogHold(exercise, set, random.nextInt(100))) },
             correct, correct, correct, correct, correct, correct,
+            rate, rate, rate, rate, tapNext, tapNext, tapNext,
+            { Msg.Rest.Rated(model.restScreen ?: RestScreen(0, 0, "nope"), random.nextInt(MAX_RIR + 1)) },
+            { Msg.Settings.SetTrackRir(random.nextInt(4) > 0) },
             { Msg.Hold.SkipLeadIn },
             { Msg.Hold.Stop },
             { Msg.Hold.Stop },

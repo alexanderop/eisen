@@ -52,11 +52,15 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
+import io.github.alexanderop.eisen.domain.MAX_RIR
 import io.github.alexanderop.eisen.domain.OrderedExercise
 import io.github.alexanderop.eisen.domain.Settings
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.isPlateLoaded
 import io.github.alexanderop.eisen.domain.lastLogged
+import io.github.alexanderop.eisen.domain.rirOf
+import io.github.alexanderop.eisen.domain.rirSuffix
+import io.github.alexanderop.eisen.domain.rirText
 import io.github.alexanderop.eisen.domain.setText
 import io.github.alexanderop.eisen.domain.targetText
 import io.github.alexanderop.eisen.domain.warmupSets
@@ -91,14 +95,15 @@ private fun WorkoutCard(modifier: Modifier = Modifier, content: @Composable () -
 
 /**
  * "Nov 12: 80kg · 5 5 5 4 3", so the lifter sees what there is to beat. Plain bodyweight shows only the
- * reps, a timed exercise its holds: "Nov 12: 1:00 1:00 45s".
+ * reps, a timed exercise its holds: "Nov 12: 1:00 1:00 45s". Rated sets add " · RIR 2 2 1 0".
  */
 internal fun lastTime(history: List<Workout>, id: String): String? {
     val last = lastLogged(history, id) ?: return null
     val reps = last.log.sets.joinToString(" ") { it?.let { count -> setText(count, last.log.timed) } ?: "–" }
     val plain = last.log.equipment == Equipment.BODYWEIGHT && last.log.weight == 0.0
     val load = if (plain) "" else "${fmtLoad(last.log.equipment, last.log.weight, last.workout.unit)} · "
-    return "${formatShortDate(last.workout.startedAt)}: $load$reps"
+    // The ratings wrap as one piece, so a lone "–" never ends up on a line of its own.
+    return "${formatShortDate(last.workout.startedAt)}: $load$reps${rirSuffix(last.log).replace(' ', '\u00A0')}"
 }
 
 private fun setState(log: ExerciseLog, reps: Int?): SetState = when {
@@ -121,6 +126,8 @@ internal fun ExerciseCard(
     lastTime: String?,
     /** Per set, what it got last time. A max-reps set offers it on its button. */
     lastSets: List<Int?>,
+    /** Rated sets show their reps in reserve on the button. */
+    showRir: Boolean,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onTap: (setIndex: Int) -> Unit,
@@ -177,7 +184,7 @@ internal fun ExerciseCard(
                     )
                     Icon(Icons.ChevronRight, contentDescription = null, tint = EisenColors.Primary, modifier = Modifier.size(20.dp))
                 }
-                SetsGrid(log, lastSets, onTap)
+                SetsGrid(log, lastSets, showRir, onTap)
                 if (lastTime != null) {
                     Text("Last time, $lastTime", color = EisenColors.Foreground, fontSize = 13.sp)
                 }
@@ -211,27 +218,30 @@ private fun setButtonText(log: ExerciseLog, reps: Int?, last: Int?): String = wh
     else -> last?.toString() ?: "+"
 }
 
-/** How TalkBack reads a set. */
-internal fun setDescription(log: ExerciseLog, reps: Int?): String = when {
+/** How TalkBack reads a set: "5 reps", "5 reps, 2 in reserve". */
+internal fun setDescription(log: ExerciseLog, reps: Int?, rir: Int? = null): String = when {
     reps == null -> "not logged"
     log.timed -> "held ${setText(reps, true)}"
+    rir != null -> "$reps reps, ${if (rir >= MAX_RIR) "$MAX_RIR or more" else rir} in reserve"
     else -> "$reps reps"
 }
 
 /** Five sets to a row; an exercise with more sets wraps into a second row. */
 @Composable
-private fun SetsGrid(log: ExerciseLog, lastSets: List<Int?>, onTap: (Int) -> Unit) {
+private fun SetsGrid(log: ExerciseLog, lastSets: List<Int?>, showRir: Boolean, onTap: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         log.sets.indices.chunked(5).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 for (j in row) {
                     val reps = log.sets[j]
+                    val rir = rirOf(log, j)?.takeIf { showRir && reps != null }
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         SetButton(
                             text = setButtonText(log, reps, lastSets.getOrNull(j)),
                             state = setState(log, reps),
                             onClick = { onTap(j) },
-                            description = "${log.name} set ${j + 1}: ${setDescription(log, reps)}",
+                            description = "${log.name} set ${j + 1}: ${setDescription(log, reps, rir)}",
+                            badge = rir?.let(::rirText),
                         )
                     }
                 }

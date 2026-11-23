@@ -18,6 +18,8 @@ import {
   startProgress,
   UNIT_DEFAULTS,
   withAddedWeight,
+  withReps,
+  withRir,
   type Change,
   type ExerciseLog,
   type ExerciseProgress,
@@ -148,11 +150,21 @@ export function deferActiveExercise(exerciseIndex: number): void {
   workout.exercises.push(...workout.exercises.splice(exerciseIndex, 1))
 }
 
+/**
+ * Writes the sets and ratings of a changed log into the one in the workout. The object stays the
+ * same, so a caller that holds it reads the change.
+ */
+function assign(log: ExerciseLog, next: ExerciseLog): void {
+  log.sets = next.sets
+  if (next.rir) log.rir = next.rir
+  else delete log.rir
+}
+
 export function tapSet(exerciseIndex: number, setIndex: number): number | null {
   const log = state.active?.exercises[exerciseIndex]
   if (!log || log.targetReps === null) return null
   const reps = nextReps(log.sets[setIndex], log.targetReps)
-  log.sets[setIndex] = reps
+  assign(log, withReps(log, setIndex, reps))
   return reps
 }
 
@@ -178,7 +190,13 @@ export function setActiveWeight(exerciseIndex: number, weight: number): void {
 /** Logs a max-reps set, where the lifter enters the count instead of tapping it down, or clears a set. */
 export function logReps(exerciseIndex: number, setIndex: number, reps: number | null): void {
   const log = state.active?.exercises[exerciseIndex]
-  if (log) log.sets[setIndex] = reps
+  if (log) assign(log, withReps(log, setIndex, reps))
+}
+
+/** Rates a logged set with its reps in reserve, or takes the rating back with null. */
+export function rateSet(exerciseIndex: number, setIndex: number, rir: number | null): void {
+  const log = state.active?.exercises[exerciseIndex]
+  if (log) assign(log, withRir(log, setIndex, rir))
 }
 
 /**
@@ -225,7 +243,12 @@ export function finishWorkout(): void {
     state.active = null
     return
   }
-  const result = applyProgression(state.progress, workout, state.settings.bar)
+  const result = applyProgression(
+    state.progress,
+    workout,
+    state.settings.bar,
+    state.settings.trackRir !== false,
+  )
   state.progress = result.progress
   // Spread from the raw object: a spread of the reactive one would carry reactive exercises
   // into the history, and the history edit sheet cannot copy those until the next reload.

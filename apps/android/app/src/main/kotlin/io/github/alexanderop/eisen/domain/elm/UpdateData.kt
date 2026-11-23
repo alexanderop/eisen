@@ -226,6 +226,7 @@ internal fun settings(msg: Msg.Settings, model: Model): Next {
         }
         is Msg.Settings.SetHaptics -> edit { it.copy(haptics = msg.on) }.only()
         is Msg.Settings.SetRestFullScreen -> edit { it.copy(restFullScreen = msg.on) }.only()
+        is Msg.Settings.SetTrackRir -> edit { it.copy(trackRir = msg.on) }.only()
         is Msg.Settings.SetIncrement -> model.withState { state -> state.editProgress(msg.id) { it.copy(increment = msg.increment) } }.only()
     }
 }

@@ -4,12 +4,14 @@ import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.CATALOG
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Exercise
+import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.ExerciseProgress
 import io.github.alexanderop.eisen.domain.MAX_HELD_SECONDS
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Routine
 import io.github.alexanderop.eisen.domain.Settings
 import io.github.alexanderop.eisen.domain.active
+import io.github.alexanderop.eisen.domain.canRate
 import io.github.alexanderop.eisen.domain.encodeState
 import io.github.alexanderop.eisen.domain.findExercise
 import io.github.alexanderop.eisen.domain.startProgress
@@ -64,13 +66,22 @@ fun showsRestScreen(model: Model): Boolean = showsWorkout(model) && model.restSc
 
 /**
  * The rest screen still belongs to the running rest and to a logged set of its exercise in the running
- * workout. A hold timer never shows with it.
+ * workout. A hold timer never shows with it. The "set done" screen has no rest: it belongs to the workout
+ * screen and a set that can still be rated, so it leaves nothing behind when either goes.
  */
 fun restScreenFits(model: Model, screen: RestScreen): Boolean {
-    if (model.rest == null || model.hold != null) return false
+    if (model.hold != null) return false
+    if (screen.setDone) {
+        if (!model.nav.workoutOpen || !model.state.settings.trackRir) return false
+    } else if (model.rest == null) {
+        return false
+    }
     val log = model.session.active?.exercises?.getOrNull(screen.exercise) ?: return false
-    return log.id == screen.exerciseId && log.sets.getOrNull(screen.set) != null
+    return log.id == screen.exerciseId && log.sets.getOrNull(screen.set) != null && (!screen.setDone || canRate(log, screen.set))
 }
+
+/** The rest screen shows the reps in reserve chips for set [set] of [log]. */
+fun ratesSet(settings: Settings, log: ExerciseLog, set: Int): Boolean = settings.trackRir && canRate(log, set)
 
 /**
  * True when [Msg.Nav.Back] does something: it asks before it ends an interval timer, closes a hold timer

@@ -63,6 +63,7 @@ import io.github.alexanderop.eisen.BuildConfig
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Exercise
 import io.github.alexanderop.eisen.domain.ExerciseProgress
+import io.github.alexanderop.eisen.domain.RIR_BOOST_FROM
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.elm.Model
@@ -117,6 +118,7 @@ private val HourglassIcon = pathIcon(
     "M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22",
     "M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2",
 )
+private val GaugeIcon = pathIcon("Gauge", "m12 14 4-4", "M3.34 19a10 10 0 1 1 17.32 0")
 private val VolumeIcon = pathIcon(
     "Volume",
     "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z",
@@ -216,6 +218,11 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
         haptics.perform(Haptic.TAP)
     }
 
+    fun toggleTrackRir() {
+        dispatch(Msg.Settings.SetTrackRir(!settings.trackRir))
+        haptics.perform(Haptic.TAP)
+    }
+
     fun toggleHaptics() {
         dispatch(Msg.Settings.SetHaptics(!settings.haptics))
         haptics.perform(Haptic.TAP)
@@ -264,6 +271,13 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 onClick = { editing = Editing.REST_MISSED },
             )
             SwitchRow(icon = HourglassIcon, label = "Full-screen rest timer", checked = settings.restFullScreen, onToggle = ::toggleRestFullScreen)
+            SwitchRow(
+                icon = GaugeIcon,
+                label = "Track reps in reserve",
+                description = "Rate a set with one tap after it. $RIR_BOOST_FROM or more left on your last set doubles the next weight jump.",
+                checked = settings.trackRir,
+                onToggle = ::toggleTrackRir,
+            )
             SwitchRow(icon = VolumeIcon, label = "Sound when rest ends", checked = settings.sound, onToggle = ::toggleSound)
             SwitchRow(icon = VibrateIcon, label = "Vibrate on taps", checked = settings.haptics, onToggle = ::toggleHaptics)
         }
@@ -516,9 +530,10 @@ private fun SettingRow(
 
 /** The row itself is the switch, so there is no small control to aim for. */
 @Composable
-private fun SwitchRow(icon: ImageVector, label: String, checked: Boolean, onToggle: () -> Unit) {
+private fun SwitchRow(icon: ImageVector, label: String, checked: Boolean, onToggle: () -> Unit, description: String? = null) {
     ListItem(
         headlineContent = { Text(label, fontSize = 16.sp) },
+        supportingContent = description?.let { { Text(it, fontSize = 13.sp, color = EisenColors.MutedForeground) } },
         modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = { onToggle() }).heightIn(min = 56.dp),
         leadingContent = { Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp)) },
         trailingContent = { Switch(checked = checked, onCheckedChange = null) },

@@ -68,11 +68,15 @@ data class RestState(val startedAt: Long, val endsAt: Long, val note: String)
 
 /**
  * The rest screen of the running [Model.rest], for set [set] of the exercise at [exercise] in the running
- * workout: the set that started the rest, which its wheels correct. [exerciseId] makes sure it is still
- * the same exercise there. [minimised]: put away by the lifter, the rest bar shows instead and a tap on
- * it brings the screen back. It only exists while its rest runs and its set is logged, see [restScreenFits].
+ * workout: the set that started the rest, which its wheels correct and its chips rate. [exerciseId] makes
+ * sure it is still the same exercise there. [minimised]: put away by the lifter, the rest bar shows instead
+ * and a tap on it brings the screen back. It only exists while its rest runs and its set is logged, see
+ * [restScreenFits].
+ *
+ * [setDone]: the same screen without a clock after the last set of an exercise, which starts no rest. It
+ * is there to rate that set. It never minimises: put away, it is gone.
  */
-data class RestScreen(val exercise: Int, val set: Int, val exerciseId: String, val minimised: Boolean = false)
+data class RestScreen(val exercise: Int, val set: Int, val exerciseId: String, val minimised: Boolean = false, val setDone: Boolean = false)
 
 /**
  * The hold timer of set [set] of the exercise at [exercise] in the running workout, a timed one.

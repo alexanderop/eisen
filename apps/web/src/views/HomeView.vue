@@ -3,7 +3,7 @@ import { Badge, Button, Card, ChipGroup, ConfirmButton } from '../components/ui'
 import { computed } from 'vue'
 import ShareWorkout from '../components/ShareWorkout.vue'
 import ExerciseImage from '../components/ExerciseImage.vue'
-import { holdText, longestHold, outcome, setText, totalReps } from '../domain/program'
+import { holdText, longestHold, outcome, RIR_BOOST_FROM, setText, totalReps } from '../domain/program'
 import { recordIds } from '../domain/records'
 import { durationMinutes } from '../domain/share'
 import { fmt, fmtLoad, formatDate, formatShortDate } from '../format'
@@ -84,6 +84,8 @@ const records = computed(() => {
 })
 
 const CHANGE_TEXT = { up: 'Up', repeat: 'Repeat', deload: 'Deload' } as const
+/** Under a weight that went up twice the increment, so the bigger jump is no surprise. */
+const BOOST_NOTE = `double jump · ${RIR_BOOST_FROM}+ in reserve`
 
 function onDiscard() {
   stopRest()
@@ -123,8 +125,9 @@ function start() {
     <ul v-else>
       <li v-for="change in lastChanges" :key="change.id" :class="change.kind">
         <span>{{ change.name }}</span>
-        <span class="muted">{{ CHANGE_TEXT[change.kind] }}</span>
+        <span class="muted">{{ change.boosted ? `${fmt(change.from)} →` : CHANGE_TEXT[change.kind] }}</span>
         <strong>{{ fmt(change.to) }}</strong>
+        <small v-if="change.boosted" class="boost">{{ BOOST_NOTE }}</small>
       </li>
     </ul>
     <p v-if="saved && saved.skipped.length > 0" class="muted skipped">
@@ -270,6 +273,15 @@ li strong {
 
 .summary .deload strong {
   color: var(--warn);
+}
+
+/* Its own line under the change, so it does not squeeze the exercise name. */
+.boost {
+  grid-column: 1 / -1;
+  margin-top: -10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
 }
 
 .stats {

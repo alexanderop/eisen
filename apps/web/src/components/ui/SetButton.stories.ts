@@ -19,6 +19,8 @@ type Story = StoryObj<typeof meta>
 export const Empty: Story = {}
 export const Done: Story = { args: { state: 'done' } }
 export const Missed: Story = { args: { state: 'missed' } }
+/** Rated with its reps in reserve: the badge in the corner. */
+export const Rated: Story = { args: { state: 'done', badge: '4+' } }
 
 /** Five sets mid-workout: three done, one with missed reps, one still open. */
 export const Row: Story = {

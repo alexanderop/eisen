@@ -1,16 +1,21 @@
 <script setup lang="ts">
 /**
- * The rest between two sets, over the whole screen: the time as large as it fits, and wheels to
- * correct the set just logged. Minimised it becomes the bar in the workout header.
+ * The rest between two sets, over the whole screen: the time as large as it fits, a rating of the
+ * reps in reserve, and wheels to correct the set just logged. Minimised it becomes the bar in the
+ * workout header. After an exercise's last set there is no rest: the screen then shows only the
+ * set, to rate and correct it.
  */
 import { ChevronDown } from '@lucide/vue'
-import { computed, ref } from 'vue'
-import { holdText, loadText } from '../domain/program'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { canRate, holdText, loadText, rirOf } from '../domain/program'
 import { nextOpenSet, repsWheel, setSummary, weightWheel, wheelWeightText } from '../domain/rest'
 import { haptic } from '../haptics'
 import {
   adjustRest,
   clearRestNote,
+  closeSetDone,
+  doneLog,
+  doneSet,
   formatClock,
   minimiseRestScreen,
   rest,
@@ -21,30 +26,50 @@ import {
   restRemaining,
   stopRest,
 } from '../rest'
-import { correctReps, setActiveWeight, state } from '../store'
+import { correctReps, rateSet, setActiveWeight, state } from '../store'
 import { useWakeLock } from '../wakeLock'
+import RirPicker from './RirPicker.vue'
 import { Button, Wheel } from './ui'
 
 useWakeLock()
 
 const ADJUST_SECONDS = 15
+/** A rating is all that is left to do after a last set: the screen closes a moment after it. */
+const CLOSE_AFTER_RATING_MS = 400
 
-const exerciseIndex = computed(() => rest.set?.exerciseIndex ?? 0)
-const setIndex = computed(() => rest.set?.setIndex ?? 0)
+const setDone = computed(() => doneLog.value !== null)
+const log = computed(() => doneLog.value ?? restLog.value)
+const set = computed(() => (setDone.value ? doneSet.value : rest.set))
+const exerciseIndex = computed(() => set.value?.exerciseIndex ?? 0)
+const setIndex = computed(() => set.value?.setIndex ?? 0)
 const unit = computed(() => state.active?.unit ?? state.settings.unit)
-const bodyweight = computed(() => restLog.value?.equipment === 'bodyweight')
-const logged = computed(() => restLog.value?.sets[setIndex.value] ?? 0)
-const next = computed(() => (restLog.value ? nextOpenSet(restLog.value, setIndex.value) : null))
+const bodyweight = computed(() => log.value?.equipment === 'bodyweight')
+const logged = computed(() => log.value?.sets[setIndex.value] ?? 0)
+const next = computed(() => (log.value ? nextOpenSet(log.value, setIndex.value) : null))
 
 const weights = computed(() =>
-  restLog.value
-    ? weightWheel(restLog.value.equipment, unit.value, state.settings.bar, restLog.value.weight)
-    : [],
+  log.value ? weightWheel(log.value.equipment, unit.value, state.settings.bar, log.value.weight) : [],
 )
-const reps = computed(() => repsWheel(restLog.value?.targetReps ?? null, logged.value))
+const reps = computed(() => repsWheel(log.value?.targetReps ?? null, logged.value))
+
+const rateable = computed(
+  () => state.settings.trackRir !== false && log.value !== null && canRate(log.value, setIndex.value),
+)
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+/** Rating never touches the rest: it runs on as it was. */
+const rating = computed({
+  get: () => (log.value ? rirOf(log.value, setIndex.value) : null),
+  set: (value: number | null) => {
+    rateSet(exerciseIndex.value, setIndex.value, value)
+    if (!setDone.value) return
+    clearTimeout(closeTimer)
+    if (value !== null) closeTimer = setTimeout(closeSetDone, CLOSE_AFTER_RATING_MS)
+  },
+})
+onBeforeUnmount(() => clearTimeout(closeTimer))
 
 const weight = computed({
-  get: () => restLog.value?.weight ?? 0,
+  get: () => log.value?.weight ?? 0,
   set: (value: number) => setActiveWeight(exerciseIndex.value, value),
 })
 const count = computed({
@@ -67,6 +92,12 @@ function onNext() {
   stopRest()
 }
 
+/** Minimises a rest to the bar. A last set has no rest to keep, so its screen just closes. */
+function close() {
+  if (setDone.value) closeSetDone()
+  else minimiseRestScreen()
+}
+
 /** Swipe down from anywhere but the wheels to minimise, like a sheet. */
 const SWIPE_CLOSE_PX = 90
 const pull = ref(0)
@@ -84,7 +115,7 @@ function onTouchMove(event: TouchEvent) {
 }
 
 function onTouchEnd() {
-  if (pull.value > SWIPE_CLOSE_PX) minimiseRestScreen()
+  if (pull.value > SWIPE_CLOSE_PX) close()
   pull.value = 0
   pullFrom = null
 }
@@ -92,14 +123,14 @@ function onTouchEnd() {
 
 <template>
   <div
-    v-if="restLog"
+    v-if="log"
     class="rest-screen"
-    :class="{ over: restOver, pulling: pull > 0 }"
+    :class="{ over: !setDone && restOver, pulling: pull > 0, rated: rateable, done: setDone }"
     :style="pull > 0 ? { transform: `translateY(${pull}px)` } : undefined"
     role="dialog"
     aria-modal="true"
-    :aria-label="`Rest after ${restLog.name}`"
-    @keydown.esc="minimiseRestScreen()"
+    :aria-label="setDone ? `${log.name} set done` : `Rest after ${log.name}`"
+    @keydown.esc="close()"
     @touchstart.passive="onTouchStart"
     @touchmove.passive="onTouchMove"
     @touchend.passive="onTouchEnd"
@@ -107,21 +138,21 @@ function onTouchEnd() {
   >
     <header>
       <div class="title">
-        <h2>{{ restLog.name }}</h2>
-        <p class="muted">Set {{ setIndex + 1 }} of {{ restLog.sets.length }} done</p>
+        <h2>{{ log.name }}</h2>
+        <p class="muted">Set {{ setIndex + 1 }} of {{ log.sets.length }} done</p>
       </div>
       <Button
         size="icon"
         variant="secondary"
         class="rounded-full text-muted-foreground"
-        aria-label="Minimise the rest timer"
-        @click="minimiseRestScreen()"
+        :aria-label="setDone ? 'Close' : 'Minimise the rest timer'"
+        @click="close()"
       >
         <ChevronDown :size="22" aria-hidden="true" />
       </Button>
     </header>
 
-    <section class="time">
+    <section v-if="!setDone" class="time">
       <p class="phase">
         <span>{{ restOver ? 'Rest over' : 'Rest' }}</span>
         <span v-if="!restOver && rest.note" class="note">{{ rest.note }}</span>
@@ -152,6 +183,8 @@ function onTouchEnd() {
       </div>
     </section>
 
+    <RirPicker v-if="rateable" v-model="rating" />
+
     <section class="lift">
       <h3>What did you lift?</h3>
       <div class="wheels">
@@ -164,7 +197,7 @@ function onTouchEnd() {
           :spoken="(value: number) => loadText(bodyweight, value, unit)"
         />
         <Wheel
-          v-if="!restLog.timed"
+          v-if="!log.timed"
           v-model="count"
           :values="reps"
           header="reps"
@@ -176,12 +209,18 @@ function onTouchEnd() {
           <strong>{{ holdText(logged) }}</strong>
         </div>
       </div>
-      <p class="summary">{{ setSummary(restLog, setIndex, unit) }}</p>
+      <p class="summary">{{ setSummary(log, setIndex, unit) }}</p>
     </section>
 
     <div class="actions">
-      <p v-if="next !== null" class="muted">Up next: set {{ next + 1 }} of {{ restLog.sets.length }}</p>
-      <Button class="w-full" @click="onNext">Next set</Button>
+      <template v-if="setDone">
+        <p class="muted">Exercise done</p>
+        <Button class="w-full" @click="close()">Done</Button>
+      </template>
+      <template v-else>
+        <p v-if="next !== null" class="muted">Up next: set {{ next + 1 }} of {{ log.sets.length }}</p>
+        <Button class="w-full" @click="onNext">Next set</Button>
+      </template>
     </div>
   </div>
 </template>
@@ -212,6 +251,19 @@ function onTouchEnd() {
 
 .over {
   --stage: var(--warn);
+}
+
+/* No clock to spread around: the set sits under its name and the button stays at the bottom. */
+.done {
+  justify-content: flex-start;
+}
+
+.done header {
+  margin-bottom: 12px;
+}
+
+.done .actions {
+  margin-top: auto;
 }
 
 header {
@@ -275,6 +327,16 @@ header p {
   letter-spacing: -0.04em;
   white-space: nowrap;
   margin: 2px 0 8px -0.04em;
+}
+
+/* The rating takes room above the wheels: the time gives it up, so "Next set" stays on screen. */
+.rated {
+  gap: clamp(8px, 1.5dvh, 16px);
+}
+
+.rated .digits {
+  font-size: min(var(--fit), 12dvh);
+  min-height: calc(min(100cqi / 2.4, 12dvh) * 0.9);
 }
 
 .over .digits {
@@ -396,6 +458,29 @@ header p {
 
   .lift h3 {
     font-size: var(--fs-md);
+  }
+
+  .rated {
+    gap: 6px;
+  }
+
+  .rated .digits {
+    font-size: min(var(--fit), 9dvh);
+    min-height: calc(min(100cqi / 2.4, 9dvh) * 0.9);
+    margin-bottom: 6px;
+  }
+
+  .rated .time .row {
+    margin-top: 4px;
+  }
+
+  .rated:not(.done) .lift {
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .rated:not(.done) :deep(.wheel) {
+    --row: 34px;
   }
 }
 

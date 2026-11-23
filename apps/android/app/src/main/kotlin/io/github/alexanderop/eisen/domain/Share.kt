@@ -29,7 +29,7 @@ fun workoutMarkdown(workout: Workout, date: String): String {
     val lines = mutableListOf("## ${workout.name}", "", if (minutes == null) date else "$date · $minutes min", "")
     for (log in workout.exercises) {
         if (log.sets.all { it == null }) continue
-        lines += "- **${log.name}** ${loadText(log, workout.unit)}: ${repsText(log.sets, log.targetReps, log.timed)}"
+        lines += "- **${log.name}** ${loadText(log, workout.unit)}: ${repsText(log.sets, log.targetReps, log.timed)}${rirSuffix(log)}"
     }
     return lines.joinToString("\n")
 }

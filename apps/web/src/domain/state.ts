@@ -33,6 +33,11 @@ export interface Settings {
    * it on a tap. Missing means on: states saved before the setting existed have no entry.
    */
   restFullScreen?: boolean
+  /**
+   * A set gets a one-tap rating of its reps in reserve, and a last set with room left doubles the
+   * next weight jump. Missing means on.
+   */
+  trackRir?: boolean
   /** What the voice says during an interval timer. One setting for every timer. */
   timerCalls: TimerCalls
 }

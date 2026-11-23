@@ -1,4 +1,5 @@
 import { computed, reactive, ref, watch } from 'vue'
+import { canRate } from './domain/program'
 import { adjustedRestEnd, restSetLog, type RestSet } from './domain/rest'
 import { state } from './store'
 
@@ -17,6 +18,12 @@ export const rest = reactive({
   /** The rest screen covers the workout. False when it is minimised to the bar. */
   expanded: false,
 })
+
+/**
+ * The last set of an exercise, open on the rest screen without a rest so it can be rated.
+ * Not saved: after a reload the workout shows without it.
+ */
+export const doneSet = ref<RestSet | null>(null)
 
 /** Spoken cues. Recorded once with `scripts/voice.py`. */
 const VOICE_URLS = {
@@ -171,6 +178,7 @@ export function startRest(seconds: number, note: string, set: RestSet): void {
   rest.warned = seconds < WARN_MIN_REST_SECONDS
   rest.set = { ...set }
   rest.expanded = state.settings.restFullScreen !== false
+  doneSet.value = null
   interval ??= setInterval(tick, 250)
   persist()
 }
@@ -197,7 +205,9 @@ export function clearRestNote(): void {
   persist()
 }
 
+/** Ends the rest, and closes the rest screen when it shows a last set instead. */
 export function stopRest(): void {
+  doneSet.value = null
   rest.active = false
   rest.set = null
   rest.expanded = false
@@ -266,6 +276,23 @@ export function minimiseRestScreen(): void {
   persist()
 }
 
+/** The exercise of the last set on the rest screen, while that set is still logged where it was. */
+export const doneLog = computed(() => restSetLog(state.active, doneSet.value))
+
+/**
+ * Opens the rest screen for the last set of an exercise, so it can be rated. Only when ratings and
+ * the full-screen rest are on: with the full screen off, nothing covers the workout by itself.
+ */
+export function openSetDone(set: RestSet): void {
+  const log = restSetLog(state.active, set)
+  if (state.settings.trackRir === false || state.settings.restFullScreen === false) return
+  if (log && canRate(log, set.setIndex)) doneSet.value = { ...set }
+}
+
+export function closeSetDone(): void {
+  doneSet.value = null
+}
+
 restore()
 
 // The set was cleared, its exercise removed or moved, or the workout ended: the rest screen
@@ -280,6 +307,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch(doneLog, (log) => {
+  if (!log) doneSet.value = null
+})
 
 // `click` and not `pointerdown`: a button pressed with the keyboard counts as well.
 window.addEventListener('click', unlockOnTap, { capture: true })

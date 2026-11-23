@@ -4,6 +4,7 @@ import {
   MAX_HOLD_SECONDS,
   MAX_REPS,
   MAX_SETS,
+  rirSuffix,
   setText,
   type Workout,
 } from './program'
@@ -17,7 +18,7 @@ export function durationMinutes(workout: Workout): number | null {
 /**
  * A workout as Markdown for pasting into a chat or a note.
  * A list, not a table: chat apps show lists fine and tables as pipes.
- * Exercises without a logged set are left out.
+ * Exercises without a logged set are left out. Reps in reserve follow the reps when any set has them.
  */
 export function workoutMarkdown(workout: Workout, date: string): string {
   const minutes = durationMinutes(workout)
@@ -25,7 +26,7 @@ export function workoutMarkdown(workout: Workout, date: string): string {
   for (const log of workout.exercises) {
     if (log.sets.every((reps) => reps === null)) continue
     const load = loadText(log.equipment === 'bodyweight', log.weight, workout.unit)
-    lines.push(`- **${log.name}** ${load}: ${repsText(log)}`)
+    lines.push(`- **${log.name}** ${load}: ${repsText(log)}${rirSuffix(log)}`)
   }
   return lines.join('\n')
 }

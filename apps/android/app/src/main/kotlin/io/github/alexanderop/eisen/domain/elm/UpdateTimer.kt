@@ -187,7 +187,8 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         is Msg.Timer.CorrectRounds -> {
             val finished = model.timer as? TimerState.Finished ?: return model.only()
             val session = finished.session
-            if (!countsRoundsByTap(session.config.mode)) return model.only()
+            // Erased or replaced by a backup meanwhile: there is no history entry left to correct.
+            if (!countsRoundsByTap(session.config.mode) || model.state.timerSessions.none { it.id == session.id }) return model.only()
             val corrected = session.copy(rounds = maxOf(0, session.rounds + msg.by))
             if (corrected == session) return model.only()
             // The result and the history entry are the same session.

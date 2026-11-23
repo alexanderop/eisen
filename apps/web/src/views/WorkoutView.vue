@@ -13,6 +13,10 @@ import {
   isComplete,
   isPlateLoaded,
   outcome,
+  rirLine,
+  rirOf,
+  rirSpoken,
+  rirText,
   setText,
   stepFor,
   UNIT_DEFAULTS,
@@ -32,7 +36,7 @@ import {
 } from '../format'
 import { haptic } from '../haptics'
 import { hold, startHold } from '../hold'
-import { startRest, stopRest } from '../rest'
+import { openSetDone, startRest, stopRest } from '../rest'
 import {
   addActiveExercise,
   deferActiveExercise,
@@ -110,6 +114,12 @@ function lastTime(id: string): string | null {
   const plain = log.equipment === 'bodyweight' && log.weight === 0
   const load = plain ? '' : `${fmtLoad(log.equipment, log.weight, then.unit)} · `
   return `${formatShortDate(then.startedAt)}: ${load}${reps}`
+}
+
+/** "RIR – – 2 1 0" after last time's reps, when sets were rated. */
+function lastRir(id: string): string | null {
+  const last = lastLogged(state.history, id)
+  return last ? rirLine(last.log) : null
 }
 
 function toggleWarmup(key: string) {
@@ -245,6 +255,7 @@ function onTap(exerciseIndex: number, setIndex: number) {
   else haptic(outcome(log) === 'success' ? 'success' : 'tap')
   if (reps === null || lastSetLogged(log)) {
     stopRest()
+    if (reps !== null) openSetDone({ exerciseId: log.id, exerciseIndex, setIndex })
     return
   }
   const done = reps === log.targetReps
@@ -261,6 +272,17 @@ function onTap(exerciseIndex: number, setIndex: number) {
  */
 function lastSetLogged(log: ExerciseLog) {
   return log.sets.every((reps) => reps !== null)
+}
+
+function rirBadge(log: ExerciseLog, setIndex: number): string | undefined {
+  const rir = rirOf(log, setIndex)
+  return rir === null ? undefined : rirText(rir)
+}
+
+/** A set as a screen reader says it: "5 reps", "5 reps, 2 in reserve". */
+function repsSpoken(log: ExerciseLog, setIndex: number, reps: number): string {
+  const rir = rirOf(log, setIndex)
+  return rir === null ? `${reps} reps` : `${reps} reps, ${rirSpoken(rir)} in reserve`
 }
 
 function setState(log: ExerciseLog, reps: number | null) {
@@ -388,14 +410,18 @@ onBeforeUnmount(() => clearTimeout(settleTimer))
                   v-for="(reps, j) in log.sets"
                   :key="j"
                   :state="setState(log, reps)"
-                  :aria-label="`${log.name} set ${j + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
+                  :badge="rirBadge(log, j)"
+                  :aria-label="`${log.name} set ${j + 1}: ${reps === null ? 'not logged' : repsSpoken(log, j, reps)}`"
                   @click="onTap(i, j)"
                 >
                   {{ reps ?? log.targetReps ?? lastReps(log.id, j) ?? '+' }}
                 </SetButton>
               </template>
             </div>
-            <p v-if="lastTime(log.id)" class="plates last">Last time, {{ lastTime(log.id) }}</p>
+            <p v-if="lastTime(log.id)" class="plates last">
+              Last time, {{ lastTime(log.id) }}
+              <span v-if="lastRir(log.id)" class="nowrap">· {{ lastRir(log.id) }}</span>
+            </p>
             <p v-if="log.timed" class="plates">
               {{
                 log.targetReps === null
@@ -687,6 +713,11 @@ onBeforeUnmount(() => clearTimeout(settleTimer))
 
 .last {
   color: var(--foreground);
+}
+
+/* The ratings wrap as one, never with a lone "4+" on the next line. */
+.nowrap {
+  white-space: nowrap;
 }
 
 .hint {

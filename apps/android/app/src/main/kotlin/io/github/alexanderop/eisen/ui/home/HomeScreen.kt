@@ -44,6 +44,7 @@ import io.github.alexanderop.eisen.domain.Change
 import io.github.alexanderop.eisen.domain.ChangeKind
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Outcome
+import io.github.alexanderop.eisen.domain.RIR_BOOST_FROM
 import io.github.alexanderop.eisen.domain.WeightUnit
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.WorkoutEvent
@@ -219,7 +220,12 @@ private fun ChangeRow(change: Change, unit: WeightUnit) {
         ChangeKind.REPEAT -> Color.Unspecified
     }
     Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(change.name, modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(change.name)
+            if (change.boosted) {
+                Text("double jump · $RIR_BOOST_FROM+ in reserve", color = EisenColors.MutedForeground, fontSize = 13.sp)
+            }
+        }
         Text(changeText(change.kind), color = EisenColors.MutedForeground)
         Text(fmt(change.to, unit), modifier = Modifier.width(76.dp), color = color, fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
     }

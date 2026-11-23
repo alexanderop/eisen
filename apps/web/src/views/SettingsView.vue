@@ -3,6 +3,7 @@ import {
   Check,
   CircleArrowUp,
   Download,
+  Gauge,
   GitCommitHorizontal,
   Hourglass,
   RefreshCw,
@@ -140,8 +141,8 @@ function pickUnit(unit: Unit) {
   editing.value = null
 }
 
-function toggle(setting: 'sound' | 'haptics' | 'restFullScreen') {
-  // A missing full-screen setting counts as on.
+function toggle(setting: 'sound' | 'haptics' | 'restFullScreen' | 'trackRir') {
+  // A missing full-screen or reps-in-reserve setting counts as on.
   state.settings[setting] = state.settings[setting] === false
   haptic('tap')
   if (setting === 'sound' && state.settings.sound) void previewSound()
@@ -245,6 +246,14 @@ function onReset() {
         trailing="switch"
         :checked="state.settings.restFullScreen !== false"
         @click="toggle('restFullScreen')"
+      />
+      <ListRow
+        :icon="Gauge"
+        label="Track reps in reserve"
+        description="Rate a set with one tap after it. 3 or more left on your last set doubles the next weight jump."
+        trailing="switch"
+        :checked="state.settings.trackRir !== false"
+        @click="toggle('trackRir')"
       />
       <ListRow
         :icon="Volume2"

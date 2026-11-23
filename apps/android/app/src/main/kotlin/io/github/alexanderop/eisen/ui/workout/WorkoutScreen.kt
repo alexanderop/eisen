@@ -170,7 +170,8 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
     val holding = hold?.let { workout.exercises.getOrNull(it.exercise) }
     val restScreen = model.restScreen
     val rest = model.rest
-    val resting = restScreen?.takeIf { !it.minimised && rest != null && hold == null }?.let { workout.exercises.getOrNull(it.exercise) }
+    // The "set done" screen after the last set of an exercise has no rest.
+    val resting = restScreen?.takeIf { !it.minimised && (rest != null || it.setDone) && hold == null }?.let { workout.exercises.getOrNull(it.exercise) }
 
     Box(Modifier.fillMaxSize()) {
         // Under an open hold timer or rest screen the workout is out of reach, for TalkBack too.
@@ -251,6 +252,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
                                             image = findExercise(model, row.log.id)?.image,
                                             settings = settings,
                                             lastTime = lastTime(model.state.history, row.log.id),
+                                            showRir = settings.trackRir,
                                             lastSets = row.log.sets.indices.map { lastReps(model.state.history, row.log.id, it) },
                                             onToggle = { expanded = if (row.log.id in expanded) expanded - row.log.id else expanded + row.log.id },
                                             onEdit = { editing = row.index },
@@ -292,7 +294,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
                 )
             }
         }
-        RestScreenOverlay(if (restScreen != null && rest != null && resting != null) Triple(restScreen, rest, resting) else null, model, dispatch)
+        RestScreenOverlay(if (restScreen != null && resting != null) Triple(restScreen, rest, resting) else null, model, dispatch)
         if (hold != null && holding != null) HoldTimerScreen(hold, holding, model.now, dispatch)
     }
 
@@ -378,7 +380,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
  * one stays on screen while it slides away.
  */
 @Composable
-private fun RestScreenOverlay(shown: Triple<RestScreen, RestState, ExerciseLog>?, model: Model, dispatch: (Msg) -> Unit) {
+private fun RestScreenOverlay(shown: Triple<RestScreen, RestState?, ExerciseLog>?, model: Model, dispatch: (Msg) -> Unit) {
     val last = remember { mutableStateOf(shown) }
     if (shown != null) last.value = shown
     AnimatedVisibility(

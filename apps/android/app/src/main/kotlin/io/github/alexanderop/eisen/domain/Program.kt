@@ -180,6 +180,8 @@ data class ExerciseLog(
     val sets: List<Int?>,
     /** Copied from the exercise: [targetReps] and [sets] count seconds held. */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val timed: Boolean = false,
+    /** Reps in reserve per set, parallel to [sets], see [rirOf]. Not saved while no set is rated. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val rir: List<Int?> = emptyList(),
 )
 
 @Serializable
@@ -197,7 +199,8 @@ enum class Outcome { SUCCESS, FAIL, SKIPPED }
 
 enum class ChangeKind { UP, REPEAT, DELOAD }
 
-data class Change(val id: String, val name: String, val kind: ChangeKind, val from: Double, val to: Double)
+/** [boosted]: the weight went up twice the increment, because the last set had reps to spare. */
+data class Change(val id: String, val name: String, val kind: ChangeKind, val from: Double, val to: Double, val boosted: Boolean = false)
 
 fun createLog(exercise: Exercise, slot: Slot, progress: Progress, unit: WeightUnit) = ExerciseLog(
     id = exercise.id,
@@ -265,8 +268,10 @@ class Progression(val progress: Progress, val changes: List<Change>)
  * Bodyweight and max-reps exercises have no target weight to progress. Weight added to a
  * bodyweight exercise only changes when the lifter changes it. A timed exercise with a weight
  * (a farmer's carry) goes up when every hold lasted its time.
+ * With [trackRir], a last set rated [RIR_BOOST_FROM] or more in reserve makes the jump [RIR_BOOST_FACTOR] times
+ * as big. It only ever adds: a missed target stays a miss however the sets were rated.
  */
-fun applyProgression(progress: Progress, workout: Workout, bar: Double): Progression {
+fun applyProgression(progress: Progress, workout: Workout, bar: Double, trackRir: Boolean = true): Progression {
     val next = progress.toMutableMap()
     val changes = mutableListOf<Change>()
 
@@ -277,9 +282,10 @@ fun applyProgression(progress: Progress, workout: Workout, bar: Double): Progres
         if (result == Outcome.SKIPPED) continue
 
         if (result == Outcome.SUCCESS) {
-            val to = log.weight + entry.increment
+            val boosted = trackRir && boosts(log)
+            val to = log.weight + entry.increment * (if (boosted) RIR_BOOST_FACTOR else 1)
             next[log.id] = entry.copy(weight = to, fails = 0)
-            changes += Change(log.id, log.name, ChangeKind.UP, log.weight, to)
+            changes += Change(log.id, log.name, ChangeKind.UP, log.weight, to, boosted)
             continue
         }
 

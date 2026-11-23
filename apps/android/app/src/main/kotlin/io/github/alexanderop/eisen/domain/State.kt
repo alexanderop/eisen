@@ -28,6 +28,8 @@ data class Settings(
     val restFullScreen: Boolean = true,
     /** What the voice of the interval timers says. One setting for all of them. */
     val timerCalls: TimerCalls = DEFAULT_TIMER_CALLS,
+    /** The rest screen asks for the reps in reserve after a set, and a high rating doubles the next weight jump. */
+    val trackRir: Boolean = true,
 )
 
 /** The same shape the PWA stores and exports, so a backup moves between the two apps. */

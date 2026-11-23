@@ -8,8 +8,10 @@ import {
   HOLD_STEP_SECONDS,
   MAX_HELD_SECONDS,
   nextReps,
+  rirLine,
   setText,
   stepFor,
+  withReps,
   type ExerciseLog,
   type Workout,
 } from '../domain/program'
@@ -64,9 +66,16 @@ function edit(workout: Workout) {
   draft.value = structuredClone(toRaw(workout))
 }
 
-function onTap(log: ExerciseLog, setIndex: number) {
-  if (log.targetReps === null) return
-  log.sets[setIndex] = nextReps(log.sets[setIndex], log.targetReps)
+/** Changing the reps of a set keeps its reps in reserve, clearing the set clears them. */
+function setReps(logIndex: number, setIndex: number, reps: number | null) {
+  const log = draft.value?.exercises[logIndex]
+  if (log && draft.value) draft.value.exercises[logIndex] = withReps(log, setIndex, reps)
+}
+
+function onTap(logIndex: number, setIndex: number) {
+  const log = draft.value?.exercises[logIndex]
+  if (!log || log.targetReps === null) return
+  setReps(logIndex, setIndex, nextReps(log.sets[setIndex], log.targetReps))
   haptic('tap')
 }
 
@@ -153,6 +162,7 @@ function save() {
                 >{{ reps === null ? '–' : setText(log.timed, reps) }}</span
               >
             </span>
+            <span v-if="rirLine(log)" class="rir">{{ rirLine(log) }}</span>
           </li>
         </ul>
       </Card>
@@ -163,7 +173,7 @@ function save() {
     <p class="muted meta">
       {{ formatDate(draft.startedAt) }}. This corrects the log. Your next weights stay as they are.
     </p>
-    <section v-for="log in draft.exercises" :key="log.id" class="edit">
+    <section v-for="(log, logIndex) in draft.exercises" :key="log.id" class="edit">
       <div class="row">
         <h3>{{ log.name }}</h3>
         <Stepper
@@ -189,7 +199,7 @@ function save() {
           :key="index"
           :state="setState(log, reps)"
           :aria-label="`${log.name} set ${index + 1}: ${reps === null ? 'not logged' : `${reps} reps`}`"
-          @click="onTap(log, index)"
+          @click="onTap(logIndex, index)"
         >
           {{ reps ?? log.targetReps }}
         </SetButton>
@@ -203,7 +213,7 @@ function save() {
             :max="log.timed ? MAX_HELD_SECONDS : undefined"
             :label="`${log.name} set ${index + 1} ${log.timed ? 'hold' : 'reps'}`"
             :format="setFormat(log)"
-            @update:model-value="log.sets[index] = $event === 0 ? null : $event"
+            @update:model-value="setReps(logIndex, index, $event === 0 ? null : $event)"
           />
         </div>
       </template>
@@ -323,5 +333,15 @@ li strong {
 
 .reps .missed {
   color: var(--warn);
+}
+
+/* Under the reps: in their row it would squeeze the name on a narrow phone. */
+.rir {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted-foreground);
 }
 </style>

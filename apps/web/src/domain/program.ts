@@ -181,6 +181,11 @@ export interface ExerciseLog {
   sets: (number | null)[]
   /** Copied from the exercise: target and sets are seconds held. Left out when false. */
   timed?: boolean
+  /**
+   * Reps in reserve per set, parallel to `sets`: 0 to 4, where 4 means "four or more".
+   * null or no entry = not rated. Left out until a set is rated.
+   */
+  rir?: (number | null)[]
 }
 
 export interface Workout {
@@ -201,6 +206,84 @@ export interface Change {
   kind: 'up' | 'repeat' | 'deload'
   from: number
   to: number
+  /** The last set had reps in reserve, so the weight went up twice the increment. Left out otherwise. */
+  boosted?: boolean
+}
+
+/** The highest rating: "four or more". */
+export const MAX_RIR = 4
+/** A last set with this many reps or more in reserve doubles the next weight jump. */
+export const RIR_BOOST_FROM = 3
+export const RIR_BOOST_FACTOR = 2
+
+/**
+ * Only a logged set with a rep target can be rated. A max-reps set goes to failure by definition,
+ * and a hold has no reps to have left.
+ */
+export function canRate(log: ExerciseLog, setIndex: number): boolean {
+  const reps = log.sets[setIndex]
+  return log.targetReps !== null && !log.timed && reps !== null && reps !== undefined
+}
+
+export function rirOf(log: ExerciseLog, setIndex: number): number | null {
+  return log.rir?.[setIndex] ?? null
+}
+
+/** The log with one set rated, or unrated with null. A set that cannot be rated stays as it is. */
+export function withRir(log: ExerciseLog, setIndex: number, rir: number | null): ExerciseLog {
+  if (rir !== null && !canRate(log, setIndex)) return log
+  const value = rir === null ? null : Math.min(MAX_RIR, Math.max(0, Math.round(rir)))
+  const ratings = Array.from(
+    { length: Math.max(log.rir?.length ?? 0, setIndex + 1) },
+    (_, index) => (index === setIndex ? value : (log.rir?.[index] ?? null)),
+  )
+  const { rir: _, ...rest } = log
+  return ratings.some((entry) => entry !== null) ? { ...rest, rir: ratings } : rest
+}
+
+/** The log with one set's count changed. A cleared set loses its rating, a corrected one keeps it. */
+export function withReps(log: ExerciseLog, setIndex: number, reps: number | null): ExerciseLog {
+  const next = { ...log, sets: log.sets.map((value, index) => (index === setIndex ? reps : value)) }
+  return reps === null ? withRir(next, setIndex, null) : next
+}
+
+/** A rating as text: "0" to "3", and "4+". */
+export function rirText(rir: number): string {
+  return rir >= MAX_RIR ? `${MAX_RIR}+` : String(rir)
+}
+
+/** What a screen reader says for a rating: "2", or "4 or more". */
+export function rirSpoken(rir: number): string {
+  return rir >= MAX_RIR ? `${MAX_RIR} or more` : String(rir)
+}
+
+/** "RIR 2 2 1 0", with "–" for a set not rated. Null when no set is rated. */
+export function rirLine(log: ExerciseLog): string | null {
+  const ratings = log.sets.map((_, index) => rirOf(log, index))
+  if (ratings.every((rir) => rir === null)) return null
+  return `RIR ${ratings.map((rir) => (rir === null ? '–' : rirText(rir))).join(' ')}`
+}
+
+/** " · RIR 2 2 1 0" to put after the reps. Empty when no set is rated. */
+export function rirSuffix(log: ExerciseLog): string {
+  const line = rirLine(log)
+  return line === null ? '' : ` · ${line}`
+}
+
+/** The set logged last in order: the highest one with reps. Null when none is. */
+function lastLoggedSet(log: ExerciseLog): number | null {
+  const index = log.sets.findLastIndex((reps) => reps !== null)
+  return index === -1 ? null : index
+}
+
+/**
+ * Reps in reserve are judged best close to failure and on later sets, so only the last set counts,
+ * and it can only add to a jump, never take one away.
+ */
+function boosted(log: ExerciseLog): boolean {
+  const last = lastLoggedSet(log)
+  if (last === null || !canRate(log, last)) return false
+  return (rirOf(log, last) ?? 0) >= RIR_BOOST_FROM
 }
 
 export function createLog(
@@ -305,11 +388,13 @@ export function totalReps(log: ExerciseLog): number {
  * Missed reps -> repeat the weight. Three misses in a row -> drop 10%.
  * Bodyweight and max-reps exercises have no target weight to progress.
  * Weight added to a bodyweight exercise only changes when the lifter changes it.
+ * With `trackRir`, a last set with 3 or more reps in reserve doubles the jump.
  */
 export function applyProgression(
   progress: Progress,
   workout: Workout,
   bar: number,
+  trackRir = true,
 ): { progress: Progress; changes: Change[] } {
   const next: Progress = { ...progress }
   const changes: Change[] = []
@@ -322,9 +407,10 @@ export function applyProgression(
     if (result === 'skipped') continue
 
     if (result === 'success') {
-      const to = log.weight + entry.increment
+      const boost = trackRir && boosted(log)
+      const to = log.weight + entry.increment * (boost ? RIR_BOOST_FACTOR : 1)
       next[id] = { ...entry, weight: to, fails: 0 }
-      changes.push({ id, name, kind: 'up', from: log.weight, to })
+      changes.push({ id, name, kind: 'up', from: log.weight, to, ...(boost ? { boosted: true } : {}) })
       continue
     }
 

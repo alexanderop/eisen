@@ -140,6 +140,7 @@ sealed interface Msg {
         data class SetSound(val on: Boolean) : Settings
         data class SetHaptics(val on: Boolean) : Settings
         data class SetRestFullScreen(val on: Boolean) : Settings
+        data class SetTrackRir(val on: Boolean) : Settings
 
         /** Discarding a workout puts an increment changed during it back. */
         data class SetIncrement(val id: String, val increment: Double) : Settings
@@ -280,11 +281,20 @@ sealed interface Msg {
         /** "+15s" on the rest screen, counted from now once the rest is over, like [Extend]. */
         data object Lengthen : Rest
 
-        /** The rest screen is swiped down, closed with its chevron or the back gesture. The rest goes on in the bar. */
+        /**
+         * The rest screen is swiped down, closed with its chevron or the back gesture. The rest goes on in the bar.
+         * The "set done" screen has no rest to go on: it closes, as with its "Done".
+         */
         data object Minimise : Rest
 
         /** A tap on the rest bar brings the minimised rest screen back. */
         data object Open : Rest
+
+        /**
+         * [RATED_CLOSE_MS] after a chip on the "set done" [screen] rated its set [rir]: it closes. Not when the
+         * lifter changed the rating meanwhile, whose own wait counts, or the screen is gone.
+         */
+        data class Rated(val screen: RestScreen, val rir: Int) : Rest
 
         /** The "ten seconds left" alarm. */
         data object AlarmTen : Rest

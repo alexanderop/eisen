@@ -6,6 +6,8 @@ const PATTERNS = {
   tap: 10,
   /** One step on a stepper. */
   step: 6,
+  /** A set rated with its reps in reserve. */
+  rate: 8,
   /** A set logged with reps missed. */
   warning: [30, 80, 30],
   /** Every set of an exercise done with all reps. */

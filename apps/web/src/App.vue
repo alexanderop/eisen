@@ -6,7 +6,7 @@ import TimerScreen from './components/TimerScreen.vue'
 import UpdatePrompt from './components/UpdatePrompt.vue'
 import { sharedFromHash } from './domain/share'
 import { hold } from './hold'
-import { minimiseRestScreen, restScreenOpen } from './rest'
+import { closeSetDone, doneLog, minimiseRestScreen, restScreenOpen } from './rest'
 import { state } from './store'
 import { timer } from './timer'
 import HistoryView from './views/HistoryView.vue'
@@ -43,7 +43,10 @@ const tab = ref<Tab>('home')
 /** Reopen an unfinished workout after a reload or after the phone closed the app. */
 const workoutOpen = ref(state.active !== null)
 const showWorkout = computed(() => workoutOpen.value && state.active !== null)
-const showRest = computed(() => showWorkout.value && restScreenOpen.value)
+/** The rest screen also opens after an exercise's last set, without a rest, to rate that set. */
+const showRest = computed(
+  () => showWorkout.value && (restScreenOpen.value || doneLog.value !== null),
+)
 /** A running interval timer or its result covers everything, the workout included. */
 const showTimer = computed(() => timer.run !== null || timer.result !== null)
 const timerScreen = ref<InstanceType<typeof TimerScreen>>()
@@ -110,6 +113,7 @@ function onPopState() {
     return
   }
   minimiseRestScreen()
+  closeSetDone()
   // Back from the rest screen's entry lands on the workout's: the workout stays.
   if (!isWorkoutEntry()) workoutOpen.value = false
 }

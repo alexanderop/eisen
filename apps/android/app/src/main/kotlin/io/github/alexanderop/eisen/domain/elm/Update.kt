@@ -8,6 +8,8 @@ import io.github.alexanderop.eisen.domain.MAX_HELD_SECONDS
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.active
+import io.github.alexanderop.eisen.domain.canRate
+import io.github.alexanderop.eisen.domain.rirOf
 import io.github.alexanderop.eisen.domain.order
 import io.github.alexanderop.eisen.domain.transition
 
@@ -138,6 +140,14 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
                 next = stopped
                 cmds += more
             }
+            // No rest after the last set. The screen still opens, without a clock, to rate that set.
+            is Effect.LastSet -> {
+                val log = next.session.active?.exercises?.getOrNull(effect.exercise)
+                val settings = next.state.settings
+                if (log != null && settings.trackRir && settings.restFullScreen && canRate(log, effect.set) && next.timer !is TimerState.Running) {
+                    next = next.copy(restScreen = RestScreen(effect.exercise, effect.set, log.id, setDone = true))
+                }
+            }
             is Effect.Haptic -> if (next.state.settings.haptics) cmds += Cmd.Ui(UiEvent.Haptic(effect.kind))
             is Effect.AskReps -> next = next.copy(repsQuestion = RepsQuestion(effect.exercise, effect.set, effect.reps))
             is Effect.OpenHold -> {
@@ -166,8 +176,16 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
             }
         }
     }
+    // A chip on the "set done" screen closes it a moment later, so the lifter sees the choice land.
+    val screen = next.restScreen
+    if (event is WorkoutEvent.RateSet && event.rir != null && screen != null && screen.setDone && screen.exercise == event.exercise && screen.set == event.set) {
+        cmds += Cmd.After(RATED_CLOSE_MS, Msg.Rest.Rated(screen, event.rir))
+    }
     return next and cmds
 }
+
+/** How long the "set done" screen stays after a rating. */
+const val RATED_CLOSE_MS = 400L
 
 /**
  * How long the exercise tapped last holds its place before it rises to the top (or sinks, once
@@ -192,8 +210,8 @@ private fun touch(event: WorkoutEvent, model: Model, env: Env): Next {
         is WorkoutEvent.LogReps -> logs?.getOrNull(event.exercise)
         is WorkoutEvent.LogHold -> logs?.getOrNull(event.exercise)
         // Listed one by one, so a new event does not compile until it says whether it settles an exercise.
-        // A correction from the rest screen changes no set from open to logged, so nothing moves.
-        WorkoutEvent.Start, is WorkoutEvent.CorrectReps, is WorkoutEvent.SetWeight, is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise,
+        // A correction or a rating from the rest screen changes no set from open to logged, so nothing moves.
+        WorkoutEvent.Start, is WorkoutEvent.CorrectReps, is WorkoutEvent.RateSet, is WorkoutEvent.SetWeight, is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise,
         is WorkoutEvent.RemoveExercise, is WorkoutEvent.Defer, is WorkoutEvent.Move, is WorkoutEvent.Rise,
         WorkoutEvent.RequestFinish, WorkoutEvent.RequestDiscard, WorkoutEvent.Confirm, WorkoutEvent.Cancel,
         WorkoutEvent.Undo, WorkoutEvent.Forget,
@@ -403,7 +421,15 @@ private fun rest(msg: Msg.Rest, model: Model, env: Env): Next {
         }
         Msg.Rest.Minimise -> {
             val screen = model.restScreen
-            if (screen == null || screen.minimised) model.only() else model.copy(restScreen = screen.copy(minimised = true)).only()
+            when {
+                screen == null || screen.minimised -> model.only()
+                screen.setDone -> model.copy(restScreen = null).only()
+                else -> model.copy(restScreen = screen.copy(minimised = true)).only()
+            }
+        }
+        is Msg.Rest.Rated -> {
+            val log = model.session.active?.exercises?.getOrNull(msg.screen.exercise)
+            if (model.restScreen == msg.screen && log != null && rirOf(log, msg.screen.set) == msg.rir) model.copy(restScreen = null).only() else model.only()
         }
         Msg.Rest.Open -> {
             val screen = model.restScreen
