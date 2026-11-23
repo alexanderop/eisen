@@ -1,10 +1,11 @@
-import { computed, reactive, ref, toRaw } from 'vue'
+import { computed, reactive, ref, shallowRef, toRaw } from 'vue'
+import { boxingView } from './domain/boxing'
+import { combosCalled, runSeed } from './domain/boxingScreens'
 import {
   activeTime,
   MAX_OPEN_TIMER_SECONDS,
   splitTime,
   TIMER_LEAD_IN_SECONDS,
-  TIMER_MODES,
   timerConfig,
   timerCues,
   timerSeconds,
@@ -15,6 +16,7 @@ import {
   type TimerRun,
   type TimerSession,
 } from './domain/timer'
+import { restoredRun } from './domain/timerScreens'
 import { wod, wodDone, wodName, type Wod } from './domain/wod'
 import { endsRound, restCues, runRest, undoneRun } from './domain/wodScreens'
 import { haptic } from './haptics'
@@ -39,6 +41,8 @@ export const timer = reactive({
   restored: false,
   /** The audio clock runs, so the cues can be heard. */
   sound: false,
+  /** Combinations the coach called in the run that just ended. Null for other timers. */
+  resultCombos: null as number | null,
 })
 
 const TIMER_KEY = 'eisen:timer'
@@ -52,6 +56,16 @@ let interval: ReturnType<typeof setInterval> | undefined
 
 export const timerActive = computed(() => (timer.run ? activeTime(timer.run, now.value) : 0))
 export const timerNow = computed(() => (timer.run ? timerView(timer.run.config, timerActive.value) : null))
+
+/** Every sound of the running timer, for the screen to show what the coach said. */
+export const timerCuesShown = shallowRef<TimerCue[]>([])
+
+/** What a boxing run shows now: worked out from the very cues that are played. */
+export const timerBoxing = computed(() => {
+  const run = timer.run
+  if (!run || run.config.mode !== 'boxing') return null
+  return boxingView(run.config, timerCuesShown.value, timerActive.value)
+})
 
 // Sounds
 
@@ -213,13 +227,16 @@ function unlock(): void {
   })
 }
 
-/** Says "Halfway" once, so the lifter can set the volume. A beep when there is no recording. */
-export async function playSample(): Promise<void> {
+/**
+ * Plays one recording now: "Halfway", so the lifter can set the volume, or a combination of the
+ * coach. A beep when there is no recording.
+ */
+export async function playSample(sound = 'halfway'): Promise<void> {
   unlock()
   const audio = context!
-  await decode(['halfway'])
+  await decode([sound])
   const when = audio.currentTime + 0.05
-  if (!play(audio, 'halfway', when)) tone(audio, when, 1320, 0.5)
+  if (!play(audio, sound, when)) tone(audio, when, 1320, 0.5)
 }
 
 // The run
@@ -239,9 +256,11 @@ function endsAt(run: TimerRun): number {
   return run.startedAt + run.paused + (TIMER_LEAD_IN_SECONDS + seconds) * 1000
 }
 
-/** Files the run into the history, or not, and closes it. */
-function close(session: TimerSession | null): void {
+/** Files the run into the history, or not, and closes it. `now` is the moment it ended. */
+function close(session: TimerSession | null, now: number): void {
+  const run = timer.run
   if (session) addTimerSession(session)
+  timer.resultCombos = session && run?.config.mode === 'boxing' ? combosCalled(cues, activeTime(run, now)) : null
   timer.result = session
   timer.resultWod = session ? (timer.run?.wod ?? null) : null
   timer.undo = null
@@ -265,7 +284,7 @@ function tick(): void {
     const end = endsAt(run)
     if (now.value - end < LATE_MS) haptic('timerEnd')
     // The voice still says "Workout complete" over the result: what is on the audio clock stays.
-    close(timerSession(run, end, true))
+    close(timerSession(run, end, true), end)
     return
   }
   const step = `${view.phase}:${view.round}`
@@ -282,7 +301,8 @@ function tick(): void {
 }
 
 function begin(): void {
-  cues = timerCues(timer.run!.config, timer.run!.calls)
+  cues = timerCues(timer.run!.config, timer.run!.calls, timer.run!.seed)
+  timerCuesShown.value = cues
   restSounds = restCues(timer.run!)
   scheduled.clear()
   lastStep = ''
@@ -302,16 +322,19 @@ function start(config: TimerConfig, name: string, workout?: Wod): void {
   timer.undo = null
   timer.restored = false
   lastTap = 0
+  const normal = timerConfig(config)
+  const seed = runSeed(normal)
   timer.run = {
     id: newId(),
     name,
-    config: timerConfig(config),
+    config: normal,
     calls: { ...state.settings.timerCalls },
     startedAt: Date.now(),
     pausedAt: null,
     paused: 0,
     taps: 0,
     ...(workout ? { wod: workout, splits: [] } : {}),
+    ...(seed === undefined ? {} : { seed }),
   }
   begin()
   persist()
@@ -424,7 +447,8 @@ export function finishTimer(): void {
   if (!run) return
   silence(true)
   haptic('timerEnd')
-  close(timerSession(run, Date.now(), true))
+  const now = Date.now()
+  close(timerSession(run, now, true), now)
 }
 
 /** Ends the run early. Saved it goes into the history as stopped early. Nothing is saved from the lead-in. */
@@ -432,11 +456,13 @@ export function endTimer(save: boolean): void {
   const run = timer.run
   if (!run) return
   silence(true)
-  close(save ? timerSession(run, Date.now(), false) : null)
+  const now = Date.now()
+  close(save ? timerSession(run, now, false) : null, now)
 }
 
 export function dismissResult(): void {
   timer.result = null
+  timer.resultCombos = null
   timer.undo = null
 }
 
@@ -465,44 +491,18 @@ export function undoFinish(): void {
   persist()
 }
 
-function isSplits(value: unknown, taps: number): value is number[] {
-  return Array.isArray(value) && value.length === taps && value.every((split) => typeof split === 'number')
-}
-
-function isTimerRun(value: unknown): value is TimerRun {
-  const run = value as Partial<TimerRun> | null
-  return (
-    typeof run?.id === 'string' &&
-    typeof run.name === 'string' &&
-    typeof run.startedAt === 'number' &&
-    (run.pausedAt === null || typeof run.pausedAt === 'number') &&
-    typeof run.paused === 'number' &&
-    typeof run.taps === 'number' &&
-    typeof run.calls === 'object' &&
-    run.calls !== null &&
-    TIMER_MODES.includes(run.config?.mode as TimerRun['config']['mode'])
-  )
-}
-
 /** Picks the run up after a reload, or files it when it ran out while the app was closed. */
 function restore(): void {
   try {
-    const saved: unknown = JSON.parse(localStorage.getItem(TIMER_KEY) ?? 'null')
-    if (!isTimerRun(saved)) {
+    const run = restoredRun(JSON.parse(localStorage.getItem(TIMER_KEY) ?? 'null'))
+    if (!run) {
       localStorage.removeItem(TIMER_KEY)
       return
     }
-    const { wod: workout, splits, restSkipped, ...rest } = saved
-    const isWod = workout && Array.isArray(workout.items)
-    timer.run = {
-      ...rest,
-      config: timerConfig(saved.config),
-      ...(isWod ? { wod: wod(workout) } : {}),
-      ...(isWod && isSplits(splits, saved.taps) ? { splits } : {}),
-      ...(typeof restSkipped === 'number' ? { restSkipped } : {}),
-    }
+    timer.run = run
     timer.restored = true
     begin()
+    persist()
   } catch {
     // Unreadable timer data: start without a timer.
   }

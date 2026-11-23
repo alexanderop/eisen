@@ -46,7 +46,16 @@ fun update(msg: Msg, model: Model, env: Env): Next {
         is Msg.Hold -> hold(msg, model, env)
         is Msg.Timer -> timer(msg, model, env)
         is Msg.Wods -> wods(msg, model, env)
-        is Msg.Rest -> rest(msg, model, env)
+        is Msg.Rest -> {
+            val (answered, cmds) = rest(msg, model, env)
+            // A run that waited for the notification question starts with its answer.
+            if (msg is Msg.Rest.NotificationPermission && answered.pendingStart != null) {
+                val (started, more) = startPending(answered, env)
+                started to cmds + more
+            } else {
+                answered to cmds
+            }
+        }
         is Msg.Health -> health(msg, model)
         is Msg.App -> app(msg, model, env)
     }
@@ -287,7 +296,7 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
         Msg.Nav.CloseRoutine -> nav.copy(routine = null)
         // The interval timer over everything asks before it ends, its result goes back to the Timer tab.
         // A hold timer closes first, without logging, and the rest screen goes down to the bar. Then the
-        // workout (it keeps running), then the routine editor or the timer's setup, then any tab goes home.
+        // workout (it keeps running), then the routine editor, a boxing round's sheet or the timer's setup, then any tab goes home.
         Msg.Nav.Back -> when {
             model.timer is TimerState.Running -> return timer(if ((model.timer as TimerState.Running).ending) Msg.Timer.KeepGoing else Msg.Timer.End, model, env)
             model.timer is TimerState.Finished -> return timer(Msg.Timer.Done, model, env)
@@ -295,6 +304,7 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
+            nav.tab == Tab.TIMER && model.timerSetup?.round != null -> return timer(Msg.Timer.CloseRound, model, env)
             nav.tab == Tab.TIMER && model.timerSetup != null -> return timer(Msg.Timer.CloseSetup, model, env)
             // The builder asks before it loses changes; the detail goes back to the list.
             nav.tab == Tab.TIMER && nav.timerPage == TimerPage.WODS && model.wods.draft != null -> return wods(Msg.Wods.Leave, model, env)

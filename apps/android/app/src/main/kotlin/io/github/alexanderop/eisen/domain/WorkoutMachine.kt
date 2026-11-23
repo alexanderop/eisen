@@ -194,11 +194,12 @@ sealed interface Effect {
 data class Transition(val session: Session, val state: AppState, val effects: List<Effect> = emptyList())
 
 /**
- * What `update` and a transition need from outside: the clock and new ids. Elm would ask for both
- * with a Cmd and get the answer back as a Msg. Here the runtime passes them in with every Msg:
+ * What `update` and a transition need from outside: the clock, new ids and random seeds. Elm would ask
+ * for them with a Cmd and get the answer back as a Msg. Here the runtime passes them in with every Msg:
  * one value instead of a round trip, and `update` stays pure because a test passes its own.
+ * [newSeed] gives a number from 0 to [Int.MAX_VALUE]; a test that does not pass one gets one made of the clock.
  */
-class Env(val now: Long, val newId: () -> String)
+class Env(val now: Long, val newSeed: () -> Int = { (now xor (now ushr 29)).toInt() and Int.MAX_VALUE }, val newId: () -> String)
 
 fun transition(session: Session, state: AppState, event: WorkoutEvent, env: Env): Transition {
     val next = when {

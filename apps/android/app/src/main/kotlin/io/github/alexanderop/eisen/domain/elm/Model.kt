@@ -1,6 +1,8 @@
 package io.github.alexanderop.eisen.domain.elm
 
 import io.github.alexanderop.eisen.domain.AppState
+import io.github.alexanderop.eisen.domain.BoxingPlan
+import io.github.alexanderop.eisen.domain.BoxingRound
 import io.github.alexanderop.eisen.domain.Change
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.Slot
@@ -49,6 +51,10 @@ data class Model(
     val timerSetup: TimerSetup? = null,
     /** A running interval timer, or the result of the one that just ended. Shown over everything else. */
     val timer: TimerState? = null,
+    /** Boxing: the rounds the lifter took off the end of the mode's setup, kept while the process lives. */
+    val boxingRemoved: List<BoxingRound> = emptyList(),
+    /** Start was tapped before the app ever asked to show notifications: the run starts once that is answered. */
+    val pendingStart: PendingStart? = null,
     /** The WODs page of the Timer tab: the filter of the benchmarks, the WOD open in its detail and the builder. */
     val wods: WodsModel = WodsModel(),
     val nav: Navigation = Navigation(workoutOpen = state.active != null),
@@ -114,8 +120,28 @@ data class Settling(val id: String, val since: Long)
  * The setup of an interval timer: the numbers on its wheels, not yet started. [presetId] is the saved
  * timer it was opened from or saved as, which "Update preset" overwrites with [config] and [name],
  * the name as it is being typed.
+ *
+ * A boxing setup also edits the plan in [config]: [round] is the round whose sheet is open,
+ * [beforeTemplate] the plan the last template replaced, which its Undo brings back, and [copied] says
+ * "Copied to all 6 rounds" in the open sheet until something else changes.
  */
-data class TimerSetup(val config: TimerConfig, val presetId: String? = null, val name: String = "")
+data class TimerSetup(
+    val config: TimerConfig,
+    val presetId: String? = null,
+    val name: String = "",
+    val round: Int? = null,
+    val beforeTemplate: BoxingPlan? = null,
+    val copied: Boolean = false,
+    /** Boxing: when the template of [beforeTemplate] was applied; its Undo goes a few seconds later. */
+    val templateAt: Long? = null,
+    /** Boxing: the rounds taken off the end by a lower number of rounds, which a higher one brings back. */
+    val removed: List<BoxingRound> = emptyList(),
+    /** Boxing: the combination "Listen" played last in the round sheet, shown by name. */
+    val heard: String? = null,
+)
+
+/** A run that waits for the answer to the notification question, see [Model.pendingStart]. */
+data class PendingStart(val config: TimerConfig, val name: String, val wod: Wod? = null)
 
 /** The interval timer over everything else: running, or its result. Never both. */
 sealed interface TimerState {
@@ -129,8 +155,9 @@ sealed interface TimerState {
      * The result of the run that ended, with "Done" and "Again". [wod]: the WOD it was a run of, as it ran.
      * [undo]: the run as it was when its last tap stopped the clock, so "Not finished? Undo" can take
      * that tap back and let it go on. [at]: when it showed; taps right after it are the thumb still on the button.
+     * [combos]: the combinations a boxing run called up to where it ended, null for the other modes.
      */
-    data class Finished(val session: TimerSession, val wod: Wod? = null, val undo: TimerRun? = null, val at: Long = 0) : TimerState
+    data class Finished(val session: TimerSession, val wod: Wod? = null, val undo: TimerRun? = null, val at: Long = 0, val combos: Int? = null) : TimerState
 }
 
 /** The two pages of the Timer tab, switched at its top. */

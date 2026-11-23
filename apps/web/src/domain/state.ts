@@ -11,6 +11,8 @@ import {
   DEFAULT_TIMER_CALLS,
   DEFAULT_TIMERS,
   TIMER_MODES,
+  timerConfig,
+  WOD_MODES,
   type TimerCalls,
   type TimerConfig,
   type TimerMode,
@@ -45,7 +47,7 @@ export interface Settings {
 }
 
 export interface AppState {
-  version: 8
+  version: 9
   settings: Settings
   /**
    * Working weight per exercise id. A bodyweight exercise has an entry only while weight is
@@ -83,7 +85,7 @@ function catalogProgress(ids: readonly string[], unit: Unit): Progress {
 export function freshState(unit: Unit = 'kg'): AppState {
   const routines = defaultRoutines()
   return {
-    version: 8,
+    version: 9,
     settings: {
       unit,
       bar: UNIT_DEFAULTS[unit].bar,
@@ -237,6 +239,12 @@ export function migrate(value: unknown): unknown {
     data = { ...data, version: 8, wods: [] }
   }
 
+  // Version 9 added the boxing timer.
+  if (data.version === 8) {
+    const configs = isObject(data.timerConfigs) ? data.timerConfigs : {}
+    data = { ...data, version: 9, timerConfigs: { ...configs, boxing: structuredClone(DEFAULT_TIMERS.boxing) } }
+  }
+
   return data
 }
 
@@ -255,7 +263,7 @@ function fiveDeadliftSets(routine: unknown): unknown {
 export function isAppState(value: unknown): value is AppState {
   return (
     isObject(value) &&
-    value.version === 8 &&
+    value.version === 9 &&
     Array.isArray(value.history) &&
     Array.isArray(value.timerPresets) &&
     Array.isArray(value.timerSessions) &&
@@ -286,7 +294,7 @@ export function cleanWods(list: unknown[]): Wod[] {
       typeof entry.id !== 'string' ||
       typeof entry.name !== 'string' ||
       !isObject(entry.timer) ||
-      !TIMER_MODES.includes(entry.timer.mode as TimerMode) ||
+      !WOD_MODES.includes(entry.timer.mode as TimerMode) ||
       !Array.isArray(entry.items) ||
       isLibraryWod(entry.id) ||
       wods.some((other) => other.id === entry.id)
@@ -316,4 +324,22 @@ export function cleanWods(list: unknown[]): Wod[] {
     )
   }
   return wods
+}
+
+/**
+ * The timers of a stored state or a backup in their limits: every mode has the config it opens
+ * with, and a saved timer's plan has one round per round. Finished runs stay as they were.
+ */
+export function cleanTimers(data: AppState): Pick<AppState, 'timerConfigs' | 'timerPresets'> {
+  const configs = { ...DEFAULT_TIMERS }
+  for (const mode of TIMER_MODES) {
+    const stored = data.timerConfigs[mode] as TimerConfig | undefined
+    configs[mode] = timerConfig(isObject(stored) && stored.mode === mode ? stored : DEFAULT_TIMERS[mode])
+  }
+  return {
+    timerConfigs: configs,
+    timerPresets: data.timerPresets.map((preset) =>
+      TIMER_MODES.includes(preset.config?.mode) ? { ...preset, config: timerConfig(preset.config) } : preset,
+    ),
+  }
 }

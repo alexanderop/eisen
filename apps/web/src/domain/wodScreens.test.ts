@@ -592,7 +592,7 @@ describe('migrate to version 8', () => {
     const { wods: _, ...v7 } = { ...freshState('kg'), version: 7, nextRoutineId: 'B' }
     const migrated = migrate(structuredClone(v7))
     if (!isAppState(migrated)) throw new Error('not a valid state')
-    expect(migrated.version).toBe(8)
+    expect(migrated.version).toBe(9)
     expect(migrated.wods).toEqual([])
     expect(migrated.nextRoutineId).toBe('B')
   })

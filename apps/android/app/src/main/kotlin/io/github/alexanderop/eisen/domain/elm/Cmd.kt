@@ -82,8 +82,8 @@ sealed interface Cmd {
     /** Keeps the page of the Timer tab in an Android preference, see [Navigation.timerPage]. */
     data class SaveTimerPage(val page: TimerPage) : Cmd
 
-    /** Plays one sound of the timers now, the way a run would. */
-    data class PlayTimerSound(val sound: String) : Cmd
+    /** Plays one sound of the timers now, the way a run would. [fallback] plays instead when [sound] is not recorded. */
+    data class PlayTimerSound(val sound: String, val fallback: String? = null) : Cmd
 
     /** Something the screen shows or does once. See [UiEvent]. */
     data class Ui(val event: UiEvent) : Cmd

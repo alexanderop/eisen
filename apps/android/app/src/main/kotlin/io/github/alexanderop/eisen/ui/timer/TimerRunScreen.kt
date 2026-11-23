@@ -42,6 +42,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -132,11 +133,14 @@ import kotlin.math.ceil
 /** The height of a line of the round card with its picture: the 40dp tile and a little air. */
 private val PictureRow = 44.dp
 
+/** The End sheet ignores taps this long after it opens. */
+private const val END_SHEET_GUARD_MS = 600L
+
 /** How long "Hold to finish" has to be held. */
 private const val HOLD_TO_FINISH_MS = 700
 
 /** The colour of a phase, told apart from across the room. A paused run is grey. */
-private fun phaseColor(phase: TimerPhase, paused: Boolean): Color = when {
+internal fun phaseColor(phase: TimerPhase, paused: Boolean): Color = when {
     paused -> EisenColors.MutedForeground
     phase == TimerPhase.READY -> EisenColors.Warn
     phase == TimerPhase.REST -> EisenColors.Rest
@@ -151,9 +155,13 @@ fun TimerOverlay(state: TimerState, app: AppState, now: Long, dispatch: (Msg) ->
     when (state) {
         is TimerState.Running -> {
             val wod = state.run.wod
-            if (wod != null) WodRunScreen(state, wod, app, now, dispatch) else TimerRunScreen(state, now, dispatch)
+            when {
+                wod != null -> WodRunScreen(state, wod, app, now, dispatch)
+                state.run.config.mode == TimerMode.BOXING -> BoxingRunScreen(state, now, dispatch)
+                else -> TimerRunScreen(state, now, dispatch)
+            }
         }
-        is TimerState.Finished -> TimerResultScreen(state.session, state.wod, app.timerSessions, undo = state.undo != null, dispatch)
+        is TimerState.Finished -> TimerResultScreen(state.session, state.wod, app.timerSessions, undo = state.undo != null, combos = state.combos, dispatch)
     }
 }
 
@@ -652,7 +660,7 @@ private fun ringAt(run: TimerRun, time: Long): Float {
 }
 
 @Composable
-private fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Color, paused: Boolean, minDigits: Float = 0f, rest: WodRest? = null) {
+internal fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Color, paused: Boolean, minDigits: Float = 0f, rest: WodRest? = null) {
     val anchor = run.startedAt + run.paused
     val resting = rest != null
     val ring = remember(run.id, view.phase, view.round, resting) { Animatable(ringAt(run, now)) }
@@ -864,26 +872,35 @@ private fun HoldToFinish(enabled: Boolean, onFinish: () -> Unit) {
 /** "End timer?", or "End WOD?": going on is the big answer, ending takes a deliberate second tap. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EndSheet(dispatch: (Msg) -> Unit, wod: Boolean = false) {
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+internal fun EndSheet(dispatch: (Msg) -> Unit, wod: Boolean = false) {
+    // The thumb that tapped End may tap again where an answer now is, or on the scrim: the sheet waits a moment.
+    var ready by remember { mutableStateOf(false) }
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { ready || it != SheetValue.Hidden })
+    LaunchedEffect(Unit) {
+        delay(END_SHEET_GUARD_MS)
+        ready = true
+    }
+    fun answer(msg: Msg) {
+        if (ready) dispatch(msg)
+    }
     ModalBottomSheet(onDismissRequest = { dispatch(Msg.Timer.KeepGoing) }, sheetState = sheet, containerColor = EisenColors.Card) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(if (wod) "End WOD?" else "End timer?", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
             Text("Save what you did so far to your history, or discard it.", fontSize = 15.sp, color = EisenColors.MutedForeground)
             Spacer(Modifier.height(4.dp))
             Button(
-                onClick = { dispatch(Msg.Timer.KeepGoing) },
+                onClick = { answer(Msg.Timer.KeepGoing) },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
             ) { Text("Keep going", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
             FilledTonalButton(
-                onClick = { dispatch(Msg.Timer.SaveAndEnd) },
+                onClick = { answer(Msg.Timer.SaveAndEnd) },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
             ) { Text("Save and end", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             TextButton(
-                onClick = { dispatch(Msg.Timer.Discard) },
+                onClick = { answer(Msg.Timer.Discard) },
                 modifier = Modifier.fillMaxWidth().height(52.dp),
                 colors = ButtonDefaults.textButtonColors(contentColor = EisenColors.Destructive),
             ) { Text("Discard", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
@@ -899,7 +916,7 @@ internal fun outcomeColor(outcome: TimerOutcome): Color = if (outcome == TimerOu
  * and can be corrected here: a round missed or counted twice changes the saved session.
  */
 @Composable
-private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<TimerSession>, undo: Boolean, dispatch: (Msg) -> Unit) {
+private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<TimerSession>, undo: Boolean, combos: Int?, dispatch: (Msg) -> Unit) {
     // A For Time WOD is about its time: that is the big number, the rounds are a line below it.
     val wodForTime = wod != null && session.config.mode == TimerMode.FOR_TIME
     val tapped = countsRoundsByTap(session.config.mode) && !wodForTime
@@ -987,6 +1004,7 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                         !wodForTime -> Text(rounds, color = EisenColors.Foreground, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
                         wod!!.rounds > 1 -> Text("${session.rounds} of ${wod.rounds} rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                     }
+                    if (combos != null) BoxingResultLines(session.config, combos)
                 }
                 if (against != null) {
                     Spacer(Modifier.height(8.dp))

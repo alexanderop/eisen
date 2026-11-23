@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { Mic, Play, Timer } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
+import BoxingSetup from './BoxingSetup.vue'
 import TimerCalls from './TimerCalls.vue'
 import { Button, Card, ConfirmButton, Field, Input, ListRow, Sheet, Wheel } from './ui'
+import { THEME_COLORS } from '../domain/boxing'
+import { copyConfig, planOf, sameConfig } from '../domain/boxingScreens'
 import {
   TIMER_MODES,
   TIMER_NAMES,
+  timerConfig,
   timerSummary,
   type TimerConfig,
   type TimerMode,
@@ -13,7 +17,7 @@ import {
 } from '../domain/timer'
 import { callsSummary, presetName, TIMER_DESCRIPTIONS, timerWheels, totalText } from '../domain/timerScreens'
 import { haptic } from '../haptics'
-import { addTimerPreset, deleteTimerPreset, state, updateTimerPreset } from '../store'
+import { addTimerPreset, deleteTimerPreset, rememberTimerConfig, state, updateTimerPreset } from '../store'
 import { startTimer } from '../timer'
 
 /**
@@ -23,11 +27,11 @@ import { startTimer } from '../timer'
 const setup = ref<{ config: TimerConfig; presetId: string | null; name: string } | null>(null)
 
 function openMode(mode: TimerMode) {
-  setup.value = { config: { ...state.timerConfigs[mode] }, presetId: null, name: '' }
+  setup.value = { config: copyConfig(timerConfig(state.timerConfigs[mode])), presetId: null, name: '' }
 }
 
 function openPreset(preset: TimerPreset) {
-  setup.value = { config: { ...preset.config }, presetId: preset.id, name: preset.name }
+  setup.value = { config: copyConfig(timerConfig(preset.config)), presetId: preset.id, name: preset.name }
 }
 
 /** The play button of a saved timer: straight into the lead-in, without the setup. */
@@ -49,11 +53,17 @@ const changed = computed(() => {
   const saved = preset.value
   if (!current || !saved) return false
   const name = current.name.trim()
-  return (
-    (name !== '' && name !== saved.name) ||
-    (['work', 'rest', 'rounds'] as const).some((key) => current.config[key] !== saved.config[key])
-  )
+  return (name !== '' && name !== saved.name) || !sameConfig(current.config, saved.config)
 })
+const boxing = computed(() => setup.value?.config.mode === 'boxing')
+
+// Boxing takes a while to set up: every edit is kept as the plan the mode opens with, at once.
+watch(
+  () => setup.value?.config,
+  (config) => {
+    if (config?.mode === 'boxing') rememberTimerConfig(config)
+  },
+)
 
 const voiceOpen = ref(false)
 /** The name in the "Save as preset" sheet while it is open. */
@@ -109,7 +119,9 @@ function remove() {
       <Input v-model="setup.name" maxlength="40" enterkeyhint="done" />
     </Field>
 
-    <Card as="section" class="wheels-card">
+    <BoxingSetup v-if="boxing" v-model:config="setup.config" :draft="setup.presetId ?? 'mode'" />
+
+    <Card v-else as="section" class="wheels-card">
       <div class="wheels" :class="`count-${wheels.length}`">
         <Wheel
           v-for="wheel in wheels"
@@ -126,10 +138,15 @@ function remove() {
     </Card>
 
     <Card as="section" class="voice">
-      <ListRow :icon="Mic" label="Voice" :description="callsSummary(state.settings.timerCalls)" @click="voiceOpen = true" />
+      <ListRow
+        :icon="Mic"
+        label="Voice"
+        :description="callsSummary(state.settings.timerCalls, boxing)"
+        @click="voiceOpen = true"
+      />
     </Card>
 
-    <Button class="w-full start" @click="start">Start</Button>
+    <Button v-if="!boxing" class="w-full start" @click="start">Start</Button>
 
     <Button v-if="!preset" variant="secondary" class="w-full" @click="onSaveAs">Save as preset</Button>
     <Button v-else variant="secondary" class="w-full" :disabled="!changed" @click="update">
@@ -145,9 +162,11 @@ function remove() {
       @confirm="remove"
     />
 
+    <Button v-if="boxing" class="w-full start" @click="start">Start</Button>
+
     <Sheet v-if="voiceOpen" title="Voice" @close="voiceOpen = false">
       <div class="bleed">
-        <TimerCalls />
+        <TimerCalls :boxing="boxing" />
       </div>
       <Button class="w-full" @click="voiceOpen = false">Done</Button>
     </Sheet>
@@ -168,9 +187,24 @@ function remove() {
     <slot />
 
     <div class="modes">
-      <Card v-for="mode in TIMER_MODES" :key="mode" as="button" class="mode" @click="openMode(mode)">
+      <Card
+        v-for="mode in TIMER_MODES"
+        :key="mode"
+        as="button"
+        class="mode"
+        :class="{ wide: mode === 'boxing' }"
+        @click="openMode(mode)"
+      >
         <strong>{{ TIMER_NAMES[mode] }}</strong>
         <span class="muted description">{{ TIMER_DESCRIPTIONS[mode] }}</span>
+        <span v-if="mode === 'boxing'" class="plan-dots" aria-hidden="true">
+          <span
+            v-for="(round, index) in planOf(state.timerConfigs.boxing).rounds"
+            :key="index"
+            class="plan-dot"
+            :style="{ background: THEME_COLORS[round.theme] }"
+          />
+        </span>
         <span class="summary">{{ timerSummary(state.timerConfigs[mode]) }}</span>
       </Card>
     </div>
@@ -380,6 +414,32 @@ function remove() {
 
 .mode:active {
   transform: scale(0.98);
+}
+
+/* Boxing is the fifth card: it takes the whole row, with its plan as a row of coloured dots. */
+.mode.wide {
+  grid-column: 1 / -1;
+  min-height: 0;
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, #ff5e7e 14%, transparent), transparent 60%),
+    var(--card);
+}
+
+.wide .description {
+  flex: none;
+}
+
+.plan-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.plan-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
 }
 
 .saved {

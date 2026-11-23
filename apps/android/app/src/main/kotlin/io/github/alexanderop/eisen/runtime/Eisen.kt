@@ -29,6 +29,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import java.util.UUID
+import kotlin.random.Random
 import io.github.alexanderop.eisen.domain.elm.init as initialModel
 
 /**
@@ -121,7 +122,7 @@ object Eisen {
         try {
             while (true) {
                 val next = queue.removeFirstOrNull() ?: break
-                val (updated, cmds) = update(next, model, Env(System.currentTimeMillis(), ::newId))
+                val (updated, cmds) = update(next, model, Env(System.currentTimeMillis(), newSeed = { Random.nextInt(0, Int.MAX_VALUE) }, newId = ::newId))
                 model = updated
                 cmds.forEach(::execute)
                 syncSources()
@@ -159,7 +160,7 @@ object Eisen {
                 is Cmd.ScheduleTimer -> TimerSystem.schedule(cmd)
                 is Cmd.ShowTimer -> TimerSystem.show(cmd.notice)
                 Cmd.HideTimer -> TimerSystem.hide()
-                is Cmd.PlayTimerSound -> TimerSounds.play(app, cmd.sound)
+                is Cmd.PlayTimerSound -> TimerSounds.play(app, cmd.sound, cmd.fallback)
                 is Cmd.SaveTimerPage -> Prefs.saveTimerPage(app, cmd.page)
                 is Cmd.SaveDraft -> DraftFile.write(app, cmd.draft)
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.
@@ -188,24 +189,24 @@ object Eisen {
     private fun start(sub: Sub): () -> Unit = when (sub) {
         is Sub.RestClock -> everySecond(sub.endsAt, Msg.Rest.Tick)
         is Sub.HoldClock -> everySecond(sub.startsAt, Msg.Hold.Tick)
-        is Sub.TimerClock -> everySecond(sub.anchor, Msg.Timer.Tick)
+        is Sub.TimerClock -> everySecond(sub.anchor, Msg.Timer.Tick, sub.every)
     }
 
-    /** Sends [msg] each time a whole second counted from [anchor] passes. Returns what stops it. */
-    private fun everySecond(anchor: Long, msg: Msg): () -> Unit {
+    /** Sends [msg] each time a whole second (or [every] milliseconds) counted from [anchor] passes. Returns what stops it. */
+    private fun everySecond(anchor: Long, msg: Msg, every: Long = 1000): () -> Unit {
         val tick = object : Runnable {
             override fun run() {
                 dispatch(msg)
-                main.postDelayed(this, untilNextSecond(anchor))
+                main.postDelayed(this, untilNextSecond(anchor, every))
             }
         }
-        main.postDelayed(tick, untilNextSecond(anchor))
+        main.postDelayed(tick, untilNextSecond(anchor, every))
         return { main.removeCallbacks(tick) }
     }
 
     /**
-     * Time to the next whole second counted from [anchor], when the shown seconds change.
+     * Time to the next whole second (or [every] milliseconds) counted from [anchor], when the shown seconds change.
      * A few milliseconds late, so the tick lands just after the change and not just before it.
      */
-    private fun untilNextSecond(anchor: Long): Long = Math.floorMod(anchor - System.currentTimeMillis(), 1000L) + 5
+    private fun untilNextSecond(anchor: Long, every: Long = 1000): Long = Math.floorMod(anchor - System.currentTimeMillis(), every) + 5
 }

@@ -2,6 +2,7 @@
 /**
  * What the voice says during an interval timer: one setting for every timer.
  * Shown in the voice sheet of a timer's setup and in Settings. The rows run edge to edge.
+ * For boxing only what a round has is shown: the coach calls the combinations, always.
  */
 import { AudioLines, Contrast, Hourglass, Repeat, Volume2 } from '@lucide/vue'
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui'
@@ -12,6 +13,8 @@ import { haptic } from '../haptics'
 import { state } from '../store'
 import { playSample } from '../timer'
 import { ListRow } from './ui'
+
+const props = defineProps<{ boxing?: boolean }>()
 
 const calls = computed(() => state.settings.timerCalls)
 
@@ -35,12 +38,20 @@ const minutesHint = computed(() => {
 
 type Switch = Exclude<keyof TimerCalls, 'minutes'>
 
-const SWITCHES: { key: Switch; label: string; description: string; icon: typeof Contrast }[] = [
+const ALL_SWITCHES: { key: Switch; label: string; description: string; icon: typeof Contrast }[] = [
   { key: 'halfway', label: 'Halfway', description: 'At half of the whole timer.', icon: Contrast },
   { key: 'final', label: 'Last 30 and 10 seconds', description: 'Before the timer ends.', icon: Hourglass },
   { key: 'phases', label: 'Rounds and rest', description: '“Round three”, “Rest”, “Last round”.', icon: Repeat },
   { key: 'beeps', label: '3-2-1 beeps', description: 'Into every change of phase.', icon: AudioLines },
 ]
+
+const switches = computed(() =>
+  props.boxing
+    ? ALL_SWITCHES.filter((item) => item.key !== 'halfway').map((item) =>
+        item.key === 'final' ? { ...item, description: 'Before every round ends.' } : item,
+      )
+    : ALL_SWITCHES,
+)
 
 function toggle(key: Switch) {
   calls.value[key] = !calls.value[key]
@@ -50,7 +61,10 @@ function toggle(key: Switch) {
 
 <template>
   <div class="calls">
-    <div class="minutes">
+    <p v-if="boxing" class="coach">
+      The coach always calls the combinations. Time left and halfway are not called in a boxing round.
+    </p>
+    <div v-else class="minutes">
       <p :id="titleId" class="label">Time left, every</p>
       <RadioGroupRoot v-model="minutes" class="choices" orientation="horizontal" loop :aria-labelledby="titleId">
         <RadioGroupItem v-for="option in MINUTE_OPTIONS" :key="option.value" :value="option.value" class="choice">
@@ -60,7 +74,7 @@ function toggle(key: Switch) {
       <p class="hint">{{ minutesHint }}</p>
     </div>
     <ListRow
-      v-for="item in SWITCHES"
+      v-for="item in switches"
       :key="item.key"
       :icon="item.icon"
       :label="item.label"
@@ -82,6 +96,12 @@ function toggle(key: Switch) {
 </template>
 
 <style scoped>
+.coach {
+  padding: 0 16px 6px;
+  font-size: var(--fs-sm-plus);
+  color: var(--muted-foreground);
+}
+
 .minutes {
   display: flex;
   flex-direction: column;

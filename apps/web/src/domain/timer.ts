@@ -1,4 +1,5 @@
 import { holdText } from './program'
+import { boxingCues, boxingPlan, type BoxingPlan } from './boxing'
 import type { Wod } from './wod'
 
 /**
@@ -7,16 +8,21 @@ import type { Wod } from './wod'
  * emom: `rounds` intervals of `work` back to back, no rest.
  * amrap: one block of `work`. The lifter counts rounds by tapping.
  * forTime: counts up to a cap of `work`, 0 for no cap. The lifter stops it when done.
+ * boxing: `rounds` rounds of `work` with `rest` between them, and a coach who calls combinations.
  */
-export type TimerMode = 'tabata' | 'emom' | 'amrap' | 'forTime'
+export type TimerMode = 'tabata' | 'emom' | 'amrap' | 'forTime' | 'boxing'
 
-export const TIMER_MODES: TimerMode[] = ['tabata', 'emom', 'amrap', 'forTime']
+export const TIMER_MODES: TimerMode[] = ['tabata', 'emom', 'amrap', 'forTime', 'boxing']
+
+/** The modes a WOD can be built on. Boxing has its own plan instead of a list of movements. */
+export const WOD_MODES: TimerMode[] = ['forTime', 'amrap', 'emom', 'tabata']
 
 export const TIMER_NAMES: Record<TimerMode, string> = {
   tabata: 'Tabata',
   emom: 'EMOM',
   amrap: 'AMRAP',
   forTime: 'For Time',
+  boxing: 'Boxing',
 }
 
 /** Seconds. What each number means depends on the mode, see {@link TimerMode}. */
@@ -25,6 +31,8 @@ export interface TimerConfig {
   work: number
   rest: number
   rounds: number
+  /** Boxing only: what each round is about. Left out in the other modes. */
+  boxing?: BoxingPlan
 }
 
 /** What the voice says while a timer runs. */
@@ -56,6 +64,23 @@ export const DEFAULT_TIMERS: Record<TimerMode, TimerConfig> = {
   emom: { mode: 'emom', work: 60, rest: 0, rounds: 10 },
   amrap: { mode: 'amrap', work: 600, rest: 0, rounds: 1 },
   forTime: { mode: 'forTime', work: 1200, rest: 0, rounds: 1 },
+  boxing: {
+    mode: 'boxing',
+    work: 180,
+    rest: 60,
+    rounds: 6,
+    boxing: {
+      style: 'names',
+      rounds: [
+        { theme: 'jab', every: 4, split: 0, pick: [] },
+        { theme: 'two', every: 4, split: 0, pick: [] },
+        { theme: 'three', every: 6, split: 0, pick: [] },
+        { theme: 'four', every: 6, split: 0, pick: [] },
+        { theme: 'mix', every: 6, split: 30, pick: [] },
+        { theme: 'freestyle', every: 6, split: 0, pick: [] },
+      ],
+    },
+  },
 }
 
 export const TIMER_LEAD_IN_SECONDS = 10
@@ -102,6 +127,16 @@ export function timerConfig(config: TimerConfig): TimerConfig {
   if (mode === 'amrap') {
     return { mode, work: clamp(config.work, MIN_TIMER_SECONDS, MAX_TIMER_SECONDS), rest: 0, rounds: 1 }
   }
+  if (mode === 'boxing') {
+    const rounds = clamp(config.rounds, 1, 15)
+    return {
+      mode,
+      work: clamp(config.work, 30, 600),
+      rest: clamp(config.rest, 10, 300),
+      rounds,
+      boxing: boxingPlan(config.boxing, rounds),
+    }
+  }
   const cap = config.work <= 0 ? 0 : clamp(config.work, MIN_TIMER_SECONDS, MAX_TIMER_SECONDS)
   return { mode, work: cap, rest: 0, rounds: 1 }
 }
@@ -113,7 +148,9 @@ export function countsRoundsByTap(mode: TimerMode): boolean {
 
 /** Length of the timer without the lead-in, in seconds. Null for a For Time without a cap. */
 export function timerSeconds(config: TimerConfig): number | null {
-  if (config.mode === 'tabata') return config.rounds * config.work + (config.rounds - 1) * config.rest
+  if (config.mode === 'tabata' || config.mode === 'boxing') {
+    return config.rounds * config.work + (config.rounds - 1) * config.rest
+  }
   if (config.mode === 'emom') return config.rounds * config.work
   if (config.mode === 'amrap') return config.work
   return config.work > 0 ? config.work : null
@@ -121,7 +158,7 @@ export function timerSeconds(config: TimerConfig): number | null {
 
 /** "8 × 20s / 10s", "10 × 1:00", "10:00", "Cap 20:00", "No cap". */
 export function timerSummary(config: TimerConfig): string {
-  if (config.mode === 'tabata') {
+  if (config.mode === 'tabata' || config.mode === 'boxing') {
     return `${config.rounds} × ${holdText(config.work)} / ${holdText(config.rest)}`
   }
   if (config.mode === 'emom') return `${config.rounds} × ${holdText(config.work)}`
@@ -254,8 +291,10 @@ export interface TimerCue {
  * Spoken lines never talk over each other: a time call that would land on a line about the
  * phase waits until that one is over, and of two time calls at the same moment only one is said.
  * In an EMOM a time call on a round start is left out: the round number says the same.
+ * A boxing timer has its own coach, see `boxingCues`; `seed` picks its combinations.
  */
-export function timerCues(config: TimerConfig, calls: TimerCalls): TimerCue[] {
+export function timerCues(config: TimerConfig, calls: TimerCalls, seed = 1): TimerCue[] {
+  if (config.mode === 'boxing') return boxingCues(config, calls, seed)
   const list = segments(config)
   const seconds = timerSeconds(config)
   const total = seconds === null ? null : seconds * SECOND
@@ -364,6 +403,8 @@ export interface TimerRun {
   wod?: Wod
   /** Seconds into the WOD at each tap so far, one entry per tap. Only kept for a WOD. */
   splits?: number[]
+  /** Picks the combinations of a boxing run, so a reload calls the same ones. */
+  seed?: number
   /** The taps the rest was skipped at: the rest that started with that tap is over early. */
   restSkipped?: number
 }

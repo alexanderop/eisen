@@ -1,5 +1,9 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.domain.BOXING_TEMPLATES
+import io.github.alexanderop.eisen.domain.BoxingRound
+import io.github.alexanderop.eisen.domain.BoxingStyle
+import io.github.alexanderop.eisen.domain.BoxingTheme
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseProgress
 import io.github.alexanderop.eisen.domain.Feel
@@ -60,6 +64,7 @@ import io.github.alexanderop.eisen.domain.MAX_OPEN_TIMER_SECONDS
 import io.github.alexanderop.eisen.domain.TimerCalls
 import io.github.alexanderop.eisen.domain.TimerConfig
 import io.github.alexanderop.eisen.domain.TimerMode
+import io.github.alexanderop.eisen.domain.timerConfig
 import io.github.alexanderop.eisen.domain.countsRoundsByTap
 import io.github.alexanderop.eisen.domain.timerSeconds
 import io.github.alexanderop.eisen.domain.elm.HistoryView
@@ -778,6 +783,8 @@ class UpdateTest {
         var drafted = 0
         var undone = 0
         var guarded = 0
+        var boxingRuns = 0
+        var boxingEdits = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -875,7 +882,8 @@ class UpdateTest {
                 if (run != null) {
                     assertNull(where, after.model.rest)
                     assertNull(where, after.model.hold)
-                    assertEquals(where, run.pausedAt == null, Sub.TimerClock(run.startedAt + run.paused) in subscriptions(after.model))
+                    val tick = if (run.config.mode == TimerMode.BOXING) 500L else 1000L
+                    assertEquals(where, run.pausedAt == null, Sub.TimerClock(run.startedAt + run.paused, tick) in subscriptions(after.model))
                 } else {
                     assertTrue(where, subscriptions(after.model).none { it is Sub.TimerClock })
                 }
@@ -960,6 +968,26 @@ class UpdateTest {
                     assertEquals(where, ended.taps - 1, after.model.timerRun!!.taps)
                     assertTrue(where, after.state.timerSessions.none { it.id == ended.id })
                 }
+                // A boxing plan always has one round per round and stays in its limits, wherever it is kept,
+                // and a boxing run always has the seed that picks its combinations.
+                val setup = after.model.timerSetup
+                val configs = listOfNotNull(setup?.config, run?.config, (after.model.timer as? TimerState.Finished)?.session?.config) +
+                    after.state.timerConfigs.values + after.state.timerPresets.map { it.config } + after.state.timerSessions.map { it.config }
+                for (config in configs.filter { it.mode == TimerMode.BOXING }) {
+                    assertEquals(where, timerConfig(config), config)
+                    assertEquals(where, config.rounds, config.boxing!!.rounds.size)
+                }
+                if (run?.config?.mode == TimerMode.BOXING) {
+                    assertNotNull(where, run.seed)
+                    if (run.id != step.model.timerRun?.id) boxingRuns++
+                }
+                setup?.round?.let { assertTrue(where, it in 0 until setup.config.rounds && setup.config.mode == TimerMode.BOXING) }
+                // A run waits for the notification question only while none goes, and a boxing setup's edits are its mode's last config.
+                if (after.model.pendingStart != null) assertNull(where, run)
+                if (setup?.config?.mode == TimerMode.BOXING && msg is Msg.Timer && step.model.timerSetup?.config != setup.config && msg !is Msg.Timer.Open && msg !is Msg.Timer.OpenPreset && msg !is Msg.Timer.StartPreset) {
+                    assertEquals(where, setup.config, after.state.timerConfigs[TimerMode.BOXING])
+                }
+                if (setup?.config?.mode == TimerMode.BOXING && step.model.timerSetup?.config?.boxing != setup.config.boxing && step.model.timerSetup?.config?.mode == TimerMode.BOXING) boxingEdits++
                 if (msg == Msg.Wods.Save && after.state != step.state) wodsSaved++
                 // A run carries a WOD exactly when it was started from one, and leaves the setups of the modes alone.
                 if (run != null && run.id != step.model.timerRun?.id) {
@@ -967,6 +995,8 @@ class UpdateTest {
                         msg is Msg.Wods.Start -> findWod(step.state.wods, msg.id)
                         msg == Msg.Timer.Again -> (step.model.timer as? TimerState.Finished)?.wod?.let { findWod(step.state.wods, it.id) ?: it }
                         msg == Msg.Timer.UndoFinish -> (step.model.timer as? TimerState.Finished)?.undo?.wod
+                        // A run that waited for the notification question starts with its answer.
+                        msg is Msg.Rest.NotificationPermission -> step.model.pendingStart?.wod
                         else -> null
                     }
                     assertEquals(where, expected, run.wod)
@@ -1003,6 +1033,8 @@ class UpdateTest {
         assertTrue("only $wodsFiled runs of WODs were filed", wodsFiled >= 5)
         assertTrue("only $undone finished runs were undone", undone >= 3)
         assertTrue("only $guarded taps on a result were too early", guarded >= 1)
+        assertTrue("only $boxingRuns boxing runs started", boxingRuns >= 5)
+        assertTrue("only $boxingEdits boxing plans were edited", boxingEdits >= 50)
     }
 
     private fun wasRunningRun(step: Step) = (step.model.timer as? TimerState.Running)?.run
@@ -1053,6 +1085,37 @@ class UpdateTest {
                     Msg.Timer.UndoFinish, Msg.Timer.Tap, Msg.Timer.SkipRest, Msg.Timer.DontCount,
                 ),
             )
+        }
+        // A boxing setup's own Msgs come most of the time while it is open: its round sheet, templates, style and listening.
+        val boxing = model.timerSetup?.takeIf { it.config.mode == TimerMode.BOXING }
+        if (boxing != null && model.timer == null && random.nextInt(3) > 0) {
+            val rounds = boxing.config.rounds
+            val at = boxing.round ?: index(rounds)
+            return pick(
+                listOf(
+                    { Msg.Timer.OpenRound(index(rounds)) },
+                    { Msg.Timer.CloseRound },
+                    { Msg.Timer.EditRound(at, BoxingRound(pick(BoxingTheme.entries), random.nextInt(20) - 2, pick(listOf(0, 7, 15, 20, 30, 60)))) },
+                    { Msg.Timer.EditRound(at, BoxingRound(pick(BoxingTheme.entries), random.nextInt(20) - 2, pick(listOf(0, 7, 15, 20, 30, 60)))) },
+                    { Msg.Timer.CopyToAll(at) },
+                    { Msg.Timer.ApplyTemplate(random.nextInt(BOXING_TEMPLATES.size + 1)) },
+                    { Msg.Timer.UndoTemplate },
+                    { Msg.Timer.SetStyle(pick(BoxingStyle.entries)) },
+                    { Msg.Timer.Listen(at) },
+                    { Msg.Timer.PlayCombo(pick(listOf("six", "jab", "nope"))) },
+                    { Msg.Timer.MoveRound(index(rounds), index(rounds)) },
+                    { Msg.Timer.DuplicateRound(index(rounds)) },
+                    { Msg.Timer.RemoveRound(index(rounds)) },
+                    { Msg.Timer.ForgetTemplate(boxing.templateAt ?: 0) },
+                    { Msg.Timer.EditRound(at, (boxing.config.boxing?.rounds?.getOrNull(at) ?: BoxingRound(BoxingTheme.MIX, 6, 0)).copy(pick = listOf(pick(listOf("jab", "jab-cross-hook", "six", "nope"))))) },
+                    { Msg.Timer.Edit(boxing.config.copy(rounds = random.nextInt(18) - 1, work = random.nextInt(700), rest = random.nextInt(320))) },
+                    { Msg.Timer.Edit(boxing.config.copy(boxing = null)) },
+                    { Msg.Timer.SavePreset(pick(listOf("", "Sparring"))) },
+                    { Msg.Timer.UpdatePreset },
+                    { Msg.Timer.Start },
+                    { Msg.Nav.Back },
+                ),
+            )()
         }
         // The builder's own Msgs come most of the time while it is open, as they would from the lifter.
         val draft = model.wods.draft

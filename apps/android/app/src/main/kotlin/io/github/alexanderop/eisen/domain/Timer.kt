@@ -18,6 +18,7 @@ import kotlin.math.roundToLong
  * emom: `rounds` intervals of `work` back to back, no rest.
  * amrap: one block of `work`. The lifter counts rounds by tapping.
  * forTime: counts up to a cap of `work`, 0 for no cap. The lifter stops it when done.
+ * boxing: `rounds` rounds of `work` with `rest` between them, and a coach who calls combinations.
  */
 @Serializable
 enum class TimerMode(val title: String) {
@@ -25,13 +26,27 @@ enum class TimerMode(val title: String) {
     @SerialName("emom") EMOM("EMOM"),
     @SerialName("amrap") AMRAP("AMRAP"),
     @SerialName("forTime") FOR_TIME("For Time"),
+    @SerialName("boxing") BOXING("Boxing"),
 }
 
 val TIMER_MODES: List<TimerMode> = TimerMode.entries
 
-/** Seconds. What each number means depends on the mode, see [TimerMode]. */
+/** The modes a WOD can be built on. Boxing has its own plan instead of a list of movements. */
+val WOD_MODES: List<TimerMode> = listOf(TimerMode.FOR_TIME, TimerMode.AMRAP, TimerMode.EMOM, TimerMode.TABATA)
+
+/**
+ * Seconds. What each number means depends on the mode, see [TimerMode]. [boxing]: what each round
+ * is about, boxing only. Left out of the file in the other modes, as the PWA leaves it out.
+ */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class TimerConfig(val mode: TimerMode, val work: Int, val rest: Int, val rounds: Int)
+data class TimerConfig(
+    val mode: TimerMode,
+    val work: Int,
+    val rest: Int,
+    val rounds: Int,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val boxing: BoxingPlan? = null,
+)
 
 /** What the voice says while a timer runs. */
 @Serializable
@@ -57,6 +72,23 @@ val DEFAULT_TIMERS: Map<TimerMode, TimerConfig> = mapOf(
     TimerMode.EMOM to TimerConfig(TimerMode.EMOM, work = 60, rest = 0, rounds = 10),
     TimerMode.AMRAP to TimerConfig(TimerMode.AMRAP, work = 600, rest = 0, rounds = 1),
     TimerMode.FOR_TIME to TimerConfig(TimerMode.FOR_TIME, work = 1200, rest = 0, rounds = 1),
+    TimerMode.BOXING to TimerConfig(
+        TimerMode.BOXING,
+        work = 180,
+        rest = 60,
+        rounds = 6,
+        boxing = BoxingPlan(
+            listOf(
+                BoxingRound(BoxingTheme.JAB, 4, 0),
+                BoxingRound(BoxingTheme.TWO, 4, 0),
+                BoxingRound(BoxingTheme.THREE, 6, 0),
+                BoxingRound(BoxingTheme.FOUR, 6, 0),
+                BoxingRound(BoxingTheme.MIX, 6, 30),
+                BoxingRound(BoxingTheme.FREESTYLE, 6, 0),
+            ),
+            BoxingStyle.NAMES,
+        ),
+    ),
 )
 
 const val TIMER_LEAD_IN_SECONDS = 10
@@ -86,10 +118,10 @@ private fun clamp(value: Double, min: Int, max: Int): Int = Math.floor(value + 0
 
 /** A config from a form, a preset or a backup, brought into the limits of its mode. */
 fun timerConfig(config: TimerConfig): TimerConfig =
-    timerConfig(config.mode, config.work.toDouble(), config.rest.toDouble(), config.rounds.toDouble())
+    timerConfig(config.mode, config.work.toDouble(), config.rest.toDouble(), config.rounds.toDouble(), config.boxing)
 
 /** [timerConfig] for numbers that may not be whole yet. */
-fun timerConfig(mode: TimerMode, work: Double, rest: Double, rounds: Double): TimerConfig = when (mode) {
+fun timerConfig(mode: TimerMode, work: Double, rest: Double, rounds: Double, boxing: BoxingPlan? = null): TimerConfig = when (mode) {
     TimerMode.TABATA -> TimerConfig(
         mode,
         work = clamp(work, MIN_TIMER_SECONDS, MAX_TIMER_SECONDS),
@@ -99,6 +131,16 @@ fun timerConfig(mode: TimerMode, work: Double, rest: Double, rounds: Double): Ti
     TimerMode.EMOM -> TimerConfig(mode, work = clamp(work, MIN_TIMER_SECONDS, MAX_TIMER_SECONDS), rest = 0, rounds = clamp(rounds, 1, MAX_TIMER_ROUNDS))
     TimerMode.AMRAP -> TimerConfig(mode, work = clamp(work, MIN_TIMER_SECONDS, MAX_TIMER_SECONDS), rest = 0, rounds = 1)
     TimerMode.FOR_TIME -> TimerConfig(mode, work = if (work <= 0) 0 else clamp(work, MIN_TIMER_SECONDS, MAX_TIMER_SECONDS), rest = 0, rounds = 1)
+    TimerMode.BOXING -> {
+        val count = clamp(rounds, 1, MAX_BOXING_ROUNDS)
+        TimerConfig(
+            mode,
+            work = clamp(work, MIN_BOXING_ROUND_SECONDS, MAX_BOXING_ROUND_SECONDS),
+            rest = clamp(rest, MIN_BOXING_REST_SECONDS, MAX_BOXING_REST_SECONDS),
+            rounds = count,
+            boxing = boxingPlan(boxing, count),
+        )
+    }
 }
 
 /** True for the modes where the lifter counts rounds by tapping. */
@@ -106,7 +148,7 @@ fun countsRoundsByTap(mode: TimerMode): Boolean = mode == TimerMode.AMRAP || mod
 
 /** Length of the timer without the lead-in, in seconds. Null for a For Time without a cap. */
 fun timerSeconds(config: TimerConfig): Int? = when (config.mode) {
-    TimerMode.TABATA -> config.rounds * config.work + (config.rounds - 1) * config.rest
+    TimerMode.TABATA, TimerMode.BOXING -> config.rounds * config.work + (config.rounds - 1) * config.rest
     TimerMode.EMOM -> config.rounds * config.work
     TimerMode.AMRAP -> config.work
     TimerMode.FOR_TIME -> config.work.takeIf { it > 0 }
@@ -114,7 +156,7 @@ fun timerSeconds(config: TimerConfig): Int? = when (config.mode) {
 
 /** "8 × 20s / 10s", "10 × 1:00", "10:00", "Cap 20:00", "No cap". */
 fun timerSummary(config: TimerConfig): String = when (config.mode) {
-    TimerMode.TABATA -> "${config.rounds} × ${holdText(config.work)} / ${holdText(config.rest)}"
+    TimerMode.TABATA, TimerMode.BOXING -> "${config.rounds} × ${holdText(config.work)} / ${holdText(config.rest)}"
     TimerMode.EMOM -> "${config.rounds} × ${holdText(config.work)}"
     TimerMode.AMRAP -> holdText(config.work)
     TimerMode.FOR_TIME -> if (config.work > 0) "Cap ${holdText(config.work)}" else "No cap"
@@ -237,8 +279,10 @@ data class TimerCue(val at: Long, val sound: String)
  * Spoken lines never talk over each other: a time call that would land on a line about the
  * phase waits until that one is over, and of two time calls at the same moment only one is said.
  * In an EMOM a time call on a round start is left out: the round number says the same.
+ * A boxing timer has its own coach, see [boxingCues]; [seed] picks its combinations.
  */
-fun timerCues(config: TimerConfig, calls: TimerCalls): List<TimerCue> {
+fun timerCues(config: TimerConfig, calls: TimerCalls, seed: Int = 1): List<TimerCue> {
+    if (config.mode == TimerMode.BOXING) return boxingCues(config, calls, seed)
     val list = segments(config)
     val seconds = timerSeconds(config)
     val total = seconds?.let { it * SECOND }
@@ -330,6 +374,7 @@ data class TimerSession(
 )
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class TimerRun(
     val id: String,
@@ -349,6 +394,8 @@ data class TimerRun(
     val splits: List<Double> = emptyList(),
     /** "Skip rest" was tapped for the rest that came with this many taps. Back forgets it. */
     val restSkipped: Int? = null,
+    /** Picks the combinations of a boxing run, so a reload calls the same ones. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val seed: Int? = null,
 )
 
 /** Seconds into the work of a run, to one decimal: the time a tap at [now] is filed under. */

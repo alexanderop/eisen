@@ -873,7 +873,7 @@ class WodUpdateTest {
         val v7 = encodeState(freshState()).replace("\"version\":$STATE_VERSION", "\"version\":7").replace(",\"wods\":[]", "")
         assertFalse(v7.contains("wods"))
         val migrated = decodeState(v7)!!
-        assertEquals(8, migrated.version)
+        assertEquals(STATE_VERSION, migrated.version)
         assertEquals(freshState(), migrated)
 
         val own = wod(lib("wod-fran").copy(id = "mine", name = "My Fran"))

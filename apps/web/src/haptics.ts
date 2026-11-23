@@ -24,6 +24,8 @@ const PATTERNS = {
   timerWork: 80,
   /** An interval timer's rest starts. */
   timerRest: [80, 120, 80],
+  /** The boxing coach calls a combination: short, felt through the floor or a pocket. */
+  call: 30,
   /** An interval timer is over. */
   timerEnd: 600,
 } as const

@@ -5,10 +5,10 @@ import {
   DEFAULT_TIMERS,
   sessionSummary,
   TIMER_LEAD_IN_SECONDS,
-  TIMER_MODES,
   tapsPerRound,
   timerOutcome,
   VOICE_AFTER_BEEP,
+  WOD_MODES,
   wodSteps,
   type TimerConfig,
   type TimerCue,
@@ -271,7 +271,7 @@ function isDraft(value: unknown): value is Wod {
     typeof value.id === 'string' &&
     typeof value.name === 'string' &&
     isObject(value.timer) &&
-    TIMER_MODES.includes(value.timer.mode as TimerMode) &&
+    WOD_MODES.includes(value.timer.mode as TimerMode) &&
     typeof value.rounds === 'number' &&
     Array.isArray(value.scheme) &&
     Array.isArray(value.items) &&

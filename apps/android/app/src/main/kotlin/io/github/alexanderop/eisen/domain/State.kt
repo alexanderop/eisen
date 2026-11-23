@@ -59,7 +59,7 @@ data class AppState(
     val wods: List<Wod> = emptyList(),
 )
 
-const val STATE_VERSION = 8
+const val STATE_VERSION = 9
 
 private val ORIGINAL_IDS = listOf("hackSquat", "bench", "row", "ohp", "deadlift")
 
@@ -103,9 +103,20 @@ fun encodeState(state: AppState, pretty: Boolean = false): String =
 /** Reads a stored state or a backup of any version. Null when it is not one. */
 fun decodeState(json: String): AppState? = try {
     val migrated = migrate(StateJson.parseToJsonElement(json))
-    if (isAppState(migrated)) StateJson.decodeFromJsonElement<AppState>(migrated).let { it.copy(wods = ownWods(it.wods)) } else null
+    if (isAppState(migrated)) StateJson.decodeFromJsonElement<AppState>(migrated).let(::inLimits) else null
 } catch (_: Exception) {
     null
+}
+
+/** What a file holds that has limits of its own: the WODs, and boxing plans with one round per round. */
+private fun inLimits(state: AppState): AppState {
+    fun boxing(config: TimerConfig) = if (config.mode == TimerMode.BOXING) timerConfig(config) else config
+    return state.copy(
+        wods = ownWods(state.wods),
+        timerConfigs = state.timerConfigs.mapValues { (_, config) -> boxing(config) },
+        timerPresets = state.timerPresets.map { it.copy(config = boxing(it.config)) },
+        timerSessions = state.timerSessions.map { it.copy(config = boxing(it.config)) },
+    )
 }
 
 /**
@@ -244,6 +255,15 @@ fun migrate(value: JsonElement): JsonElement {
     // Version 8 added the lifter's own WODs.
     if (data["version"].int() == 7) {
         data = data.with("version" to JsonPrimitive(8), "wods" to JsonArray(emptyList()))
+    }
+
+    // Version 9 added the boxing timer.
+    if (data["version"].int() == 8) {
+        val configs = data["timerConfigs"].obj() ?: JsonObject(emptyMap())
+        data = data.with(
+            "version" to JsonPrimitive(9),
+            "timerConfigs" to configs.with("boxing" to StateJson.encodeToJsonElement(DEFAULT_TIMERS.getValue(TimerMode.BOXING))),
+        )
     }
 
     return data

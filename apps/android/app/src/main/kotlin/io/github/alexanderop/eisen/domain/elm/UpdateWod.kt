@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.domain.elm
 
+import io.github.alexanderop.eisen.domain.WOD_MODES
 import io.github.alexanderop.eisen.domain.DEFAULT_TIMERS
 import io.github.alexanderop.eisen.domain.Env
 import io.github.alexanderop.eisen.domain.Equipment
@@ -100,9 +101,10 @@ internal fun wods(msg: Msg.Wods, model: Model, env: Env): Next {
             cleared.withState { state -> state.copy(wods = state.wods.toMutableList().apply { add(deleted.index.coerceIn(0, size), deleted.wod) }) }.only()
         }
         is Msg.Wods.Rename -> editDraft(model) { it.copy(name = msg.name.take(MAX_WOD_NAME)) }
-        is Msg.Wods.SetMode -> if (draft == null || draft.wod.timer.mode == msg.mode) model.only() else setMode(model, draft, msg.mode)
+        // A WOD is built on one of the WOD modes only: boxing has its own plan instead of movements.
+        is Msg.Wods.SetMode -> if (draft == null || draft.wod.timer.mode == msg.mode || msg.mode !in WOD_MODES) model.only() else setMode(model, draft, msg.mode)
         is Msg.Wods.SetTimer ->
-            if (draft == null || draft.wod.timer.mode != msg.config.mode) model.only()
+            if (draft == null || draft.wod.timer.mode != msg.config.mode || msg.config.mode !in WOD_MODES) model.only()
             else editDraft(model) { it.copy(timer = msg.config) }
         // With a scheme the scheme says how many rounds there are.
         is Msg.Wods.SetRounds -> if (draft == null || draft.wod.scheme.isNotEmpty()) model.only() else editDraft(model) { it.copy(rounds = msg.rounds) }

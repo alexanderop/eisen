@@ -61,13 +61,43 @@ private fun minutesLabel(minutes: Int): String = if (minutes == 0) "Off" else "$
  * setup and the "Timer voice" section of Settings show the same controls.
  */
 @Composable
-fun TimerCallsControls(calls: TimerCalls, dispatch: (Msg) -> Unit, modifier: Modifier = Modifier) {
+fun TimerCallsControls(calls: TimerCalls, dispatch: (Msg) -> Unit, modifier: Modifier = Modifier, boxing: Boolean = false) {
     val haptics = rememberHaptics()
     fun set(next: TimerCalls) {
         dispatch(Msg.Timer.SetCalls(next))
         haptics.perform(Haptic.TAP)
     }
     Column(modifier.fillMaxWidth()) {
+        // Boxing has its coach instead: the time left and halfway are not said there.
+        if (!boxing) MinutesChoice(calls, ::set)
+        if (!boxing) CallSwitch(HalfIcon, "Halfway", calls.halfway) { set(calls.copy(halfway = it)) }
+        CallSwitch(FlagIcon, "Last 30 and 10 seconds", calls.final) { set(calls.copy(final = it)) }
+        CallSwitch(RepeatIcon, "Rounds and rest", calls.phases) { set(calls.copy(phases = it)) }
+        CallSwitch(BeepIcon, "3-2-1 beeps", calls.beeps) { set(calls.copy(beeps = it)) }
+        Text(
+            if (boxing) "The coach always calls the combinations. Time left and halfway are not said in boxing. Applies to all timers."
+            else "Applies to all timers.",
+            Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            fontSize = 13.sp,
+            color = EisenColors.MutedForeground,
+        )
+        FilledTonalButton(
+            onClick = { dispatch(Msg.Timer.PlaySample) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
+        ) {
+            Icon(PlayIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Play sample", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+    }
+}
+
+/** "Time left, every" and its segmented choice. */
+@Composable
+private fun MinutesChoice(calls: TimerCalls, set: (TimerCalls) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(ClockIcon, contentDescription = null, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(16.dp))
@@ -92,26 +122,6 @@ fun TimerCallsControls(calls: TimerCalls, dispatch: (Msg) -> Unit, modifier: Mod
                 )
             }
         }
-        CallSwitch(HalfIcon, "Halfway", calls.halfway) { set(calls.copy(halfway = it)) }
-        CallSwitch(FlagIcon, "Last 30 and 10 seconds", calls.final) { set(calls.copy(final = it)) }
-        CallSwitch(RepeatIcon, "Rounds and rest", calls.phases) { set(calls.copy(phases = it)) }
-        CallSwitch(BeepIcon, "3-2-1 beeps", calls.beeps) { set(calls.copy(beeps = it)) }
-        Text(
-            "Applies to all timers.",
-            Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            fontSize = 13.sp,
-            color = EisenColors.MutedForeground,
-        )
-        FilledTonalButton(
-            onClick = { dispatch(Msg.Timer.PlaySample) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 52.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
-        ) {
-            Icon(PlayIcon, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Play sample", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        }
     }
 }
 
@@ -135,7 +145,7 @@ private fun CallSwitch(icon: ImageVector, label: String, checked: Boolean, onCha
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun VoiceSheet(calls: TimerCalls, dispatch: (Msg) -> Unit, onClose: () -> Unit) {
+internal fun VoiceSheet(calls: TimerCalls, dispatch: (Msg) -> Unit, onClose: () -> Unit, boxing: Boolean = false) {
     val sheetState = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState, containerColor = EisenColors.Card) {
@@ -146,7 +156,7 @@ internal fun VoiceSheet(calls: TimerCalls, dispatch: (Msg) -> Unit, onClose: () 
             }
         }
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            TimerCallsControls(calls, dispatch)
+            TimerCallsControls(calls, dispatch, boxing = boxing)
         }
     }
 }

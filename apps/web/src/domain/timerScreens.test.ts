@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { calendarWeeks, trainings, weekStreak } from './chart'
 import { defaultRoutines, createWorkout } from './program'
 import { catalogExercise } from './exercises'
-import { freshState, isAppState, migrate } from './state'
+import { cleanTimers, freshState, isAppState, migrate } from './state'
 import {
   DEFAULT_TIMER_CALLS,
   DEFAULT_TIMERS,
@@ -64,6 +64,11 @@ describe('timer setup', () => {
     expect(cap.format(0)).toBe('Off')
     expect(timerWheels(DEFAULT_TIMERS.emom)[0].values[0]).toBe(10)
     expect(timerWheels(DEFAULT_TIMERS.amrap)[0].values[0]).toBe(30)
+    const [rounds, round, rest] = timerWheels(DEFAULT_TIMERS.boxing)
+    expect(fields(DEFAULT_TIMERS.boxing)).toEqual(['Rounds', 'Round', 'Rest'])
+    expect([rounds.values[0], rounds.values.at(-1)]).toEqual([1, 15])
+    expect([round.values[0], round.values.at(-1)]).toEqual([30, 600])
+    expect([rest.values[0], rest.values.at(-1)]).toEqual([10, 300])
   })
 
   it('names the total and a new preset', () => {
@@ -83,6 +88,9 @@ describe('timer setup', () => {
       'Every 5 min, 3-2-1 beeps',
     )
     expect(callsSummary({ minutes: 0, halfway: false, final: false, phases: false, beeps: false })).toBe('Voice off')
+    // Boxing has no minutes or halfway: its coach calls combinations.
+    expect(callsSummary(DEFAULT_TIMER_CALLS, true)).toBe('Last 30 s, rounds and rest, 3-2-1 beeps')
+    expect(callsSummary({ ...DEFAULT_TIMER_CALLS, final: false, phases: false, beeps: false }, true)).toBe('Only the coach')
   })
 })
 
@@ -146,7 +154,7 @@ describe('migrate to version 7', () => {
     const v6 = { ...rest, version: 6, settings, nextRoutineId: 'B' }
     const migrated = migrate(structuredClone(v6))
     if (!isAppState(migrated)) throw new Error('not a valid state')
-    expect(migrated.version).toBe(8)
+    expect(migrated.version).toBe(9)
     expect(migrated.settings).toEqual(freshState('lb').settings)
     expect(migrated.settings.timerCalls).toEqual(DEFAULT_TIMER_CALLS)
     expect(migrated.timerPresets).toEqual([])
@@ -167,11 +175,40 @@ describe('migrate to version 7', () => {
     }
     const migrated = migrate(v1)
     expect(isAppState(migrated)).toBe(true)
-    expect(migrated).toMatchObject({ version: 8, timerSessions: [], timerConfigs: DEFAULT_TIMERS, wods: [] })
+    expect(migrated).toMatchObject({ version: 9, timerSessions: [], timerConfigs: DEFAULT_TIMERS, wods: [] })
   })
 
   it('rejects a state without its timers', () => {
     const { timerSessions: _, ...broken } = freshState('kg')
     expect(isAppState(broken)).toBe(false)
+  })
+})
+
+describe('migrate to version 9', () => {
+  it('adds the boxing timer to a version 8 state and keeps the other timers as they were', () => {
+    const { boxing: _, ...configs } = { ...DEFAULT_TIMERS, tabata: { ...tabata, rounds: 12 } }
+    const preset = { id: 'p', name: 'Short', config: tabata }
+    const v8 = { ...freshState('kg'), version: 8, timerConfigs: configs, timerPresets: [preset] }
+    const migrated = migrate(structuredClone(v8))
+    if (!isAppState(migrated)) throw new Error('not a valid state')
+    expect(migrated.version).toBe(9)
+    expect(migrated.timerConfigs.boxing).toEqual(DEFAULT_TIMERS.boxing)
+    expect(migrated.timerConfigs.tabata.rounds).toBe(12)
+    expect(migrated.timerPresets).toEqual([preset])
+    expect(isAppState({ ...migrated, version: 8 })).toBe(false)
+  })
+
+  it('brings imported timers into their limits: a plan has one round per round', () => {
+    const state = freshState('kg')
+    const broken = { ...DEFAULT_TIMERS.boxing, rounds: 3 }
+    const { boxing: _, ...missing } = state.timerConfigs
+    const cleaned = cleanTimers({
+      ...state,
+      timerConfigs: missing as typeof state.timerConfigs,
+      timerPresets: [{ id: 'p', name: 'Box', config: broken }],
+    })
+    expect(cleaned.timerConfigs.boxing).toEqual(DEFAULT_TIMERS.boxing)
+    expect(cleaned.timerPresets[0].config.boxing?.rounds.map((round) => round.theme)).toEqual(['jab', 'two', 'three'])
+    expect(cleanTimers(state).timerConfigs).toEqual(DEFAULT_TIMERS)
   })
 })

@@ -108,6 +108,7 @@ fun modeLine(mode: TimerMode): String = when (mode) {
     TimerMode.EMOM -> "Every minute on the minute"
     TimerMode.AMRAP -> "As many rounds as possible"
     TimerMode.FOR_TIME -> "As fast as you can"
+    TimerMode.BOXING -> "Rounds with a coach calling combinations"
 }
 
 
@@ -117,9 +118,9 @@ internal val VoiceIcon = pathIcon(
     "M16 9a5 5 0 0 1 0 6",
     "M19.364 18.364a9 9 0 0 0 0-12.728",
 )
-private val SaveIcon = pathIcon("Save", "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z")
+internal val SaveIcon = pathIcon("Save", "m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z")
 
-private val CardShape = RoundedCornerShape(18.dp)
+internal val CardShape = RoundedCornerShape(18.dp)
 
 /**
  * The Timer tab: the WODs and the timers on two pages, a WOD's detail, the builder, or the setup of a
@@ -135,6 +136,7 @@ fun TimerScreen(model: Model, dispatch: (Msg) -> Unit) {
     // Out here, so the list is where it was when the lifter comes back from a WOD's detail.
     val wodsList = androidx.compose.foundation.lazy.rememberLazyListState()
     when {
+        setup != null && setup.config.mode == TimerMode.BOXING -> BoxingSetupScreen(model, setup, dispatch)
         setup != null -> TimerSetupScreen(model, setup, dispatch)
         wods && draft != null -> WodBuilder(model, draft, dispatch)
         wods && detail != null -> WodDetail(model, detail, dispatch)
@@ -211,13 +213,15 @@ private fun TimerHome(model: Model, dispatch: (Msg) -> Unit) {
     ) {
         item(key = "modes") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                for (row in TIMER_MODES.chunked(2)) {
+                for (row in TIMER_MODES.filter { it != TimerMode.BOXING }.chunked(2)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         for (mode in row) {
                             ModeCard(mode, timerSummary(lastTimerConfig(model, mode)), Modifier.weight(1f)) { dispatch(Msg.Timer.Open(mode)) }
                         }
                     }
                 }
+                // The showpiece gets the whole row, with its plan in colour.
+                BoxingModeCard(lastTimerConfig(model, TimerMode.BOXING)) { dispatch(Msg.Timer.Open(TimerMode.BOXING)) }
             }
         }
         item(key = "saved") {
@@ -350,13 +354,7 @@ private fun TimerSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) ->
     fun edit(change: (TimerConfig) -> TimerConfig) = dispatch(Msg.Timer.Edit(change(config)))
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { dispatch(Msg.Timer.CloseSetup) }) { Icon(Icons.Back, contentDescription = "Back to the timers") }
-            Column(Modifier.weight(1f)) {
-                Text(mode.title, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp, modifier = Modifier.semantics { heading() })
-                Text(modeLine(mode), fontSize = 14.sp, color = EisenColors.MutedForeground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
+        SetupHeader(mode, dispatch)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             // A 360×640 phone gets smaller wheel rows, so Start never leaves the screen.
             val row = if (maxHeight < 420.dp) 44.dp else 52.dp
@@ -395,6 +393,8 @@ private fun TimerSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) ->
                             SecondsWheel("Time", config.work, timerWheelSeconds(30, 3600, config.work), row, Modifier.weight(1f)) { v -> edit { it.copy(work = v) } }
                         TimerMode.FOR_TIME ->
                             SecondsWheel("Time cap", config.work, timerCapSeconds(config.work), row, Modifier.weight(1f), off = "Off") { v -> edit { it.copy(work = v) } }
+                        // Boxing has a setup of its own, see BoxingSetup.kt.
+                        TimerMode.BOXING -> Unit
                     }
                 }
                 Text(
@@ -406,15 +406,7 @@ private fun TimerSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) ->
                     color = EisenColors.Foreground,
                 )
                 SetupRow(VoiceIcon, "Voice", callsSummary(calls)) { voiceOpen = true }
-                if (setupChanged(model, setup)) {
-                    SetupRow(SaveIcon, "Update preset", "Save the name and these numbers to ${preset?.name}") { dispatch(Msg.Timer.UpdatePreset) }
-                }
-                // Confirmed in place: no snackbar over the Start button.
-                if (setupSaved(model, setup) && !setupChanged(model, setup)) {
-                    SetupRow(SaveIcon, "Saved", "In your saved timers", enabled = false) {}
-                } else {
-                    SetupRow(SaveIcon, "Save as preset", "Start it again in one tap") { naming = true }
-                }
+                PresetRows(model, setup, dispatch) { naming = true }
             }
         }
         Button(
@@ -436,6 +428,33 @@ private fun TimerSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) ->
             },
             onClose = { naming = false },
         )
+    }
+}
+
+/** Back, the mode's name and what it is. */
+@Composable
+internal fun SetupHeader(mode: TimerMode, dispatch: (Msg) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { dispatch(Msg.Timer.CloseSetup) }) { Icon(Icons.Back, contentDescription = "Back to the timers") }
+        Column(Modifier.weight(1f)) {
+            Text(mode.title, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp, modifier = Modifier.semantics { heading() })
+            Text(modeLine(mode), fontSize = 14.sp, color = EisenColors.MutedForeground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** "Update preset" when the setup differs from its saved timer, and "Save as preset" or, saved as it is, "Saved". */
+@Composable
+internal fun PresetRows(model: Model, setup: TimerSetup, dispatch: (Msg) -> Unit, onName: () -> Unit) {
+    val preset = presetOf(model, setup)
+    if (setupChanged(model, setup)) {
+        SetupRow(SaveIcon, "Update preset", "Save the name and these numbers to ${preset?.name}") { dispatch(Msg.Timer.UpdatePreset) }
+    }
+    // Confirmed in place: no snackbar over the Start button.
+    if (setupSaved(model, setup) && !setupChanged(model, setup)) {
+        SetupRow(SaveIcon, "Saved", "In your saved timers", enabled = false) {}
+    } else {
+        SetupRow(SaveIcon, "Save as preset", "Start it again in one tap", onClick = onName)
     }
 }
 
@@ -480,7 +499,7 @@ internal fun WheelBox(header: String, modifier: Modifier, content: @Composable (
 }
 
 @Composable
-private fun SecondsWheel(
+internal fun SecondsWheel(
     header: String,
     value: Int,
     choices: List<Int>,
@@ -502,8 +521,8 @@ private fun SecondsWheel(
 }
 
 @Composable
-private fun RoundsWheel(value: Int, row: Dp, modifier: Modifier, onChange: (Int) -> Unit) {
-    val choices = remember { (1..MAX_TIMER_ROUNDS).toList() }
+internal fun RoundsWheel(value: Int, row: Dp, modifier: Modifier, max: Int = MAX_TIMER_ROUNDS, onChange: (Int) -> Unit) {
+    val choices = remember(max) { (1..max).toList() }
     WheelBox("Rounds", modifier) {
         Wheel(
             labels = remember { choices.map { it.toString() } },
@@ -524,7 +543,7 @@ internal fun spokenSeconds(seconds: Int, off: String?): String = when {
 }
 
 @Composable
-private fun NameDialog(initial: String, onSave: (String) -> Unit, onClose: () -> Unit) {
+internal fun NameDialog(initial: String, onSave: (String) -> Unit, onClose: () -> Unit) {
     var text by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length))) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }

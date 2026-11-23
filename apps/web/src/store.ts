@@ -27,7 +27,7 @@ import {
 } from './domain/program'
 import { lastSetReps } from './domain/records'
 import { withCorrectedReps } from './domain/rest'
-import { cleanWods, freshState, isAppState, migrate, type AppState } from './domain/state'
+import { cleanTimers, cleanWods, freshState, isAppState, migrate, type AppState } from './domain/state'
 import { timerConfig, type TimerConfig, type TimerPreset, type TimerSession } from './domain/timer'
 import type { Unit } from './domain/units'
 import { isLibraryWod, type Wod } from './domain/wod'
@@ -40,7 +40,7 @@ function load(): AppState {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = migrate(JSON.parse(raw))
-      if (isAppState(parsed)) return parsed
+      if (isAppState(parsed)) return { ...parsed, ...cleanTimers(parsed) }
     }
   } catch {
     // Unreadable storage: start fresh instead of blocking the app.
@@ -398,7 +398,7 @@ export function importData(json: string): boolean {
   try {
     const parsed = migrate(JSON.parse(json))
     if (!isAppState(parsed)) return false
-    Object.assign(state, { ...parsed, wods: cleanWods(parsed.wods) })
+    Object.assign(state, { ...parsed, ...cleanTimers(parsed), wods: cleanWods(parsed.wods) })
     lastChanges.value = null
     return true
   } catch {

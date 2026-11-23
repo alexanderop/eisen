@@ -102,6 +102,7 @@ import io.github.alexanderop.eisen.domain.MAX_WOD_ITEMS
 import io.github.alexanderop.eisen.domain.MAX_WOD_ROUNDS
 import io.github.alexanderop.eisen.domain.SCHEMES
 import io.github.alexanderop.eisen.domain.TIMER_MODES
+import io.github.alexanderop.eisen.domain.WOD_MODES
 import io.github.alexanderop.eisen.domain.TimerConfig
 import io.github.alexanderop.eisen.domain.TimerMode
 import io.github.alexanderop.eisen.domain.TimerSession
@@ -183,7 +184,6 @@ import kotlinx.coroutines.launch
  * model; which sheet is open stays here.
  */
 
-private val CardShape = RoundedCornerShape(18.dp)
 private val RowShape = RoundedCornerShape(14.dp)
 
 // Lucide's grip-vertical, as in the routine editor.
@@ -818,7 +818,7 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
                 modifier = Modifier.fillMaxWidth(),
             )
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val modes = listOf(TimerMode.FOR_TIME, TimerMode.AMRAP, TimerMode.EMOM, TimerMode.TABATA)
+                val modes = WOD_MODES
                 modes.forEachIndexed { index, option ->
                     SegmentedButton(
                         selected = mode == option,
@@ -884,6 +884,8 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
                     ValueRow("Rest", holdText(wod.timer.rest)) { number = Number.REST }
                     ValueRow("Rounds", wod.timer.rounds.toString()) { number = Number.INTERVALS }
                 }
+                // Not one of the WOD modes: the builder never offers it.
+                TimerMode.BOXING -> Unit
             }
 
             SectionTitle("Movements")

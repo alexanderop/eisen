@@ -7,6 +7,8 @@
 import { Check, Hourglass, Minus, Pause, Play, Plus, Undo2, Volume2 } from '@lucide/vue'
 import { useElementSize } from '@vueuse/core'
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
+import { THEME_COLORS } from '../domain/boxing'
+import { combosText } from '../domain/boxingScreens'
 import { holdText } from '../domain/program'
 import {
   countsRoundsByTap,
@@ -44,6 +46,7 @@ import {
   startWod,
   tapRound,
   timer,
+  timerBoxing,
   timerNow,
   undoFinish,
   untapRound,
@@ -51,6 +54,8 @@ import {
 } from '../timer'
 import { useWakeLock } from '../wakeLock'
 import { returnToDetail } from '../wods'
+import BoxingRun from './BoxingRun.vue'
+import BoxingTimeline from './BoxingTimeline.vue'
 import ExerciseMotion from './ExerciseMotion.vue'
 import { Button, ConfirmButton } from './ui'
 
@@ -123,6 +128,13 @@ const roundLine = computed(() => {
   const current = view.value
   if (!current || current.rounds === null || workout.value) return ''
   return `Round ${current.round} of ${current.rounds}`
+})
+
+/** Boxing has its own run screen. Its work takes the colour of the round's theme, also paused. */
+const boxing = computed(() => config.value?.mode === 'boxing')
+const boxingStyle = computed(() => {
+  const theme = timerBoxing.value?.round.theme
+  return boxing.value && theme && view.value?.phase === 'work' ? { '--stage': THEME_COLORS[theme] } : undefined
 })
 
 const seconds = (ms: number) => Math.ceil(ms / 1000)
@@ -243,7 +255,9 @@ function onEnd() {
     endTimer(false)
     return
   }
+  if (confirming.value) return
   confirming.value = true
+  confirmOpenedAt = performance.now()
 }
 
 function onToggle() {
@@ -251,7 +265,12 @@ function onToggle() {
   else pauseTimer()
 }
 
+/** A second tap on End, landing on the question that just opened, must not answer it. */
+const CONFIRM_GUARD_MS = 600
+let confirmOpenedAt = 0
+
 function onEndChoice(choice: 'save' | 'discard' | 'keep') {
+  if (performance.now() - confirmOpenedAt < CONFIRM_GUARD_MS) return
   confirming.value = false
   if (choice !== 'keep') endTimer(choice === 'save')
 }
@@ -387,136 +406,140 @@ defineExpose({ back })
   <div
     v-if="run && view"
     class="timer"
-    :class="[stage, { compact: tapped || stepped, 'for-time': forTime, wod: workout }]"
-    :style="workout ? cardSpace : undefined"
+    :class="[stage, { compact: tapped || stepped, 'for-time': forTime, wod: workout, boxing }]"
+    :style="workout ? cardSpace : boxingStyle"
     role="dialog"
     aria-modal="true"
     :aria-label="`${run.name} timer`"
     @keydown.esc="back"
   >
-    <header>
-      <h2 class="name">{{ run.name }}</h2>
-      <Button size="md" variant="secondary" class="end" @click="onEnd">End</Button>
-    </header>
+    <BoxingRun v-if="boxing" @end="onEnd" @toggle="onToggle" />
 
-    <button v-if="needsTap" class="sound" @click="wakeSound">
-      <Volume2 :size="22" aria-hidden="true" />
-      Tap for sound
-    </button>
+    <template v-else>
+      <header>
+        <h2 class="name">{{ run.name }}</h2>
+        <Button size="md" variant="secondary" class="end" @click="onEnd">End</Button>
+      </header>
 
-    <section class="centre">
-      <div class="phase-block">
-        <p class="phase" :class="{ pulse }">
-          {{ phaseWord }}<span v-if="tag" class="phase-round"> · {{ tag }}</span>
-        </p>
-        <p v-if="roundLine" class="round">{{ roundLine }}</p>
-        <p v-else-if="wodTotal" class="total">{{ totalLine }}</p>
-      </div>
-      <div class="dial">
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          <circle class="track" cx="50" cy="50" :r="RADIUS" />
-          <circle
-            :key="ringKey"
-            class="fill"
-            cx="50"
-            cy="50"
-            :r="RADIUS"
-            :stroke-dasharray="CIRCUMFERENCE"
-            :stroke-dashoffset="CIRCUMFERENCE * (1 - ring)"
-          />
-        </svg>
-        <span class="time" :class="{ lead: ready, long: clock.length > 4 }" role="timer">{{ clock }}</span>
-        <span v-if="capLine" class="below">{{ capLine }}</span>
-      </div>
-      <p v-if="pace" ref="paceEl" class="pace">
-        <span>{{ pace.best }}</span>
-        <span v-if="pace.gap" class="pace-gap" :class="pace.tone">
-          <span v-if="pace.arrow" aria-hidden="true">{{ pace.arrow }}</span>
-          {{ pace.gap }}
-        </span>
-      </p>
-      <div v-if="workout" class="round-card">
-        <p v-if="heading" class="round-heading">{{ heading }}</p>
-        <ul ref="linesList" class="round-lines" :class="{ more: moreBelow }" aria-live="polite">
-          <li v-for="(line, index) in lines" :key="index" :class="line.state">
-            <span v-if="line.rest" class="line-tile rest-tile" aria-hidden="true">
-              <Hourglass :size="22" />
-            </span>
-            <ExerciseMotion
-              v-else-if="line.exercise"
-              class="line-tile"
-              :exercise="line.exercise"
-              :size="40"
-              :playing="!paused && !rest && (!ticking || line.state === 'current')"
+      <button v-if="needsTap" class="sound" @click="wakeSound">
+        <Volume2 :size="22" aria-hidden="true" />
+        Tap for sound
+      </button>
+
+      <section class="centre">
+        <div class="phase-block">
+          <p class="phase" :class="{ pulse }">
+            {{ phaseWord }}<span v-if="tag" class="phase-round"> · {{ tag }}</span>
+          </p>
+          <p v-if="roundLine" class="round">{{ roundLine }}</p>
+          <p v-else-if="wodTotal" class="total">{{ totalLine }}</p>
+        </div>
+        <div class="dial">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="track" cx="50" cy="50" :r="RADIUS" />
+            <circle
+              :key="ringKey"
+              class="fill"
+              cx="50"
+              cy="50"
+              :r="RADIUS"
+              :stroke-dasharray="CIRCUMFERENCE"
+              :stroke-dashoffset="CIRCUMFERENCE * (1 - ring)"
             />
-            <span>
-              <Check v-if="line.state === 'done'" class="tick" :size="18" :stroke-width="3" aria-label="Done:" />
-              {{ line.text }}
-            </span>
-          </li>
-        </ul>
+          </svg>
+          <span class="time" :class="{ lead: ready, long: clock.length > 4 }" role="timer">{{ clock }}</span>
+          <span v-if="capLine" class="below">{{ capLine }}</span>
+        </div>
+        <p v-if="pace" ref="paceEl" class="pace">
+          <span>{{ pace.best }}</span>
+          <span v-if="pace.gap" class="pace-gap" :class="pace.tone">
+            <span v-if="pace.arrow" aria-hidden="true">{{ pace.arrow }}</span>
+            {{ pace.gap }}
+          </span>
+        </p>
+        <div v-if="workout" class="round-card">
+          <p v-if="heading" class="round-heading">{{ heading }}</p>
+          <ul ref="linesList" class="round-lines" :class="{ more: moreBelow }" aria-live="polite">
+            <li v-for="(line, index) in lines" :key="index" :class="line.state">
+              <span v-if="line.rest" class="line-tile rest-tile" aria-hidden="true">
+                <Hourglass :size="22" />
+              </span>
+              <ExerciseMotion
+                v-else-if="line.exercise"
+                class="line-tile"
+                :exercise="line.exercise"
+                :size="40"
+                :playing="!paused && !rest && (!ticking || line.state === 'current')"
+              />
+              <span>
+                <Check v-if="line.state === 'done'" class="tick" :size="18" :stroke-width="3" aria-label="Done:" />
+                {{ line.text }}
+              </span>
+            </li>
+          </ul>
+        </div>
+        <div v-else class="info">
+          <p v-if="totalLine" class="total">{{ totalLine }}</p>
+          <p v-if="next" class="next">{{ next }}</p>
+        </div>
+      </section>
+
+      <div v-if="stepped && button" class="tap-area steps">
+        <button class="back-step" :disabled="run.taps === 0 || ready" aria-label="Back one step" @click="untapRound">
+          <Undo2 :size="22" aria-hidden="true" />
+          Back
+        </button>
+        <button v-if="rest" class="tap skip" :disabled="paused" @click="skipRest">
+          <span class="tap-big">Skip rest</span>
+          <span class="tap-small">then {{ button.line }}</span>
+        </button>
+        <button v-else class="tap" :disabled="paused || ready" :aria-label="button.label" @click="tapRound">
+          <span class="tap-big">
+            <Check class="tap-check" :size="28" :stroke-width="3.5" aria-hidden="true" />
+            <span class="tap-line">{{ button.line }}</span>
+          </span>
+          <span class="tap-small">{{ button.hint }}</span>
+        </button>
       </div>
-      <div v-else class="info">
-        <p v-if="totalLine" class="total">{{ totalLine }}</p>
-        <p v-if="next" class="next">{{ next }}</p>
+
+      <div v-else-if="tapped" class="tap-area steps">
+        <button class="back-step minus" :disabled="run.taps === 0 || ready" aria-label="One round less" @click="untapRound">
+          −1
+        </button>
+        <button
+          class="tap"
+          :disabled="paused || ready"
+          :aria-label="`Add a round. ${roundsText(run.taps)} so far.`"
+          @click="tapRound"
+        >
+          <span class="count">{{ run.taps }}</span>
+          <span class="count-label">{{ workout ? 'rounds done' : run.taps === 1 ? 'round' : 'rounds' }}</span>
+          <span class="tap-hint">+1 · tap</span>
+        </button>
       </div>
-    </section>
 
-    <div v-if="stepped && button" class="tap-area steps">
-      <button class="back-step" :disabled="run.taps === 0 || ready" aria-label="Back one step" @click="untapRound">
-        <Undo2 :size="22" aria-hidden="true" />
-        Back
-      </button>
-      <button v-if="rest" class="tap skip" :disabled="paused" @click="skipRest">
-        <span class="tap-big">Skip rest</span>
-        <span class="tap-small">then {{ button.line }}</span>
-      </button>
-      <button v-else class="tap" :disabled="paused || ready" :aria-label="button.label" @click="tapRound">
-        <span class="tap-big">
-          <Check class="tap-check" :size="28" :stroke-width="3.5" aria-hidden="true" />
-          <span class="tap-line">{{ button.line }}</span>
-        </span>
-        <span class="tap-small">{{ button.hint }}</span>
-      </button>
-    </div>
-
-    <div v-else-if="tapped" class="tap-area steps">
-      <button class="back-step minus" :disabled="run.taps === 0 || ready" aria-label="One round less" @click="untapRound">
-        −1
-      </button>
-      <button
-        class="tap"
-        :disabled="paused || ready"
-        :aria-label="`Add a round. ${roundsText(run.taps)} so far.`"
-        @click="tapRound"
-      >
-        <span class="count">{{ run.taps }}</span>
-        <span class="count-label">{{ workout ? 'rounds done' : run.taps === 1 ? 'round' : 'rounds' }}</span>
-        <span class="tap-hint">+1 · tap</span>
-      </button>
-    </div>
-
-    <div class="controls">
-      <button
-        v-if="forTime && !workout"
-        class="hold"
-        :class="{ holding }"
-        :disabled="ready"
-        @pointerdown="onHoldDown"
-        @pointerup="onHoldUp"
-        @pointercancel="onHoldUp"
-        @contextmenu.prevent
-        @click="onHoldClick"
-      >
-        <span class="hold-fill" aria-hidden="true" />
-        <span class="hold-label">{{ holdHint ? 'Keep holding to finish' : 'Hold to finish' }}</span>
-      </button>
-      <Button :variant="paused ? 'default' : 'secondary'" class="w-full big-button" @click="onToggle">
-        <Play v-if="paused" :size="20" aria-hidden="true" />
-        <Pause v-else :size="20" aria-hidden="true" />
-        {{ paused ? 'Resume' : 'Pause' }}
-      </Button>
-    </div>
+      <div class="controls">
+        <button
+          v-if="forTime && !workout"
+          class="hold"
+          :class="{ holding }"
+          :disabled="ready"
+          @pointerdown="onHoldDown"
+          @pointerup="onHoldUp"
+          @pointercancel="onHoldUp"
+          @contextmenu.prevent
+          @click="onHoldClick"
+        >
+          <span class="hold-fill" aria-hidden="true" />
+          <span class="hold-label">{{ holdHint ? 'Keep holding to finish' : 'Hold to finish' }}</span>
+        </button>
+        <Button :variant="paused ? 'default' : 'secondary'" class="w-full big-button" @click="onToggle">
+          <Play v-if="paused" :size="20" aria-hidden="true" />
+          <Pause v-else :size="20" aria-hidden="true" />
+          {{ paused ? 'Resume' : 'Pause' }}
+        </Button>
+      </div>
+    </template>
 
     <div v-if="confirming" class="confirm" @click.self="onEndChoice('keep')">
       <div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="end-title">
@@ -582,6 +605,8 @@ defineExpose({ back })
         <p v-if="gap" class="gap" :class="{ better: gap.better }">{{ gap.text }}</p>
         <p v-if="bestBefore" class="best">Previous best {{ bestText(bestBefore) }}</p>
         <p v-if="!resultForTime" class="second">{{ roundsText(result.rounds) }}</p>
+        <p v-if="timer.resultCombos !== null" class="combos">{{ combosText(timer.resultCombos) }}</p>
+        <BoxingTimeline v-if="result.config.mode === 'boxing'" class="result-strip" :config="result.config" />
         <p v-else-if="resultWod && resultWod.rounds > 1" class="second">
           {{ Math.min(result.rounds, resultWod.rounds) }} of {{ resultWod.rounds }} rounds
         </p>
@@ -1217,6 +1242,18 @@ header {
   .timer.wod .big-button {
     height: 46px;
   }
+}
+
+.combos {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: var(--fs-lg);
+  font-weight: 800;
+}
+
+.result-strip {
+  width: 100%;
+  margin-top: 24px;
 }
 
 /* "End timer?" rises over the run like a sheet. The run goes on underneath until it is answered. */

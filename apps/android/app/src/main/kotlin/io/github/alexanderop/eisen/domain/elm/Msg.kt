@@ -1,5 +1,8 @@
 package io.github.alexanderop.eisen.domain.elm
 
+import io.github.alexanderop.eisen.domain.BOXING_TEMPLATES
+import io.github.alexanderop.eisen.domain.BoxingRound
+import io.github.alexanderop.eisen.domain.BoxingStyle
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
 import io.github.alexanderop.eisen.domain.Slot
@@ -215,6 +218,43 @@ sealed interface Msg {
 
         /** "Play sample": says "Halfway" so the lifter can set the volume. */
         data object PlaySample : Timer
+
+        /** A round of the boxing setup, its row or its piece of the timeline: its sheet opens. The arrows step with it. */
+        data class OpenRound(val index: Int) : Timer
+
+        /** "Done" or a swipe down on the round sheet. */
+        data object CloseRound : Timer
+
+        /** A theme tile, the pace or a speed and power chip of the round sheet. Brought into the limits of a round. */
+        data class EditRound(val index: Int, val round: BoxingRound) : Timer
+
+        /** "Copy to all rounds": every round becomes a copy of round [index]. */
+        data class CopyToAll(val index: Int) : Timer
+
+        /** A template chip: [BOXING_TEMPLATES] at [index], laid over the number of rounds, with Undo beside the chips. */
+        data class ApplyTemplate(val index: Int) : Timer
+        data object UndoTemplate : Timer
+
+        /** "Names" or "Numbers": how the coach calls the combinations. */
+        data class SetStyle(val style: BoxingStyle) : Timer
+
+        /** "Listen" in the round sheet: the next combination of round [index], in order, said in the chosen style. */
+        data class Listen(val index: Int) : Timer
+
+        /** The play button of a combination in the round sheet's list: says it in the chosen style. */
+        data class PlayCombo(val id: String) : Timer
+
+        /** A drag of a round's tile, or "Move earlier" / "Move later": round [from] goes to place [to]. */
+        data class MoveRound(val from: Int, val to: Int) : Timer
+
+        /** "Duplicate": a copy of round [index] right after it, up to the most rounds a workout has. */
+        data class DuplicateRound(val index: Int) : Timer
+
+        /** "Remove": round [index] goes. The last round stays. */
+        data class RemoveRound(val index: Int) : Timer
+
+        /** The template applied at [at] can no longer be undone, unless another one was applied since. */
+        data class ForgetTemplate(val at: Long) : Timer
 
         /** Saves the setup as a new timer. A blank [name] gets the mode and its summary. */
         data class SavePreset(val name: String) : Timer

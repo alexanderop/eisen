@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ChevronRight, Hash, Plus, Repeat, Timer } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
-import { TIMER_MODES, TIMER_NAMES, type TimerMode } from '../domain/timer'
+import { TIMER_NAMES, WOD_MODES, type TimerMode } from '../domain/timer'
 import { roundsWheel, timerWheels, type TimerField } from '../domain/timerScreens'
 import { findWod, MAX_WOD_ITEMS, SCHEMES, wod, wodName } from '../domain/wod'
 import {
@@ -35,7 +35,7 @@ const backLabel = computed(() => {
   return target ? wodName(target) : 'WODs'
 })
 
-const MODES = [...TIMER_MODES].reverse().map((mode) => ({ value: mode, label: TIMER_NAMES[mode] }))
+const MODES = WOD_MODES.map((mode) => ({ value: mode, label: TIMER_NAMES[mode] }))
 
 function setMode(mode: TimerMode) {
   const next = switchMode(draft.value, props.edit.memory, mode)

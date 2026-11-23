@@ -43,11 +43,12 @@ object TimerSounds {
     private var line: MediaPlayer? = null
     private var focus: AudioFocusRequest? = null
 
-    fun play(context: Context, sound: String) {
+    /** [fallback] plays instead when [sound] is a line that is not recorded. */
+    fun play(context: Context, sound: String, fallback: String? = null) {
         when (sound) {
             "beep" -> tone(sound, beep)
             "beep-long" -> tone(sound, beepLong)
-            else -> say(context, sound)
+            else -> if (!say(context, sound) && fallback != null) play(context, fallback)
         }
     }
 
@@ -57,7 +58,8 @@ object TimerSounds {
         finish()
     }
 
-    private fun say(context: Context, name: String) {
+    /** False when there is no recording of [name]. */
+    private fun say(context: Context, name: String): Boolean {
         // One line at a time. The schedule never overlaps them, a sample tapped twice might.
         stop()
         app = context.applicationContext
@@ -69,7 +71,7 @@ object TimerSounds {
             // Not recorded (yet): the timer goes on without it.
             player.release()
             Log.d(TAG, "skipped $name: no recording")
-            return
+            return false
         }
         val audio = context.getSystemService(AudioManager::class.java)
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(voice).build()
@@ -91,6 +93,7 @@ object TimerSounds {
             Log.d(TAG, "could not say $name", it)
             finish()
         }
+        return true
     }
 
     /** Lets the player go and gives the audio focus back, so the music comes back up. */

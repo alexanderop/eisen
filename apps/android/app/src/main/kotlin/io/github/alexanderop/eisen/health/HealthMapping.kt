@@ -3,6 +3,7 @@ package io.github.alexanderop.eisen.health
 import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import io.github.alexanderop.eisen.domain.Equipment
+import io.github.alexanderop.eisen.domain.TimerMode
 import io.github.alexanderop.eisen.domain.TimerSession
 import io.github.alexanderop.eisen.domain.Workout
 import io.github.alexanderop.eisen.domain.loadText
@@ -125,8 +126,8 @@ fun sessionFields(workout: Workout, zone: ZoneId): SessionFields? {
 }
 
 /**
- * The record for a finished interval timer: a HIIT session named like the timer, from Start to the end,
- * with what it was and what was done in the notes. Null when its end is not after its start.
+ * The record for a finished interval timer: a HIIT session, or a boxing one, named like the timer, from
+ * Start to the end, with what it was and what was done in the notes. Null when its end is not after its start.
  */
 fun timerSessionFields(session: TimerSession, zone: ZoneId): SessionFields? {
     if (session.finishedAt <= session.startedAt) return null
@@ -141,6 +142,7 @@ fun timerSessionFields(session: TimerSession, zone: ZoneId): SessionFields? {
         title = session.name,
         notes = "${session.config.mode.title} ${timerSummary(session.config)}: ${sessionSummary(session)}$done",
         segments = emptyList(),
-        exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING,
+        exerciseType = if (session.config.mode == TimerMode.BOXING) ExerciseSessionRecord.EXERCISE_TYPE_BOXING
+        else ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING,
     )
 }
