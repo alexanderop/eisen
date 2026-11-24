@@ -118,32 +118,46 @@ class TimerTest {
     }
 
     @Test fun `beeps into every change of phase and names the rounds`() {
+        // Rounds of 20 seconds are too short for any call about the time left.
         assertEquals(
             "0:get-ready 7:beep 8:beep 9:beep 10:beep-long 10.7:round-1 " +
-                "27:beep 28:beep 29:beep 30:beep-long 30.7:rest 33.2:minutes-left-1 " +
-                "37:beep 38:beep 39:beep 40:beep-long 40.7:round-2 50:halfway " +
+                "27:beep 28:beep 29:beep 30:beep-long 30.7:rest " +
+                "37:beep 38:beep 39:beep 40:beep-long 40.7:round-2 " +
                 "57:beep 58:beep 59:beep 60:beep-long 60.7:rest " +
-                "67:beep 68:beep 69:beep 70:beep-long 70.7:last-round 80:ten-seconds " +
+                "67:beep 68:beep 69:beep 70:beep-long 70.7:last-round " +
                 "87:beep 88:beep 89:beep 90:beep-long 90.7:complete",
             schedule(tabata(3)),
         )
     }
 
-    @Test fun `lets a time call wait for the line about the phase, and says only one of two at once`() {
-        // 2 minutes left and halfway fall together: halfway is said.
+    @Test fun `says the time left in the round, never in the whole timer`() {
+        // Two rounds of three minutes: every round counts down by itself, and nothing is said about the eight minutes in all.
         assertEquals(
-            "0:get-ready 10.7:round-1 30.7:rest 40.7:round-2 60.7:rest 63.2:minutes-left-3 " +
-                "70.7:round-3 90.7:rest 100.7:round-4 120.7:rest 125:halfway 130.7:round-5 " +
-                "150.7:rest 160.7:round-6 180.7:rest 183.2:minutes-left-1 190.7:round-7 " +
-                "210.7:rest 213.2:thirty-seconds 220.7:last-round 230:ten-seconds 240.7:complete",
-            schedule(tabata(8), DEFAULT_TIMER_CALLS.copy(beeps = false)),
+            "0:get-ready 10.7:round-1 70:minutes-left-2 100:halfway 130:minutes-left-1 160:thirty-seconds 180:ten-seconds 190.7:rest " +
+                "250.7:last-round 310:minutes-left-2 340:halfway 370:minutes-left-1 400:thirty-seconds 420:ten-seconds 430.7:complete",
+            schedule(TimerConfig(TimerMode.TABATA, work = 180, rest = 60, rounds = 2), DEFAULT_TIMER_CALLS.copy(beeps = false)),
+        )
+        // A round under two minutes has no halfway, one under 90 seconds no thirty seconds, one under 30 no ten.
+        assertEquals(
+            "25:minutes-left-1 75:ten-seconds 115:minutes-left-1 165:ten-seconds",
+            schedule(TimerConfig(TimerMode.TABATA, work = 75, rest = 15, rounds = 2), quiet.copy(halfway = true, final = true, minutes = 1)),
+        )
+        assertEquals("", schedule(tabata(8), quiet.copy(halfway = true, final = true, minutes = 1)))
+    }
+
+    @Test fun `lets a time call wait for the line about the phase`() {
+        // One minute left comes two seconds into a round of 62: the round is named first.
+        assertEquals(
+            "0:get-ready 10.7:round-1 13.2:minutes-left-1 62:ten-seconds 72.7:rest 82.7:last-round 85.2:minutes-left-1 134:ten-seconds 144.7:complete",
+            schedule(TimerConfig(TimerMode.TABATA, work = 62, rest = 10, rounds = 2), DEFAULT_TIMER_CALLS.copy(beeps = false)),
         )
     }
 
     @Test fun `leaves out a time call that lands on a round of an EMOM`() {
+        // The same call in an EMOM is left out: the round number says where the lifter is.
         assertEquals(
-            "0:get-ready 10.7:round-1 70.7:round-2 100:halfway 130.7:last-round 160:thirty-seconds 180:ten-seconds 190.7:complete",
-            schedule(TimerConfig(TimerMode.EMOM, work = 60, rest = 0, rounds = 3), DEFAULT_TIMER_CALLS.copy(beeps = false)),
+            "0:get-ready 10.7:round-1 62:ten-seconds 72.7:round-2 124:ten-seconds 134.7:last-round 186:ten-seconds 196.7:complete",
+            schedule(TimerConfig(TimerMode.EMOM, work = 62, rest = 0, rounds = 3), DEFAULT_TIMER_CALLS.copy(beeps = false)),
         )
     }
 

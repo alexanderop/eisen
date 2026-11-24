@@ -3,6 +3,7 @@ package io.github.alexanderop.eisen.feature.timer.boxing
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
+import io.github.alexanderop.eisen.feature.timer.MAX_SPOKEN_NUMBER
 import io.github.alexanderop.eisen.feature.timer.TIMER_LEAD_IN_SECONDS
 import io.github.alexanderop.eisen.feature.timer.TimerCalls
 import io.github.alexanderop.eisen.feature.timer.TimerConfig
@@ -635,6 +636,14 @@ fun boxingCues(config: TimerConfig, calls: TimerCalls, seed: Int): List<TimerCue
         if (calls.final) {
             if (work >= 90 * SECOND) sayAfter(end - 30 * SECOND, "thirty-seconds")
             if (work >= 30 * SECOND) sayAfter(end - 10 * SECOND, "ten-seconds")
+        }
+        // The minutes left in the round, as in every timer: "Two minutes left", "One minute left".
+        if (calls.minutes > 0) {
+            var left = calls.minutes
+            while (left * 60 * SECOND < work && left <= MAX_SPOKEN_NUMBER) {
+                sayAfter(end - left * 60 * SECOND, "minutes-left-$left")
+                left += calls.minutes
+            }
         }
         if (burn > 0) sayAfter(end - burn, "box-nonstop")
 

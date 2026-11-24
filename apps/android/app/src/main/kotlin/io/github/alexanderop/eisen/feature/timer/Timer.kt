@@ -292,6 +292,7 @@ data class TimerCue(val at: Long, val sound: String, val combo: String? = null)
  * Every sound of a timer from Start to the end, in order.
  * Worked out once up front, so a phone can play them with the screen off and a test can read them.
  *
+ * The time left is always the time left in the round, never in the whole timer.
  * Spoken lines never talk over each other: a time call that would land on a line about the
  * phase waits until that one is over, and of two time calls at the same moment only one is said.
  * In an EMOM a time call on a round start is left out: the round number says the same.
@@ -328,16 +329,25 @@ fun timerCues(config: TimerConfig, calls: TimerCalls, seed: Int = 1): List<Timer
         if (total != null) phases += TimerCue(LEAD_IN + total + VOICE_AFTER_BEEP, "complete")
     }
 
+    // The time calls are about the round the lifter is in: with rounds, how long the whole timer
+    // still runs is of no use. A timer of one block has one round, the whole of it.
     // Most important first: of two calls at the same moment the earlier one in this list is said.
     if (total != null) {
-        if (calls.halfway && total >= MINUTE) times += TimerCue(LEAD_IN + total / 2, "halfway")
-        if (calls.final && total >= 90 * SECOND) times += TimerCue(LEAD_IN + total - 30 * SECOND, "thirty-seconds")
-        if (calls.final && total >= 30 * SECOND) times += TimerCue(LEAD_IN + total - 10 * SECOND, "ten-seconds")
-        if (calls.minutes > 0) {
-            var left = calls.minutes
-            while (left * MINUTE < total && left <= MAX_SPOKEN_NUMBER) {
-                times += TimerCue(LEAD_IN + total - left * MINUTE, "minutes-left-$left")
-                left += calls.minutes
+        val rounds = list.filter { it.kind == SegmentKind.WORK }
+        // Halfway through every single minute of an EMOM would be noise: with rounds it takes a long one.
+        val halfwayFrom = if (rounds.size > 1) 2 * MINUTE else MINUTE
+        for (round in rounds) {
+            val length = round.end - round.start
+            val over = LEAD_IN + round.end
+            if (calls.halfway && length >= halfwayFrom) times += TimerCue(LEAD_IN + round.start + length / 2, "halfway")
+            if (calls.final && length >= 90 * SECOND) times += TimerCue(over - 30 * SECOND, "thirty-seconds")
+            if (calls.final && length >= 30 * SECOND) times += TimerCue(over - 10 * SECOND, "ten-seconds")
+            if (calls.minutes > 0) {
+                var left = calls.minutes
+                while (left * MINUTE < length && left <= MAX_SPOKEN_NUMBER) {
+                    times += TimerCue(over - left * MINUTE, "minutes-left-$left")
+                    left += calls.minutes
+                }
             }
         }
     } else if (calls.minutes > 0) {

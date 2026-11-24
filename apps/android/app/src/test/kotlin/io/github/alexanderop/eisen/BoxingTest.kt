@@ -185,7 +185,7 @@ class BoxingTest {
                 }
             }
         }
-        assertEquals(139, comboCount(boxingCues(default, DEFAULT_TIMER_CALLS, 1)))
+        assertEquals(130, comboCount(boxingCues(default, DEFAULT_TIMER_CALLS, 1)))
     }
 
     @Test fun `says the time left after Speed or Power when both fall on the same moment`() {
@@ -330,7 +330,7 @@ class BoxingTest {
         fun plain(split: Int) = comboCount(
             boxingCues(timerConfig(TimerConfig(TimerMode.BOXING, 180, 60, 1, BoxingPlan(listOf(round(BoxingTheme.JAB, 5, split)), BoxingStyle.NAMES))), DEFAULT_TIMER_CALLS, 1),
         )
-        assertEquals(listOf(33, 31, 35), listOf(plain(0), plain(15), plain(30)))
+        assertEquals(listOf(33, 29, 33), listOf(plain(0), plain(15), plain(30)))
         assertTrue(speedCombos(themeCombos(BoxingTheme.FOUR)).all { it.say.split(",").size <= 5 })
         assertTrue(speedCombos(themeCombos(BoxingTheme.MIX)).all { it.say.split(",").size <= 2 })
     }

@@ -948,17 +948,19 @@ internal fun restoreTimer(model: Model, saved: TimerRun?, now: Long): Next {
 
 /** The "Voice" row of the boxing setup: the coach always calls, and of the rest only what boxing uses. */
 fun boxingCallsSummary(calls: TimerCalls): String =
-    (listOf("Combinations") + listOfNotNull("last 30 and 10 s".takeIf { calls.final }, "rounds and rest".takeIf { calls.phases }, "3-2-1 beeps".takeIf { calls.beeps }))
+    (listOf("Combinations") + listOfNotNull(minutesPart(calls)?.replaceFirstChar { it.lowercase() }, "last 30 and 10 s".takeIf { calls.final }, "rounds and rest".takeIf { calls.phases }, "3-2-1 beeps".takeIf { calls.beeps }))
         .joinToString(", ")
+
+private fun minutesPart(calls: TimerCalls): String? = when (calls.minutes) {
+    0 -> null
+    1 -> "Every minute"
+    else -> "Every ${calls.minutes} min"
+}
 
 /** The calls in one line for the "Voice" row: "Every minute, halfway, last 30 s, rounds and rest, 3-2-1 beeps". */
 fun callsSummary(calls: TimerCalls): String {
     val parts = buildList {
-        when (calls.minutes) {
-            1 -> add("Every minute")
-            0 -> Unit
-            else -> add("Every ${calls.minutes} min")
-        }
+        minutesPart(calls)?.let(::add)
         if (calls.halfway) add("halfway")
         if (calls.final) add("last 30 s")
         if (calls.phases) add("rounds and rest")

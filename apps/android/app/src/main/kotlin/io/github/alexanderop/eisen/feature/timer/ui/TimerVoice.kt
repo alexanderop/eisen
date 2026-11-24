@@ -68,15 +68,15 @@ fun TimerCallsControls(calls: TimerCalls, dispatch: (Msg) -> Unit, modifier: Mod
         haptics.perform(Haptic.TAP)
     }
     Column(modifier.fillMaxWidth()) {
-        // Boxing has its coach instead: the time left and halfway are not said there.
-        if (!boxing) MinutesChoice(calls, ::set)
+        // Boxing has its coach: halfway through a round is not said there.
+        MinutesChoice(calls, ::set)
         if (!boxing) CallSwitch(HalfIcon, "Halfway", calls.halfway) { set(calls.copy(halfway = it)) }
         CallSwitch(FlagIcon, "Last 30 and 10 seconds", calls.final) { set(calls.copy(final = it)) }
         CallSwitch(RepeatIcon, "Rounds and rest", calls.phases) { set(calls.copy(phases = it)) }
         CallSwitch(BeepIcon, "3-2-1 beeps", calls.beeps) { set(calls.copy(beeps = it)) }
         Text(
-            if (boxing) "The coach always calls the combinations. Time left and halfway are not said in boxing. Applies to all timers."
-            else "Applies to all timers.",
+            if (boxing) "The coach always calls the combinations. Time left is the time left in the round. Applies to all timers."
+            else "Time left is the time left in the round. Applies to all timers.",
             Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             fontSize = 13.sp,
             color = EisenColors.MutedForeground,

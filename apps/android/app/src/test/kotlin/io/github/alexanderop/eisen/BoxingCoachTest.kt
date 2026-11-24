@@ -156,7 +156,8 @@ class BoxingCoachTest {
     }
 
     @Test fun `a freestyle round with reminders says nothing else, now and then`() {
-        for ((level, range) in listOf(BoxingCues.SOME to 16_000L..27_500L, BoxingCues.MANY to 9_000L..17_500L)) {
+        // The wait the level gives, and up to five seconds more when a reminder steps aside for a call about the time.
+        for ((level, range) in listOf(BoxingCues.SOME to 16_000L..30_000L, BoxingCues.MANY to 9_000L..20_000L)) {
             for (seed in 1..30) {
                 val config = one(BoxingRound(BoxingTheme.FREESTYLE, 6, 0, cues = level), 180)
                 val cues = boxingCues(config, DEFAULT_TIMER_CALLS, seed).filter { !it.sound.startsWith("beep") }
@@ -173,13 +174,13 @@ class BoxingCoachTest {
         }
         assertEquals(
             "0:get-ready 10.7:round-1 12.4:box-theme-freestyle 20:box-cue-hands 33:box-cue-chin 43:box-cue-angle 57:box-cue-move " +
-                "71:box-cue-hands 81:box-cue-chin 94:box-cue-angle 100:thirty-seconds 103:box-cue-snap 114:box-cue-breathe " +
-                "120:ten-seconds 123:box-cue-snap 130.7:complete",
+                "70:minutes-left-1 72.5:box-cue-hands 82.5:box-cue-chin 95.5:box-cue-angle 100:thirty-seconds 104.5:box-cue-snap 115.5:box-cue-breathe " +
+                "120:ten-seconds 124.5:box-cue-snap 130.7:complete",
             spoken(one(BoxingRound(BoxingTheme.FREESTYLE, 6, 0, cues = BoxingCues.MANY), 120), 1),
         )
         assertEquals("Freestyle · reminders", roundSummary(BoxingRound(BoxingTheme.FREESTYLE, 6, 0, cues = BoxingCues.SOME)))
         // Off is the freestyle round it always was.
-        assertEquals("0:get-ready 10.7:round-1 12.4:box-theme-freestyle 160:thirty-seconds 180:ten-seconds 190.7:complete", spoken(one(BoxingRound(BoxingTheme.FREESTYLE, 6, 0), 180), 1))
+        assertEquals("0:get-ready 10.7:round-1 12.4:box-theme-freestyle 70:minutes-left-2 130:minutes-left-1 160:thirty-seconds 180:ten-seconds 190.7:complete", spoken(one(BoxingRound(BoxingTheme.FREESTYLE, 6, 0), 180), 1))
         // No non-stop finish in freestyle.
         assertEquals(0, boxingPlan(BoxingPlan(listOf(BoxingRound(BoxingTheme.FREESTYLE, 6, 0, burnout = 30)), BoxingStyle.NAMES), 1).rounds[0].burnout)
     }
