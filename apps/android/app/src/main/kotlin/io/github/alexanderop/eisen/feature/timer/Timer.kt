@@ -203,6 +203,16 @@ private fun segments(config: TimerConfig): List<Segment> {
 
 enum class TimerPhase { READY, WORK, REST, DONE }
 
+/** One block of a timer: work or rest, [millis] long. */
+data class TimerSpan(val phase: TimerPhase, val millis: Long)
+
+/**
+ * The work and rest blocks of [config] in order, without the lead-in. AMRAP and For Time are one
+ * block of work, an open For Time up to the limit it stops at.
+ */
+fun timerSpans(config: TimerConfig): List<TimerSpan> =
+    segments(config).map { TimerSpan(if (it.kind == SegmentKind.REST) TimerPhase.REST else TimerPhase.WORK, it.end - it.start) }
+
 /** Where a timer stands. All times in milliseconds. */
 data class TimerView(
     val phase: TimerPhase,

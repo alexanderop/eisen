@@ -29,9 +29,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,6 +66,7 @@ import io.github.alexanderop.eisen.feature.progress.weekStreak
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.exercises
 import io.github.alexanderop.eisen.app.elm.progressOf
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.fmt
 import io.github.alexanderop.eisen.core.ui.formatDate
@@ -168,22 +166,7 @@ private fun Consistency(history: List<Workout>, timers: List<TimerSession>, now:
 
 @Composable
 private fun RangePicker(range: Range, onChange: (Range) -> Unit) {
-    SingleChoiceSegmentedButtonRow(Gutter.fillMaxWidth()) {
-        Range.entries.forEachIndexed { index, option ->
-            SegmentedButton(
-                selected = range == option,
-                onClick = { onChange(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, Range.entries.size),
-                colors = SegmentedButtonDefaults.colors(
-                    inactiveContainerColor = EisenColors.Card,
-                    inactiveContentColor = EisenColors.MutedForeground,
-                    activeBorderColor = EisenColors.Border,
-                    inactiveBorderColor = EisenColors.Border,
-                ),
-                label = { Text(option.label, fontWeight = FontWeight.SemiBold) },
-            )
-        }
-    }
+    ChoiceGroup(Range.entries, range, { it.label }, onChange, Gutter, fontSize = 14.sp)
 }
 
 /** Every weighted exercise as its own line on one axis. */

@@ -120,13 +120,22 @@ fun backupFileName(now: Long): String = "eisen-backup-${Instant.ofEpochMilli(now
 /** Seconds left of [rest] at [now], rounded up. 0 once it is over. */
 fun restSecondsLeft(rest: RestState, now: Long): Int = maxOf(0, Math.ceil((rest.endsAt - now) / 1000.0).toInt())
 
-fun restCountdown(rest: RestState) = RestCountdown(
-    title = "Rest",
-    text = rest.note,
-    endsAt = rest.endsAt,
-    extendLabel = "+${EXTEND_SECONDS}s",
-    skipLabel = "Skip",
-)
+/**
+ * The countdown notification of [rest], posted at [now]: when it starts, and again when it is moved.
+ * The chip in the status bar is its chronometer; the bar is one segment, the tracker at the time gone.
+ */
+fun restCountdown(rest: RestState, now: Long): RestCountdown {
+    val total = ((rest.endsAt - rest.startedAt) / 1000).toInt().coerceAtLeast(1)
+    val gone = ((now - rest.startedAt) / 1000).toInt().coerceIn(0, total)
+    return RestCountdown(
+        title = "Rest",
+        text = rest.note,
+        endsAt = rest.endsAt,
+        extendLabel = "+${EXTEND_SECONDS}s",
+        skipLabel = "Skip",
+        progress = NoticeProgress(listOf(NoticeSegment(total, NoticeTone.REST)), gone),
+    )
+}
 
 fun restOver(rest: RestState) = RestOver(title = "Rest is over", text = "Start your next set.", endedAt = rest.endsAt)
 

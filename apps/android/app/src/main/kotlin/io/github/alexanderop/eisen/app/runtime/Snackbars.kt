@@ -1,7 +1,6 @@
 package io.github.alexanderop.eisen.app.runtime
 
 import android.content.Context
-import android.os.Build
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -51,7 +50,6 @@ class Snackbars internal constructor(private val context: Context, private val d
 
     /** Longer when the accessibility settings ask for more time to act. */
     private fun timeout(snackbar: UiEvent.Snackbar): Long {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return snackbar.millis
         val manager = context.getSystemService(AccessibilityManager::class.java) ?: return snackbar.millis
         var flags = AccessibilityManager.FLAG_CONTENT_TEXT
         if (snackbar.actionLabel != null) flags = flags or AccessibilityManager.FLAG_CONTENT_CONTROLS

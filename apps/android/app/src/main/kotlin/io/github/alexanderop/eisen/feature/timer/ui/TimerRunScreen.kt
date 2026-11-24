@@ -55,12 +55,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.keepScreenOn
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -122,7 +118,15 @@ import io.github.alexanderop.eisen.app.elm.phaseName
 import io.github.alexanderop.eisen.app.elm.roundText
 import io.github.alexanderop.eisen.core.Exercise
 import io.github.alexanderop.eisen.app.elm.findExercise
+import io.github.alexanderop.eisen.core.ui.ClockRing
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.pressShapes
+import io.github.alexanderop.eisen.core.ui.pressedShape
+import io.github.alexanderop.eisen.core.ui.rememberHaptics
+import io.github.alexanderop.eisen.core.ui.Haptic
+import androidx.compose.material3.ripple
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import io.github.alexanderop.eisen.core.ui.ExerciseMotion
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.formatClock
@@ -177,7 +181,7 @@ private fun TimerRunScreen(state: TimerState.Running, now: Long, dispatch: (Msg)
     val run = state.run
     val paused = run.pausedAt != null
     val view = timerView(run.config, activeTime(run, now))
-    val color by animateColorAsState(phaseColor(view.phase, paused), tween(400), label = "phase")
+    val color by animateColorAsState(phaseColor(view.phase, paused), MaterialTheme.motionScheme.slowEffectsSpec(), label = "phase")
     val tapped = countsRoundsByTap(run.config.mode)
     val forTime = run.config.mode == TimerMode.FOR_TIME
     val round = roundText(run, view.round)
@@ -215,7 +219,7 @@ private fun TimerRunScreen(state: TimerState.Running, now: Long, dispatch: (Msg)
                 FilledTonalButton(
                     onClick = { dispatch(Msg.Timer.End) },
                     modifier = Modifier.align(Alignment.CenterEnd).heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shapes = pressShapes(14.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
                 ) { Text("End", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             }
@@ -265,7 +269,7 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
     val view = timerView(run.config, activeTime(run, now))
     // A rest of a For Time runs by itself: the screen is the rest's, in its colour.
     val rest = runRest(run, view)
-    val color by animateColorAsState(if (rest != null && !paused) EisenColors.Rest else phaseColor(view.phase, paused), tween(400), label = "phase")
+    val color by animateColorAsState(if (rest != null && !paused) EisenColors.Rest else phaseColor(view.phase, paused), MaterialTheme.motionScheme.slowEffectsSpec(), label = "phase")
     val forTime = run.config.mode == TimerMode.FOR_TIME
     val tapped = forTime || run.config.mode == TimerMode.AMRAP
     val card = roundCard(run, view, app)
@@ -304,7 +308,7 @@ private fun WodRunScreen(state: TimerState.Running, wod: Wod, app: AppState, now
                 FilledTonalButton(
                     onClick = { dispatch(Msg.Timer.End) },
                     modifier = Modifier.align(Alignment.CenterEnd).heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shapes = pressShapes(14.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
                 ) { Text("End", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             }
@@ -352,7 +356,7 @@ private fun PauseButton(paused: Boolean, height: Dp, dispatch: (Msg) -> Unit) {
     FilledTonalButton(
         onClick = { dispatch(if (paused) Msg.Timer.Resume else Msg.Timer.Pause) },
         modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp).height(height),
-        shape = RoundedCornerShape(16.dp),
+        shapes = pressShapes(16.dp),
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = if (paused) EisenColors.Primary else EisenColors.Muted,
             contentColor = if (paused) EisenColors.OnPrimary else EisenColors.Foreground,
@@ -368,10 +372,11 @@ private fun PauseButton(paused: Boolean, height: Dp, dispatch: (Msg) -> Unit) {
 private fun PhaseWord(word: String, round: String?, color: Color, size: androidx.compose.ui.unit.TextUnit) {
     val pulse = remember { Animatable(1f) }
     var seen by remember { mutableStateOf(round) }
+    val motion = MaterialTheme.motionScheme
     LaunchedEffect(round) {
         if (round != null && seen != null && round != seen) {
-            pulse.animateTo(1.18f, tween(140))
-            pulse.animateTo(1f, tween(260))
+            pulse.animateTo(1.18f, motion.fastSpatialSpec())
+            pulse.animateTo(1f, motion.defaultSpatialSpec())
         }
         seen = round
     }
@@ -602,13 +607,14 @@ private fun WodButton(wod: Wod, taps: Int, app: AppState, height: Dp, color: Col
                 modifier = Modifier.semantics { contentDescription = if (amrap) "Take back a round" else "Take back a step" },
             )
         }
+        val press = remember { MutableInteractionSource() }
         Box(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(22.dp))
+                .clip(pressedShape(press, 22.dp))
                 .background(if (enabled) color else EisenColors.Muted)
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = if (amrap) "Count a round" else title) { dispatch(Msg.Timer.Tap) }
+                .clickable(press, ripple(), enabled = enabled, role = Role.Button, onClickLabel = if (amrap) "Count a round" else title) { dispatch(Msg.Timer.Tap) }
                 .semantics { contentDescription = spoken }
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center,
@@ -661,6 +667,15 @@ private fun ringAt(run: TimerRun, time: Long): Float {
     return fraction.coerceIn(0f, 1f)
 }
 
+/** What the ring around the digits shows, for TalkBack. */
+private fun ringDescription(run: TimerRun, view: TimerView, resting: Boolean): String = when {
+    view.phase == TimerPhase.READY -> "Time to the start"
+    resting || view.phase == TimerPhase.REST -> "Time left in the rest"
+    run.config.mode == TimerMode.FOR_TIME && run.config.work > 0 -> "Time to the cap"
+    run.config.mode == TimerMode.FOR_TIME -> "This minute"
+    else -> "Time left in the work"
+}
+
 @Composable
 internal fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Color, paused: Boolean, minDigits: Float = 0f, rest: WodRest? = null) {
     val anchor = run.startedAt + run.paused
@@ -704,19 +719,16 @@ internal fun Dial(run: TimerRun, view: TimerView, now: Long, size: Dp, color: Co
                 Brush.radialGradient(listOf(color.copy(alpha = 0.22f), Color.Transparent), radius = this.size.minDimension * 0.62f),
                 radius = this.size.minDimension * 0.62f,
             )
-            val width = this.size.minDimension * 0.075f
-            val inset = width / 2
-            drawCircle(EisenColors.Muted, radius = (this.size.minDimension - width) / 2, style = Stroke(width))
-            drawArc(
-                color = color,
-                startAngle = -90f,
-                sweepAngle = 360f * ring.value,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = Size(this.size.width - width, this.size.height - width),
-                style = Stroke(width, cap = StrokeCap.Round),
-            )
         }
+        // The wave runs with the clock and lies flat while the run is paused.
+        ClockRing(
+            progress = { ring.value },
+            running = !paused && view.phase != TimerPhase.DONE,
+            color = color,
+            description = ringDescription(run, view, rest != null),
+            size = size,
+            thickness = size * 0.075f,
+        )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 digits,
@@ -762,13 +774,14 @@ private fun BelowRing(run: TimerRun, view: TimerView, compact: Boolean, next: Bo
 private fun RoundCounter(taps: Int, height: Dp, color: Color, enabled: Boolean, dispatch: (Msg) -> Unit) {
     val compact = height < 140.dp
     Row(Modifier.fillMaxWidth().widthIn(max = 520.dp).height(height), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        val press = remember { MutableInteractionSource() }
         Box(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(24.dp))
+                .clip(pressedShape(press, 24.dp))
                 .background(if (enabled) color else EisenColors.Muted)
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Count a round") { dispatch(Msg.Timer.Tap) }
+                .clickable(press, ripple(), enabled = enabled, role = Role.Button, onClickLabel = "Count a round") { dispatch(Msg.Timer.Tap) }
                 .semantics { contentDescription = "$taps ${if (taps == 1) "round" else "rounds"}. Tap to count a round." },
             contentAlignment = Alignment.Center,
         ) {
@@ -826,6 +839,8 @@ private fun HoldToFinish(enabled: Boolean, onFinish: () -> Unit) {
     var hint by remember { mutableStateOf(false) }
     val finish by rememberUpdatedState(onFinish)
     val scope = rememberCoroutineScope()
+    val haptics = rememberHaptics()
+    val motion = MaterialTheme.motionScheme
     LaunchedEffect(hint) {
         if (hint) {
             delay(1800)
@@ -848,20 +863,25 @@ private fun HoldToFinish(enabled: Boolean, onFinish: () -> Unit) {
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectTapGestures(onPress = {
-                    val held = scope.launch { fill.animateTo(1f, tween(HOLD_TO_FINISH_MS, easing = LinearEasing)) }
+                    // The fill follows the hold's own length, so it keeps its tween; full, letting go finishes.
+                    val held = scope.launch {
+                        fill.animateTo(1f, tween(HOLD_TO_FINISH_MS, easing = LinearEasing))
+                        haptics.perform(Haptic.THRESHOLD)
+                    }
                     val released = tryAwaitRelease()
                     if (fill.value >= 1f) {
                         finish()
                     } else {
                         held.cancel()
                         if (released) hint = true
-                        scope.launch { fill.animateTo(0f, tween(150)) }
+                        scope.launch { fill.animateTo(0f, motion.fastSpatialSpec()) }
                     }
                 })
             },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().fillMaxWidth(fill.value).background(EisenColors.Primary.copy(alpha = 0.35f)))
+        // The spring back may swing past empty: the bar never draws less than nothing.
+        Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().fillMaxWidth(fill.value.coerceIn(0f, 1f)).background(EisenColors.Primary.copy(alpha = 0.35f)))
         Text(
             if (hint) "Keep holding to finish" else "Hold to finish",
             color = if (enabled) EisenColors.Primary else EisenColors.MutedForeground,
@@ -1039,13 +1059,13 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                 FilledTonalButton(
                     onClick = { dispatch(Msg.Timer.Again) },
                     modifier = Modifier.weight(1f).heightIn(min = 60.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shapes = pressShapes(16.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
                 ) { Text("Again", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                 Button(
                     onClick = { dispatch(Msg.Timer.Done) },
                     modifier = Modifier.weight(1f).heightIn(min = 60.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shapes = pressShapes(16.dp),
                 ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
             }
             // A run that was a test or went wrong is not a result: it leaves the history, with Undo.

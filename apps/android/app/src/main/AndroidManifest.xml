@@ -12,22 +12,13 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- The end of a rest has to fire on the second, also with the screen off. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission
-        android:name="android.permission.SCHEDULE_EXACT_ALARM"
-        android:maxSdkVersion="32" />
     <!-- Finished workouts are written to Health Connect when the lifter turns it on. Nothing is read. -->
     <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
-
-    <!-- Lets the app see whether Health Connect is installed on Android 13 and older. -->
-    <queries>
-        <package android:name="com.google.android.apps.healthdata" />
-    </queries>
 
     <application
         android:name=".app.runtime.EisenApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -77,17 +68,13 @@
             android:name=".feature.timer.platform.TimerReceiver"
             android:exported="false" />
 
-        <!-- What Health Connect shows behind its "privacy policy" link. Android 13 and older open it by this action. -->
+        <!-- What Health Connect shows behind its "privacy policy" link. The system opens it through the alias below. -->
         <activity
             android:name=".feature.health.platform.HealthRationaleActivity"
-            android:exported="true"
-            android:screenOrientation="portrait">
-            <intent-filter>
-                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
-        <!-- Android 14 and newer open the same screen through this alias. Only the system may start it. -->
+        <!-- Only the system may start it. -->
         <activity-alias
             android:name=".health.ViewPermissionUsageActivity"
             android:exported="true"

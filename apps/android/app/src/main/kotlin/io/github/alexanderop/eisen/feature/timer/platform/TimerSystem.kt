@@ -17,11 +17,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.alexanderop.eisen.BuildConfig
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.R
 import io.github.alexanderop.eisen.app.elm.Cmd
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.TIMER_CUE_LATE_MILLIS
+import io.github.alexanderop.eisen.app.elm.NoticeProgress
+import io.github.alexanderop.eisen.app.elm.NoticeTone
 import io.github.alexanderop.eisen.app.elm.TimerNotice
 import io.github.alexanderop.eisen.feature.workout.platform.Cues
 import io.github.alexanderop.eisen.app.runtime.Eisen
@@ -119,7 +122,14 @@ internal object TimerSystem {
         awake = null
     }
 
-    /** The notification of [notice], or a stand-in when the run ended before the service came up. */
+    /**
+     * The notification of [notice], or a stand-in when the run ended before the service came up.
+     *
+     * Android 16 promotes it to a Live Update (a chip in the status bar, on top of the lock screen)
+     * only if it asks to be, is ongoing, has a title, no custom view, is not colorized, is no group
+     * summary, sits on a channel above IMPORTANCE_MIN (`timer_running` is LOW) and has no style or a
+     * BigText or Progress one. A debug build logs whether it qualifies.
+     */
     fun notification(): Notification {
         val current = notice ?: TimerNotice("Timer", "", null, countDown = false, paused = false, toggleLabel = "Pause", endLabel = "End")
         val builder = NotificationCompat.Builder(app, CHANNEL)
@@ -128,18 +138,22 @@ internal object TimerSystem {
             .setContentText(current.text)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setOngoing(true)
-            // Android 16 shows it as a live chip in the status bar and on the always-on display, like the rest.
             .setRequestPromotedOngoing(true)
+            .setShortCriticalText(current.chip)
             .setOnlyAlertOnce(true)
             .setColor(app.getColor(R.color.lime))
+            .setColorized(false)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openApp())
             .addAction(0, current.toggleLabel, broadcast(if (current.paused) ACTION_RESUME else ACTION_PAUSE))
             .addAction(0, current.endLabel, broadcast(ACTION_END))
-        // A WOD says what to do in this round: in one line, and a line each when the notification is open.
+        val progress = current.progress
         if (current.lines.isNotEmpty()) {
+            // A WOD says what to do in this round: in one line, and a line each when the notification is open.
             builder.setContentText(listOf(current.text, current.lines.joinToString(", ")).joinToString(" · "))
                 .setStyle(NotificationCompat.BigTextStyle().bigText((listOf(current.text) + current.lines).joinToString("\n")))
+        } else if (progress != null) {
+            builder.setStyle(progressStyle(progress))
         }
         val base = current.base
         if (base != null) {
@@ -147,8 +161,19 @@ internal object TimerSystem {
         } else {
             builder.setShowWhen(false)
         }
-        return builder.build()
+        return builder.build().also { if (BuildConfig.DEBUG) Log.d(TAG, "notice promotable=${NotificationCompat.hasPromotableCharacteristics(it)}") }
     }
+
+    /** The run as a bar: work in lime, rest in the rest blue, what is still to come faded. */
+    private fun progressStyle(progress: NoticeProgress): NotificationCompat.ProgressStyle =
+        NotificationCompat.ProgressStyle()
+            .setProgressSegments(
+                progress.segments.map {
+                    NotificationCompat.ProgressStyle.Segment(it.seconds.coerceAtLeast(1))
+                        .setColor(app.getColor(if (it.tone == NoticeTone.REST) R.color.rest else R.color.lime))
+                },
+            )
+            .setProgress(progress.at)
 
     private fun broadcast(action: String): PendingIntent = PendingIntent.getBroadcast(
         app, 0, Intent(app, TimerReceiver::class.java).setAction(action),

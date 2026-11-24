@@ -1,6 +1,5 @@
 package io.github.alexanderop.eisen.feature.timer.boxing.ui
 
-import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -42,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.keepScreenOn
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -82,6 +80,10 @@ import io.github.alexanderop.eisen.feature.timer.boxing.roundDetail
 import io.github.alexanderop.eisen.app.elm.runCues
 import io.github.alexanderop.eisen.feature.timer.boxing.upNext
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.rememberReducedMotion
+import io.github.alexanderop.eisen.core.ui.ClockBar
+import androidx.compose.material3.MaterialTheme
+import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.formatClock
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
@@ -143,14 +145,14 @@ internal fun BoxingRunScreen(state: TimerState.Running, now: Long, dispatch: (Ms
                 FilledTonalButton(
                     onClick = { dispatch(Msg.Timer.End) },
                     modifier = Modifier.heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shapes = pressShapes(14.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
                 ) { Text("End", fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             }
             Column(Modifier.weight(1f).fillMaxWidth().alpha(dim)) {
                 PhaseLine(view.phase, view.round, rounds, theme, color, compact)
                 Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
-                TimeBand(run.config, view.phase, view.phaseLeft, view.phaseTotal, color, compact)
+                TimeBand(run.config, view.phase, view.phaseLeft, view.phaseTotal, color, paused, compact)
                 Spacer(Modifier.height(if (compact) 10.dp else 14.dp))
                 if (view.phase == TimerPhase.WORK && box.focus != null) {
                     FocusBand(box.focus, theme.tint, compact)
@@ -172,7 +174,7 @@ internal fun BoxingRunScreen(state: TimerState.Running, now: Long, dispatch: (Ms
             FilledTonalButton(
                 onClick = { dispatch(if (paused) Msg.Timer.Resume else Msg.Timer.Pause) },
                 modifier = Modifier.fillMaxWidth().height(if (compact) 72.dp else 80.dp),
-                shape = RoundedCornerShape(20.dp),
+                shapes = pressShapes(20.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = if (paused) EisenColors.Primary else EisenColors.Muted,
                     contentColor = if (paused) EisenColors.OnPrimary else EisenColors.Foreground,
@@ -232,9 +234,12 @@ private fun PhaseLine(phase: TimerPhase, round: Int, rounds: Int, theme: BoxingT
     )
 }
 
-/** The time left of the phase in digits, and under them a thin bar of the colour that empties with it. */
+/**
+ * The time left of the phase in digits, and under them a bar of the colour that empties with it,
+ * read off the model's clock. Its wave runs with the clock and lies flat while paused.
+ */
 @Composable
-private fun TimeBand(config: TimerConfig, phase: TimerPhase, left: Long?, total: Long?, color: Color, compact: Boolean) {
+private fun TimeBand(config: TimerConfig, phase: TimerPhase, left: Long?, total: Long?, color: Color, paused: Boolean, compact: Boolean) {
     val seconds = ceil((left ?: 0) / 1000.0).toInt()
     val fraction = if (left != null && total != null && total > 0) (left.toFloat() / total).coerceIn(0f, 1f) else 0f
     Column(Modifier.fillMaxWidth()) {
@@ -263,9 +268,16 @@ private fun TimeBand(config: TimerConfig, phase: TimerPhase, left: Long?, total:
                 maxLines = 1,
             )
         }
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(EisenColors.Muted)) {
-            Box(Modifier.fillMaxWidth(fraction).height(6.dp).clip(RoundedCornerShape(3.dp)).background(color))
-        }
+        ClockBar(
+            progress = { fraction },
+            running = !paused && phase != TimerPhase.DONE,
+            color = color,
+            description = when (phase) {
+                TimerPhase.READY -> "Time to the first round"
+                TimerPhase.REST -> "Rest left"
+                else -> "Time left in the round"
+            },
+        )
     }
 }
 
@@ -295,10 +307,11 @@ private fun SayLine(say: String?, compact: Boolean) {
 private fun FocusBand(focus: BoxingFocus, tint: Color, compact: Boolean) {
     val shift = remember { Animatable(0f) }
     var seen by remember { mutableStateOf(focus) }
+    val motion = MaterialTheme.motionScheme
     LaunchedEffect(focus) {
         if (focus != seen) {
             shift.snapTo(1f)
-            shift.animateTo(0f, tween(280))
+            shift.animateTo(0f, motion.defaultSpatialSpec())
         }
         seen = focus
     }
@@ -335,13 +348,6 @@ private fun FocusBand(focus: BoxingFocus, tint: Color, compact: Boolean) {
     }
 }
 
-/** The system's "Remove animations": a new call then only flashes, it does not pop. */
-@Composable
-private fun reducedMotion(): Boolean {
-    val context = LocalContext.current
-    return remember { Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
-}
-
 /**
  * The combination called last, as large as fits: the chosen style big, the other small under it. A
  * new call, and the coach's "Again!", light the whole area up in the round's colour for a moment and
@@ -367,10 +373,12 @@ private fun CallArea(
     compact: Boolean,
 ) {
     val tint = theme.tint
-    val reduced = reducedMotion()
+    // With animations removed a new call only flashes, it does not pop.
+    val reduced = rememberReducedMotion()
     val pop = remember { Animatable(1f) }
     var flash by remember { mutableStateOf(false) }
     var seen by remember { mutableStateOf(from) }
+    val motion = MaterialTheme.motionScheme
     LaunchedEffect(from) {
         if (from == null || from == seen) {
             seen = from
@@ -380,7 +388,7 @@ private fun CallArea(
         flash = true
         if (!reduced) {
             pop.snapTo(1.12f)
-            pop.animateTo(1f, tween(240))
+            pop.animateTo(1f, motion.fastSpatialSpec())
         }
         // A plain delay: the flash stays when the system's animations are off.
         delay(FLASH_MS)

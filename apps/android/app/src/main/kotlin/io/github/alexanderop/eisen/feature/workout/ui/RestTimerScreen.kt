@@ -91,7 +91,9 @@ import io.github.alexanderop.eisen.feature.workout.rirOf
 import io.github.alexanderop.eisen.feature.workout.rirText
 import io.github.alexanderop.eisen.feature.workout.weightChoices
 import io.github.alexanderop.eisen.core.ui.EisenColors
-import io.github.alexanderop.eisen.core.ui.Haptic
+import io.github.alexanderop.eisen.core.ui.ClockBar
+import androidx.compose.material3.MaterialTheme
+import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.Wheel
 import io.github.alexanderop.eisen.core.ui.formatClock
@@ -322,7 +324,8 @@ private class RestParts(
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (selected) EisenColors.Primary else EisenColors.Muted)
                             .selectable(selected, role = Role.RadioButton) {
-                                haptics.perform(Haptic.STEP)
+                                // Chosen ticks on, the chosen one tapped again takes the rating back.
+                                haptics.toggle(!selected)
                                 dispatch(Msg.Workout(WorkoutEvent.RateSet(screen.exercise, screen.set, if (selected) null else rir)))
                             }
                             .semantics { contentDescription = if (rir == MAX_RIR) "$MAX_RIR or more reps in reserve" else "$rir reps in reserve" },
@@ -419,7 +422,7 @@ private class RestParts(
             Button(
                 onClick = { dispatch(if (rest == null) Msg.Rest.Minimise else Msg.Rest.Dismiss) },
                 modifier = Modifier.fillMaxWidth().height(if (compact) 50.dp else 60.dp),
-                shape = RoundedCornerShape(16.dp),
+                shapes = pressShapes(16.dp),
             ) {
                 Text(if (rest == null) "Done" else "Next set", fontSize = if (compact) 18.sp else 20.sp, fontWeight = FontWeight.ExtraBold)
             }
@@ -460,25 +463,28 @@ private fun Digits(text: String, color: Color, modifier: Modifier) {
     }
 }
 
-/** What is left of the rest, as a lime bar that drains. Empty once the rest is over. */
+/**
+ * What is left of the rest, as a wavy bar that drains. Empty and flat once the rest is over. Its
+ * value follows the clock: the glide between two ticks of the model's clock is a tween as long as the
+ * time to the next tick, so the bar is where the clock is on every frame.
+ */
 @Composable
 private fun Drain(rest: RestState, now: Long, over: Boolean, color: Color) {
     val total = rest.endsAt - rest.startedAt
     fun leftAt(time: Long): Float = if (total <= 0) 0f else (1f - (time - rest.startedAt).toFloat() / total).coerceIn(0f, 1f)
     val left = remember { Animatable(if (over) 0f else leftAt(now)) }
+    val motion = MaterialTheme.motionScheme
     // The clock moves a whole second at a time. In between, the bar glides to where it will be at the
     // next tick, like the rest bar.
     LaunchedEffect(rest, now) {
         if (over) {
-            left.animateTo(0f, tween(250, easing = LinearEasing))
+            left.animateTo(0f, motion.fastSpatialSpec())
         } else {
             val untilTick = Math.floorMod(rest.endsAt - now, 1000L).takeIf { it > 0 } ?: 1000L
             left.animateTo(leftAt(now + untilTick), tween(untilTick.toInt(), easing = LinearEasing))
         }
     }
-    Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(EisenColors.Muted)) {
-        Box(Modifier.fillMaxHeight().fillMaxWidth(left.value).clip(RoundedCornerShape(5.dp)).background(color))
-    }
+    ClockBar(progress = { left.value }, running = !over, color = color, description = "Rest left", thickness = 8.dp)
 }
 
 @Composable

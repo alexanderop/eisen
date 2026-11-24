@@ -421,7 +421,7 @@ private fun beginRest(model: Model, rest: RestState, warn: Boolean, env: Env): N
         Cmd.SaveRest(rest),
         Cmd.ScheduleRestAlarms(tenAt = tenAt.takeIf { warn && it > env.now }, overAt = rest.endsAt),
         Cmd.HideRestOver,
-        Cmd.ShowRestCountdown(restCountdown(rest)),
+        Cmd.ShowRestCountdown(restCountdown(rest, env.now)),
     )
 }
 

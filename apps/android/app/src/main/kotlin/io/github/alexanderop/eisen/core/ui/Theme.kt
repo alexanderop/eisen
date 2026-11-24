@@ -1,11 +1,24 @@
 package io.github.alexanderop.eisen.core.ui
 
+import android.provider.Settings
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** The palette of the PWA (`apps/web/src/style.css`). The app is dark only. */
@@ -73,7 +86,52 @@ private val EisenShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp),
 )
 
+/**
+ * Expressive motion: things that move or change size spring and settle, colours and fades follow
+ * the effects springs. Screens read it as `MaterialTheme.motionScheme`. With the system's animations
+ * removed ([rememberReducedMotion]) every one of them is a snap: the end state on the next frame.
+ */
 @Composable
 fun EisenTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Scheme, shapes = EisenShapes, content = content)
+    val motion = if (rememberReducedMotion()) InstantMotion else MotionScheme.expressive()
+    MaterialTheme(colorScheme = Scheme, motionScheme = motion, shapes = EisenShapes, content = content)
+}
+
+/**
+ * The system's "Remove animations" (animator duration scale 0). Compose's own springs and tweens do
+ * not follow that setting, so the theme and the wavy bars ask for it. Read when the screen first draws.
+ */
+@Composable
+fun rememberReducedMotion(): Boolean {
+    val context = LocalContext.current
+    return remember { Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
+}
+
+/** The motion scheme with animations removed: everything lands at once. */
+private object InstantMotion : MotionScheme {
+    override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = snap()
+    override fun <T> slowEffectsSpec(): FiniteAnimationSpec<T> = snap()
+}
+
+/**
+ * A button's [corner] and the squarer shape it morphs to while pressed, the press feedback of
+ * Material 3 Expressive. For the buttons a lifter hits with a sweaty thumb: Start, Pause, Done.
+ */
+fun pressShapes(corner: Dp): ButtonShapes = ButtonShapes(RoundedCornerShape(corner), RoundedCornerShape(corner * PRESSED_CORNER))
+
+private const val PRESSED_CORNER = 0.4f
+
+/**
+ * [pressShapes] for a tap area that is not a Material button (the big round counter): the shape to
+ * clip it to, squarer while [press] is pressed. Drawing only, the tap itself is not delayed.
+ */
+@Composable
+fun pressedShape(press: InteractionSource, corner: Dp): Shape {
+    val pressed by press.collectIsPressedAsState()
+    val now by animateDpAsState(if (pressed) corner * PRESSED_CORNER else corner, MaterialTheme.motionScheme.fastSpatialSpec(), label = "press")
+    return RoundedCornerShape(now.coerceAtLeast(0.dp))
 }

@@ -164,7 +164,7 @@ class RestScreenTest {
         assertEquals(rest, step.model.rest)
         assertTrue(Cmd.SaveRest(rest) in step.cmds)
         assertTrue(Cmd.ScheduleRestAlarms(tenAt = LATER + 65_000, overAt = LATER + 75_000) in step.cmds)
-        assertTrue(Cmd.ShowRestCountdown(restCountdown(rest)) in step.cmds)
+        assertTrue(Cmd.ShowRestCountdown(restCountdown(rest, LATER + 10_000)) in step.cmds)
         assertEquals(RestScreen(1, 0, "bench"), step.model.restScreen)
     }
 

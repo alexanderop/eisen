@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import io.github.alexanderop.eisen.app.state.AppState
@@ -160,10 +159,8 @@ internal object Prefs {
     fun saveTimerPage(context: Context, page: TimerPage) =
         context.getSharedPreferences(TIMER, Context.MODE_PRIVATE).edit { putString(TIMER_PAGE, page.name) }
 
-    /** Before Android 13 every app may show notifications. */
     fun notificationsGranted(context: Context): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
 
 /** Reading and writing backup files the lifter picked, off the main thread. */

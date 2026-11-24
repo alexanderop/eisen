@@ -6,7 +6,6 @@ import android.Manifest
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -272,7 +271,6 @@ private suspend fun shareBackup(context: Context, name: String, json: String) {
 @Composable
 private fun ShowOverLockScreen() {
     val activity = LocalActivity.current ?: return
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return
     DisposableEffect(activity) {
         activity.setShowWhenLocked(true)
         onDispose { activity.setShowWhenLocked(false) }

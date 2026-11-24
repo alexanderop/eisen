@@ -8,7 +8,6 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.os.Build
 import io.github.alexanderop.eisen.feature.share.SharedExercise
 import io.github.alexanderop.eisen.feature.workout.setText
 import io.github.alexanderop.eisen.feature.share.SharedWorkout
@@ -54,11 +53,8 @@ private const val FOOTER = 132f
 private const val PILL = 76f
 private const val PILL_GAP = 12f
 
-/** Roboto in the weights the card uses. Before Android 9 a typeface has only regular and bold. */
-private fun typeface(weight: Int): Typeface =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) Typeface.create(Typeface.DEFAULT, weight, false)
-    else if (weight >= 600) Typeface.DEFAULT_BOLD
-    else Typeface.DEFAULT
+/** Roboto in the weights the card uses. */
+private fun typeface(weight: Int): Typeface = Typeface.create(Typeface.DEFAULT, weight, false)
 
 /** A canvas with the drawing helpers of the web version: one paint, set up per call. */
 private class Card(val canvas: Canvas) {

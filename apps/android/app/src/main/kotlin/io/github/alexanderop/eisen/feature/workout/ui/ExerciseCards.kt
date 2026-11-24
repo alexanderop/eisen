@@ -67,6 +67,7 @@ import io.github.alexanderop.eisen.feature.workout.warmupSets
 import io.github.alexanderop.eisen.feature.workout.warmupStep
 import io.github.alexanderop.eisen.app.elm.warmupKey
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.ExerciseTile
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.SetButton
@@ -343,6 +344,7 @@ private val Clock = pathIcon("Clock", "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z
 @Composable
 internal fun DeferSwipe(enabled: Boolean, onDefer: () -> Unit, content: @Composable () -> Unit) {
     val state = rememberSwipeToDismissBoxState(positionalThreshold = { distance -> distance * 0.35f })
+    SwipeHaptics(state)
     val scope = rememberCoroutineScope()
     val defer by rememberUpdatedState(onDefer)
     // The same callback every time: the box calls a new one again while the card springs back.

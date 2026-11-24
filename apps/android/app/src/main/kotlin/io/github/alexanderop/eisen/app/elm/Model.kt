@@ -279,7 +279,7 @@ enum class HealthAvailability {
 }
 
 /**
- * Android 13 and newer ask before an app may show notifications. [granted] is always true before that.
+ * The app asks before it may show notifications.
  * [asked] is true once the app asked: it asks only once, the system settings do the rest.
  */
 data class Notifications(val granted: Boolean, val asked: Boolean)

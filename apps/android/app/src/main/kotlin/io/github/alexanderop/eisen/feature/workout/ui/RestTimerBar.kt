@@ -1,6 +1,5 @@
 package io.github.alexanderop.eisen.feature.workout.ui
 
-import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,7 +45,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +54,10 @@ import io.github.alexanderop.eisen.app.elm.EXTEND_SECONDS
 import io.github.alexanderop.eisen.app.elm.RestState
 import io.github.alexanderop.eisen.app.elm.restSecondsLeft
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.rememberReducedMotion
+import io.github.alexanderop.eisen.core.ui.ClockBar
+import androidx.compose.material3.MaterialTheme
+import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.formatClock
 import kotlin.math.floor
@@ -93,6 +94,7 @@ fun RestTimerBar(rest: RestState?, now: Long, onExtend: () -> Unit, onDismiss: (
 @Composable
 private fun SwipeToDismiss(onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val state = rememberSwipeToDismissBoxState(positionalThreshold = { distance -> distance * 0.4f })
+    SwipeHaptics(state)
     val dismiss by rememberUpdatedState(onDismiss)
     // The same callback every time, so the box calls it once.
     val onSwiped = remember { { _: SwipeToDismissBoxValue -> dismiss() } }
@@ -109,17 +111,19 @@ private fun RestBand(rest: RestState, now: Long, onExtend: () -> Unit, onDismiss
     // The bar drains: what is left of it is what is left of the rest.
     fun leftAt(time: Long): Float = if (total <= 0) 0f else (1f - (time - rest.startedAt).toFloat() / total).coerceIn(0f, 1f)
     val drain = remember { Animatable(if (over) 1f else leftAt(now)) }
+    val motion = MaterialTheme.motionScheme
     // The model's clock moves a whole second at a time. In between, the bar glides to where it will be
     // at the next tick, so it drains smoothly. Pure presentation: the digits and colours follow [now].
     LaunchedEffect(rest, now) {
         if (over) {
-            drain.animateTo(1f, tween(250, easing = LinearEasing))
+            drain.animateTo(1f, motion.fastSpatialSpec())
         } else {
             val untilTick = Math.floorMod(rest.endsAt - now, 1000L).takeIf { it > 0 } ?: 1000L
             drain.animateTo(leftAt(now + untilTick), tween(untilTick.toInt(), easing = LinearEasing))
         }
     }
-    val left = drain.value
+    // The spring at the end may swing past full: the tint never draws more than the band.
+    val left = drain.value.coerceIn(0f, 1f)
     val stage = when {
         over -> EisenColors.Destructive
         remaining <= SOON_SECONDS -> EisenColors.Warn
@@ -182,9 +186,14 @@ private fun RestBand(rest: RestState, now: Long, onExtend: () -> Unit, onDismiss
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().height(10.dp).background(EisenColors.Border)) {
-                Box(Modifier.fillMaxHeight().fillMaxWidth(left).background(stage))
-            }
+            ClockBar(
+                progress = { drain.value },
+                running = !over,
+                color = stage,
+                description = if (over) "Rest is over" else "Rest left",
+                modifier = Modifier.padding(horizontal = 12.dp),
+                trackColor = EisenColors.Border,
+            )
             HorizontalDivider(color = EisenColors.Border)
         }
     }
@@ -196,10 +205,7 @@ private fun RestBand(rest: RestState, now: Long, onExtend: () -> Unit, onDismiss
  */
 @Composable
 private fun shakeOffset(enabled: Boolean): Float {
-    val context = LocalContext.current
-    val reduced = remember {
-        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-    }
+    val reduced = rememberReducedMotion()
     if (!enabled || reduced) return 0f
     val transition = rememberInfiniteTransition(label = "shake")
     val offset by transition.animateFloat(

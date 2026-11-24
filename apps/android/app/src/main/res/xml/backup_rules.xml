@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- The same rule for Android 11 and older. -->
-<full-backup-content>
-    <include domain="file" path="eisen.json" />
-</full-backup-content>

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +44,7 @@ import io.github.alexanderop.eisen.core.unitDefaults
 import io.github.alexanderop.eisen.core.ui.ADDED_WEIGHT_HINT
 import io.github.alexanderop.eisen.core.ui.AddedWeightStepper
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.IntStepper
 import io.github.alexanderop.eisen.core.ui.Stepper
@@ -188,11 +188,9 @@ private fun SheetRow(label: String, control: @Composable () -> Unit) {
     }
 }
 
-private val ButtonShape = RoundedCornerShape(14.dp)
-
 @Composable
 internal fun PrimaryButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Button(onClick = onClick, modifier = modifier.fillMaxWidth().height(52.dp), shape = ButtonShape) {
+    Button(onClick = onClick, modifier = modifier.fillMaxWidth().height(52.dp), shapes = pressShapes(14.dp)) {
         Text(text, fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }
@@ -202,7 +200,7 @@ internal fun SecondaryButton(text: String, modifier: Modifier = Modifier, conten
     FilledTonalButton(
         onClick = onClick,
         modifier = modifier.fillMaxWidth().height(52.dp),
-        shape = ButtonShape,
+        shapes = pressShapes(14.dp),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = contentColor),
     ) {
         Text(text, fontWeight = FontWeight.Bold, fontSize = 16.sp)

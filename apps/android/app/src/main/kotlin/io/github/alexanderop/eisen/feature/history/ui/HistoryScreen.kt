@@ -40,7 +40,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,7 +47,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,9 +77,6 @@ import io.github.alexanderop.eisen.feature.progress.ui.ProgressScreen
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import io.github.alexanderop.eisen.feature.workout.durationMinutes
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
@@ -98,7 +93,9 @@ import io.github.alexanderop.eisen.feature.workout.recordIds
 import io.github.alexanderop.eisen.core.stepFor
 import io.github.alexanderop.eisen.core.typedWeightSnap
 import io.github.alexanderop.eisen.core.ui.AddedWeightStepper
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.IntStepper
@@ -112,7 +109,6 @@ import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberHaptics
 import io.github.alexanderop.eisen.feature.share.ui.ShareWorkoutSheet
 import io.github.alexanderop.eisen.feature.workout.ui.setDescription
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.core.ui.rememberFullSheetState
 
@@ -163,25 +159,7 @@ fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
 @Composable
 private fun ViewSwitch(view: HistoryView, onChange: (HistoryView) -> Unit) {
     val views = listOf(HistoryView.LOG to "Log", HistoryView.PROGRESS to "Progress")
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        views.forEachIndexed { index, (option, label) ->
-            SegmentedButton(
-                selected = view == option,
-                onClick = { onChange(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, views.size),
-                icon = {},
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = EisenColors.Primary,
-                    activeContentColor = EisenColors.OnPrimary,
-                    inactiveContainerColor = EisenColors.Card,
-                    inactiveContentColor = EisenColors.MutedForeground,
-                    activeBorderColor = EisenColors.Primary,
-                    inactiveBorderColor = EisenColors.Border,
-                ),
-                label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
-            )
-        }
-    }
+    ChoiceGroup(views.map { it.first }, view, { option -> views.first { it.first == option }.second }, onChange, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
 }
 
 /** A line of the log: a finished workout or a finished interval timer, ordered by when they started. */
@@ -317,13 +295,9 @@ private val OnDestructive = Color(0xFF2B0A0A)
  */
 @Composable
 private fun SwipeToDelete(name: String, onDelete: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val haptics = rememberHaptics()
     // Not saved: a workout brought back by Undo must come back as a card, not as a swiped-away one.
     val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold = { it * 0.4f }) }
-    // A tick when the swipe passes the point where letting go deletes, and again when it goes back.
-    LaunchedEffect(state) {
-        snapshotFlow { state.targetValue }.drop(1).collect { haptics.perform(Haptic.STEP) }
-    }
+    SwipeHaptics(state)
     SwipeToDismissBox(
         state = state,
         backgroundContent = {

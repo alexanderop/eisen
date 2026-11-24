@@ -18,6 +18,7 @@ import io.github.alexanderop.eisen.feature.timer.isTimerOver
 import io.github.alexanderop.eisen.feature.timer.timerConfig
 import io.github.alexanderop.eisen.feature.timer.timerCues
 import io.github.alexanderop.eisen.feature.timer.timerSeconds
+import io.github.alexanderop.eisen.feature.timer.timerSpans
 import io.github.alexanderop.eisen.feature.timer.timerSession
 import io.github.alexanderop.eisen.feature.timer.timerSummary
 import io.github.alexanderop.eisen.feature.timer.timerView
@@ -878,8 +879,11 @@ fun resultGap(result: TimerSession, before: TimerSession?): ResultGap? {
 
 /**
  * The run's notification at [now]: the timer's name, the phase and round, and a chronometer that counts
- * the phase down (an open For Time counts up). A WOD's adds what to do in this round. It only changes
- * at a change of phase or round or a pause, so a tick sends it only then.
+ * the phase down (an open For Time counts up). A WOD's adds what to do in this round.
+ *
+ * It only changes at a change of phase or round, a pause, and once a minute for the bar (see
+ * [noticeProgress]), so a tick sends it only then. Android throttles an app that posts a notification
+ * too often, and a promoted one is the last to be posted every second: the chronometer does the ticking.
  */
 fun timerNotice(run: TimerRun, now: Long, state: AppState): TimerNotice {
     val view = timerView(run.config, activeTime(run, now))
@@ -922,8 +926,57 @@ fun timerNotice(run: TimerRun, now: Long, state: AppState): TimerNotice {
         endLabel = "End",
         // Ticking items off, the notification names the one to do now.
         lines = card?.let { it.current?.let { at -> listOfNotNull(it.lines.getOrNull(at)) } ?: it.lines }.orEmpty(),
+        chip = noticeChip(run, paused, countDown = restEnd != null || left != null),
+        progress = noticeProgress(run.config, view),
     )
 }
+
+/** Android draws a bar of more segments than this as one: rounds then go in one segment each. */
+const val MAX_NOTICE_SEGMENTS = 15
+
+/**
+ * The few characters of the status bar chip, where a countdown cannot say it. Null leaves the chip
+ * to the chronometer: the time left of the lead-in, the work or the rest, or the time a For Time
+ * has run. Paused there is no clock to show, so it says so. An open For Time of a WOD in rounds
+ * says the round it is in ("R2/5"): the time it has run is on the notification itself.
+ */
+internal fun noticeChip(run: TimerRun, paused: Boolean, countDown: Boolean): String? {
+    if (paused) return "Paused"
+    if (countDown) return null
+    val wod = run.wod ?: return null
+    if (wod.timer.mode != TimerMode.FOR_TIME || wod.rounds <= 1) return null
+    return "R${wodRound(wod, run.taps, 1)}/${wod.rounds}"
+}
+
+/**
+ * The notification's bar: a segment per block of the timer in the colour the screen gives it, work
+ * and rest. More blocks than Android draws ([MAX_NOTICE_SEGMENTS]) become a segment per round. None for
+ * an open For Time, which has no end. The tracker is at the start of the block the run is in, or at the
+ * last whole minute if that is later: the notification is posted again at each of these, never more often.
+ */
+fun noticeProgress(config: TimerConfig, view: TimerView): NoticeProgress? {
+    if (timerSeconds(config) == null) return null
+    val spans = timerSpans(config)
+    val segments = if (spans.size <= MAX_NOTICE_SEGMENTS) {
+        spans.map { NoticeSegment(seconds(it.millis), if (it.phase == TimerPhase.REST) NoticeTone.REST else NoticeTone.WORK) }
+    } else {
+        // A rest belongs to the round before it. Very many rounds share a segment, so the bar keeps them all.
+        val rounds = mutableListOf<Long>()
+        for (span in spans) if (span.phase == TimerPhase.REST && rounds.isNotEmpty()) rounds[rounds.lastIndex] += span.millis else rounds += span.millis
+        val per = (rounds.size + MAX_NOTICE_SEGMENTS - 1) / MAX_NOTICE_SEGMENTS
+        rounds.chunked(per).map { NoticeSegment(seconds(it.sum()), NoticeTone.WORK) }
+    }
+    val blockStart = view.elapsed - view.phaseElapsed
+    val minute = view.elapsed - view.elapsed % 60_000L
+    val at = when (view.phase) {
+        TimerPhase.READY -> 0
+        TimerPhase.DONE -> segments.sumOf { it.seconds }
+        else -> seconds(maxOf(blockStart, minute))
+    }
+    return NoticeProgress(segments, at)
+}
+
+private fun seconds(millis: Long): Int = (millis / 1000).toInt()
 
 /**
  * The run kept in its file when the process ended. One that ran out meanwhile is filed in the history

@@ -108,7 +108,7 @@ class WorkoutMachineTest {
                 Cmd.SaveRest(rest),
                 Cmd.ScheduleRestAlarms(tenAt = rest.endsAt - 10_000, overAt = rest.endsAt),
                 Cmd.HideRestOver,
-                Cmd.ShowRestCountdown(restCountdown(rest)),
+                Cmd.ShowRestCountdown(restCountdown(rest, rest.startedAt)),
                 // The card holds its place for a moment, see UpdateTest.
                 Cmd.After(SETTLE_MS, Msg.WorkoutScreen.Settle("hackSquat", LATER)),
                 Cmd.Save(result.state),

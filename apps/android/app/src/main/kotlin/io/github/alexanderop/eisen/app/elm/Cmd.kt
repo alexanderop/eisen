@@ -103,6 +103,8 @@ data class TimerVibration(val at: Long, val pattern: List<Long>)
 /**
  * The ongoing notification of an interval timer. [base] is the chronometer's time, null while paused.
  * [lines]: what to do in this round of a WOD, one per line when the notification is expanded.
+ * [chip]: the few characters of Android 16's status bar chip when there is no countdown to show
+ * there (null: the chronometer is the chip). [progress]: its segmented bar, null where the run has no end.
  */
 data class TimerNotice(
     val title: String,
@@ -113,7 +115,22 @@ data class TimerNotice(
     val toggleLabel: String,
     val endLabel: String,
     val lines: List<String> = emptyList(),
+    val chip: String? = null,
+    val progress: NoticeProgress? = null,
 )
+
+/** The colour of a part of a notification's progress bar, as the screens colour their phases. */
+enum class NoticeTone { WORK, REST }
+
+/** A part of a notification's progress bar, [seconds] long. */
+data class NoticeSegment(val seconds: Int, val tone: NoticeTone)
+
+/**
+ * A notification's progress bar (Android 16's ProgressStyle): [segments] in order and the tracker [at]
+ * seconds into them. It only moves when the notification is posted again, which is rare on purpose:
+ * see [timerNotice].
+ */
+data class NoticeProgress(val segments: List<NoticeSegment>, val at: Int)
 
 /** A cue of an interval timer that comes this late (the phone was asleep) is skipped. */
 const val TIMER_CUE_LATE_MILLIS = 1_500L
@@ -143,7 +160,7 @@ sealed interface UiEvent {
 
     data class Haptic(val feel: Feel) : UiEvent
 
-    /** Android 13 and newer: the system dialog to allow notifications. Answers with [Msg.Rest.NotificationPermission]. */
+    /** The system dialog to allow notifications. Answers with [Msg.Rest.NotificationPermission]. */
     data object RequestNotificationPermission : UiEvent
 
     /** Health Connect's permission screen. Answers with [Msg.Health.PermissionResult]. */
@@ -182,8 +199,8 @@ enum class Cue(val asset: String, val beepWhenSilent: Boolean) {
     REST_OVER("voice/rest-over.mp3", beepWhenSilent = true),
 }
 
-/** The countdown notification of a running rest, with "+30s" and "Skip". */
-data class RestCountdown(val title: String, val text: String, val endsAt: Long, val extendLabel: String, val skipLabel: String)
+/** The countdown notification of a running rest, with "+30s" and "Skip", and its bar of one segment. */
+data class RestCountdown(val title: String, val text: String, val endsAt: Long, val extendLabel: String, val skipLabel: String, val progress: NoticeProgress)
 
 /** The notification at the end of a rest. Swiping it away dismisses the rest. */
 data class RestOver(val title: String, val text: String, val endedAt: Long)

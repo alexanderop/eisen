@@ -2,6 +2,10 @@ package io.github.alexanderop.eisen.core.ui
 
 import android.graphics.BitmapFactory
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +61,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -578,20 +583,45 @@ fun Modifier.keyboardPadding(): Modifier {
 
 enum class SetState { EMPTY, DONE, MISSED }
 
+/** The corner of a pressed set, in percent: a circle is 50. */
+private const val PRESSED_SET_CORNER = 30
+
+/** How small a set starts when it is logged, before it springs to its size. */
+private const val SETTLE_FROM = 0.82f
+
 /**
  * One set of an exercise. Lime when all reps were done, an amber ring when reps were missed.
  * [badge] sits on its top-right edge: the reps in reserve of a rated set.
+ *
+ * Pressed, the circle squares its corners; logged, it pops and springs back into place. Both are
+ * drawing only: the tap is handled on the frame it lands, and a second tap never waits for them.
  */
 @Composable
 fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modifier = Modifier, description: String = text, badge: String? = null) {
+    val motion = MaterialTheme.motionScheme
     val background by animateColorAsState(
         when (state) {
             SetState.DONE -> EisenColors.Primary
             SetState.MISSED -> Color.Transparent
             SetState.EMPTY -> EisenColors.Muted
         },
+        motion.fastEffectsSpec(),
         label = "set",
     )
+    val press = remember { MutableInteractionSource() }
+    val pressed by press.collectIsPressedAsState()
+    val corner by animateIntAsState(if (pressed) PRESSED_SET_CORNER else 50, motion.fastSpatialSpec(), label = "press")
+    val shape = RoundedCornerShape(percent = corner)
+    // Logged or changed: it starts a little small and springs to its size, so the set visibly lands.
+    val settle = remember { Animatable(1f) }
+    var shown by remember { mutableStateOf(state) }
+    LaunchedEffect(state) {
+        if (state != shown && state != SetState.EMPTY) {
+            settle.snapTo(SETTLE_FROM)
+            settle.animateTo(1f, motion.defaultSpatialSpec())
+        }
+        shown = state
+    }
     val content = when (state) {
         SetState.DONE -> EisenColors.OnPrimary
         SetState.MISSED -> EisenColors.Warn
@@ -601,10 +631,11 @@ fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modi
         Box(
             Modifier
                 .matchParentSize()
-                .clip(CircleShape)
+                .graphicsLayer { scaleX = settle.value; scaleY = settle.value }
+                .clip(shape)
                 .background(background)
-                .then(if (state == SetState.MISSED) Modifier.border(2.dp, EisenColors.Warn, CircleShape) else Modifier)
-                .clickable(role = Role.Button, onClickLabel = description, onClick = onClick),
+                .then(if (state == SetState.MISSED) Modifier.border(2.dp, EisenColors.Warn, shape) else Modifier)
+                .clickable(interactionSource = press, indication = ripple(), role = Role.Button, onClickLabel = description, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             // A hold such as "10:00" is longer than any count of reps.

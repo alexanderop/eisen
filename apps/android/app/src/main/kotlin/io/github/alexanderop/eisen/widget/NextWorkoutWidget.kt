@@ -7,12 +7,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
-import androidx.core.os.BundleCompat
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.R
 import io.github.alexanderop.eisen.app.elm.WidgetContent
@@ -51,22 +49,18 @@ class NextWorkoutWidget : AppWidgetProvider() {
 
 private fun render(context: Context, manager: AppWidgetManager, id: Int, content: WidgetContent) {
     val options = manager.getAppWidgetOptions(id)
-    val sizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        BundleCompat.getParcelableArrayList<SizeF>(options, AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java).orEmpty()
-    } else {
-        emptyList()
-    }
-    val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && sizes.isNotEmpty()) {
+    val sizes = options.getParcelableArrayList(AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java).orEmpty()
+    val views = if (sizes.isNotEmpty()) {
         // One layout per size the launcher may draw the widget at. It picks the one that fits, also on rotation.
         RemoteViews(sizes.distinct().take(16).associateWith { build(context, content, it.height) })
     } else {
-        build(context, content, legacyHeight(context, options))
+        build(context, content, rangeHeight(context, options))
     }
     manager.updateAppWidget(id, views)
 }
 
-/** Before Android 12 the launcher only reports a range: the tall end in portrait, the short end in landscape. */
-private fun legacyHeight(context: Context, options: Bundle): Float {
+/** A launcher that reports no sizes only gives a range: the tall end in portrait, the short end in landscape. */
+private fun rangeHeight(context: Context, options: Bundle): Float {
     val portrait = context.resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
     val height = options.getInt(if (portrait) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
     return if (height > 0) height.toFloat() else 110f

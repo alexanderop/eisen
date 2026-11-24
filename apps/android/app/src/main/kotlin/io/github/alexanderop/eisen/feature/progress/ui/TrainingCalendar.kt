@@ -1,7 +1,7 @@
 package io.github.alexanderop.eisen.feature.progress.ui
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -164,7 +164,7 @@ private fun Day(day: CalendarDay, picked: Boolean, onPick: () -> Unit, modifier:
     }
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, tween(80), label = "press")
+    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "press")
     val description = "${formatDate(day.time)}: ${describe(day)}"
     Box(
         square

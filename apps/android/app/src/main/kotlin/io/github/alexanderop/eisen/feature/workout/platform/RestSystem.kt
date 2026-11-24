@@ -7,9 +7,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import android.util.Log
+import io.github.alexanderop.eisen.BuildConfig
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.R
 import io.github.alexanderop.eisen.app.elm.RestCountdown
@@ -103,16 +104,19 @@ internal object RestSystem {
         app.getSystemService(NotificationManager::class.java).cancel(OVER_ID)
     }
 
-    /** The countdown notification, or a stand-in when the rest ended before the service came up. */
+    /**
+     * The countdown notification, or a stand-in when the rest ended before the service came up. It
+     * qualifies for Android 16's Live Update like the timer's (see `TimerSystem.notification`): the
+     * chip in the status bar is its chronometer, the bar one segment of the rest.
+     */
     fun countdownNotification(): Notification {
-        val notice = countdown ?: restCountdown(RestState(0, System.currentTimeMillis(), ""))
+        val notice = countdown ?: System.currentTimeMillis().let { now -> restCountdown(RestState(now, now, ""), now) }
         return NotificationCompat.Builder(app, CHANNEL_RUNNING)
             .setSmallIcon(R.drawable.ic_stat_eisen)
             .setContentTitle(notice.title)
             .setContentText(notice.text)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setOngoing(true)
-            // Android 16 shows it as a live countdown chip in the status bar and on the always-on display.
             .setRequestPromotedOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(true)
@@ -120,16 +124,22 @@ internal object RestSystem {
             .setUsesChronometer(true)
             .setChronometerCountDown(true)
             .setColor(app.getColor(R.color.lime))
+            .setColorized(false)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openApp())
             .addAction(0, notice.extendLabel, broadcast(ACTION_EXTEND))
             .addAction(0, notice.skipLabel, broadcast(ACTION_STOP))
+            .setStyle(
+                NotificationCompat.ProgressStyle()
+                    .setProgressSegments(notice.progress.segments.map { NotificationCompat.ProgressStyle.Segment(it.seconds.coerceAtLeast(1)).setColor(app.getColor(R.color.rest)) })
+                    .setProgress(notice.progress.at),
+            )
             .build()
+            .also { if (BuildConfig.DEBUG) Log.d("EisenRest", "countdown promotable=${NotificationCompat.hasPromotableCharacteristics(it)}") }
     }
 
     private fun schedule(alarms: AlarmManager, at: Long, intent: PendingIntent) {
-        val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarms.canScheduleExactAlarms()
-        if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
+        if (alarms.canScheduleExactAlarms()) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
         else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, intent)
     }
 

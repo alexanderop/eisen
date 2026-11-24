@@ -210,22 +210,22 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
     fun toggleSound() {
         // Switching it on plays the cue once: `update` asks for that.
         dispatch(Msg.Settings.SetSound(!settings.sound))
-        haptics.perform(Haptic.TAP)
+        haptics.toggle(!settings.sound)
     }
 
     fun toggleRestFullScreen() {
         dispatch(Msg.Settings.SetRestFullScreen(!settings.restFullScreen))
-        haptics.perform(Haptic.TAP)
+        haptics.toggle(!settings.restFullScreen)
     }
 
     fun toggleTrackRir() {
         dispatch(Msg.Settings.SetTrackRir(!settings.trackRir))
-        haptics.perform(Haptic.TAP)
+        haptics.toggle(!settings.trackRir)
     }
 
     fun toggleHaptics() {
         dispatch(Msg.Settings.SetHaptics(!settings.haptics))
-        haptics.perform(Haptic.TAP)
+        haptics.toggle(!settings.haptics)
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -353,7 +353,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
             current = settings.unit,
             onPick = { unit ->
                 dispatch(Msg.Settings.SetUnit(unit))
-                haptics.perform(Haptic.TAP)
+                haptics.perform(Haptic.TOGGLE_ON)
             },
             onClose = { editing = null },
         )
@@ -567,7 +567,7 @@ private fun Hint(text: String) {
 
 @Composable
 private fun DoneButton(onClick: () -> Unit) {
-    Button(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+    Button(onClick = onClick, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
         Text("Done", fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }

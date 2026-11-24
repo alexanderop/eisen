@@ -19,7 +19,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.alexanderop.eisen"
-        minSdk = 26
+        minSdk = 36
         targetSdk = 36
         versionCode = (System.getenv("EISEN_VERSION_CODE") ?: "1").toInt()
         versionName = "1.0.0"

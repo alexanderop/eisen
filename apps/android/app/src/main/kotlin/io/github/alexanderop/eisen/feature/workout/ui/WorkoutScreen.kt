@@ -35,9 +35,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MenuDefaults
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -80,6 +77,7 @@ import io.github.alexanderop.eisen.app.elm.progressOf
 import io.github.alexanderop.eisen.app.elm.settings
 import io.github.alexanderop.eisen.core.isPlateLoaded
 import io.github.alexanderop.eisen.app.elm.order
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.ReorderableItem
@@ -419,25 +417,7 @@ private fun followSettled(listState: LazyListState, settling: String?, top: Stri
 
 @Composable
 private fun ModeSwitch(mode: Mode, onChange: (Mode) -> Unit) {
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-        Mode.entries.forEachIndexed { index, option ->
-            SegmentedButton(
-                selected = mode == option,
-                onClick = { onChange(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, Mode.entries.size),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = EisenColors.Muted,
-                    activeContentColor = EisenColors.Foreground,
-                    activeBorderColor = EisenColors.Border,
-                    inactiveContainerColor = EisenColors.Card,
-                    inactiveContentColor = EisenColors.MutedForeground,
-                    inactiveBorderColor = EisenColors.Border,
-                ),
-            ) {
-                Text(option.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
+    ChoiceGroup(Mode.entries, mode, { it.label }, onChange, fontSize = 14.sp)
 }
 
 @Composable

@@ -40,9 +40,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -134,7 +131,9 @@ import io.github.alexanderop.eisen.feature.timer.boxing.roundDetail
 import io.github.alexanderop.eisen.feature.timer.boxing.themeExample
 import io.github.alexanderop.eisen.app.elm.timerWheelSeconds
 import io.github.alexanderop.eisen.feature.timer.boxing.toggledPick
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.ReorderableColumnItem
@@ -155,7 +154,6 @@ import io.github.alexanderop.eisen.feature.timer.ui.SetupRow
 import io.github.alexanderop.eisen.feature.timer.ui.VoiceIcon
 import io.github.alexanderop.eisen.feature.timer.ui.VoiceSheet
 import io.github.alexanderop.eisen.feature.timer.ui.modeLine
-import io.github.alexanderop.eisen.feature.timer.ui.segmentColors
 
 /*
  * The boxing timer's card on the Timers page and its setup: the fight card of rounds, the templates,
@@ -419,18 +417,9 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
                 OwnCombos(plan, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }, onEdit = { building = it; buildingFor = -1 })
 
                 SectionLabel("Calls")
-                CallsChoice(plan.style) {
-                    dispatch(Msg.Timer.SetStyle(it))
-                    haptics.perform(Haptic.TAP)
-                }
-                RoomChoice(plan.room) {
-                    dispatch(Msg.Timer.SetRoom(it))
-                    haptics.perform(Haptic.TAP)
-                }
-                StanceChoice(plan.stance) {
-                    dispatch(Msg.Timer.SetStance(it))
-                    haptics.perform(Haptic.TAP)
-                }
+                CallsChoice(plan.style) { dispatch(Msg.Timer.SetStyle(it)) }
+                RoomChoice(plan.room) { dispatch(Msg.Timer.SetRoom(it)) }
+                StanceChoice(plan.stance) { dispatch(Msg.Timer.SetStance(it)) }
 
                 SetupRow(VoiceIcon, "Voice", boxingCallsSummary(calls)) { voiceOpen = true }
                 PresetRows(model, setup, dispatch) { naming = true }
@@ -439,7 +428,7 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
         Button(
             onClick = { dispatch(Msg.Timer.Start) },
             modifier = Modifier.fillMaxWidth().padding(16.dp).height(64.dp),
-            shape = RoundedCornerShape(16.dp),
+            shapes = pressShapes(16.dp),
         ) {
             Text("Start", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
         }
@@ -541,19 +530,7 @@ private fun RoundTile(
 @Composable
 private fun CallsChoice(style: BoxingStyle, onChange: (BoxingStyle) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        val options = listOf(BoxingStyle.NAMES to "Names", BoxingStyle.NUMBERS to "Numbers")
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { index, (option, label) ->
-                SegmentedButton(
-                    selected = style == option,
-                    onClick = { onChange(option) },
-                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                    icon = {},
-                    colors = segmentColors(),
-                    label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
-                )
-            }
-        }
+        ChoiceGroup(listOf(BoxingStyle.NAMES, BoxingStyle.NUMBERS), style, { if (it == BoxingStyle.NUMBERS) "Numbers" else "Names" }, onChange)
         Column(
             Modifier.fillMaxWidth().clip(RowShape).background(EisenColors.Card).border(1.dp, EisenColors.Border, RowShape).padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -575,11 +552,7 @@ private fun CallsChoice(style: BoxingStyle, onChange: (BoxingStyle) -> Unit) {
 private fun RoomChoice(room: BoxingRoom, onChange: (BoxingRoom) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Time to throw", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (option in BOXING_ROOMS) {
-                Chip(option.title, room == option, EisenColors.Primary, Modifier.weight(1f), description = "${option.title}. ${option.hint}") { onChange(option) }
-            }
-        }
+        ChoiceGroup(BOXING_ROOMS, room, { it.title }, onChange, description = { "${it.title}. ${it.hint}" })
         Text(room.hint, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 13.sp, color = EisenColors.MutedForeground)
     }
 }
@@ -589,18 +562,7 @@ private fun RoomChoice(room: BoxingRoom, onChange: (BoxingRoom) -> Unit) {
 private fun StanceChoice(stance: BoxingStance, onChange: (BoxingStance) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Stance", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            BoxingStance.entries.forEachIndexed { index, option ->
-                SegmentedButton(
-                    selected = stance == option,
-                    onClick = { onChange(option) },
-                    shape = SegmentedButtonDefaults.itemShape(index, BoxingStance.entries.size),
-                    icon = {},
-                    colors = segmentColors(),
-                    label = { Text(option.title, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
-                )
-            }
-        }
+        ChoiceGroup(BoxingStance.entries, stance, { it.title }, onChange)
         Text(stanceKey(stance), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 13.sp, color = EisenColors.MutedForeground)
     }
 }
@@ -742,7 +704,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
             Button(
                 onClick = { dispatch(Msg.Timer.CloseRound) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 12.dp).height(56.dp),
-                shape = RoundedCornerShape(16.dp),
+                shapes = pressShapes(16.dp),
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
         }
     }
@@ -987,7 +949,7 @@ private fun PickSheet(round: BoxingRound, style: BoxingStyle, own: List<OwnCombo
             Button(
                 onClick = onClose,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 12.dp).height(56.dp),
-                shape = RoundedCornerShape(16.dp),
+                shapes = pressShapes(16.dp),
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
         }
     }

@@ -43,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,8 +89,8 @@ import io.github.alexanderop.eisen.app.elm.workoutRunning
 import io.github.alexanderop.eisen.core.kindLabel
 import io.github.alexanderop.eisen.core.ui.ColumnReorderState
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.ExerciseTile
-import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.IntStepper
 import io.github.alexanderop.eisen.core.ui.ReorderableColumnItem
@@ -100,10 +99,8 @@ import io.github.alexanderop.eisen.core.ui.keyboardPadding
 import io.github.alexanderop.eisen.core.ui.longPressToReorder
 import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberColumnReorderState
-import io.github.alexanderop.eisen.core.ui.rememberHaptics
 import io.github.alexanderop.eisen.core.ui.reorderContainer
 import io.github.alexanderop.eisen.core.ui.reorderHandle
-import kotlinx.coroutines.flow.drop
 import io.github.alexanderop.eisen.core.ui.ButtonHeight
 import io.github.alexanderop.eisen.core.ui.ConfirmButton
 import io.github.alexanderop.eisen.core.ui.EisenCard
@@ -397,13 +394,9 @@ private fun RoutineEditor(model: Model, routine: Routine, dispatch: (Msg) -> Uni
  */
 @Composable
 private fun SwipeToRemove(enabled: Boolean, onRemove: () -> Unit, content: @Composable () -> Unit) {
-    val haptics = rememberHaptics()
     // Not saved: a slot brought back by Undo must come back as a card, not as a swiped-away one.
     val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold = { it * 0.4f }) }
-    // A tick when the swipe passes the point where letting go removes, and again when it goes back.
-    LaunchedEffect(state) {
-        snapshotFlow { state.targetValue }.drop(1).collect { haptics.perform(Haptic.STEP) }
-    }
+    SwipeHaptics(state)
     val remove by rememberUpdatedState(onRemove)
     // The same callback every time: the box calls a new one again while the card is still swiped away.
     val onDismiss = remember(state) { { _: SwipeToDismissBoxValue -> remove() } }

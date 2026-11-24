@@ -1,8 +1,7 @@
 package io.github.alexanderop.eisen.feature.progress.ui
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -116,9 +115,11 @@ fun TimeChart(
     val haptics = rememberHaptics()
     val measurer = rememberTextMeasurer()
     val drawn = remember { Animatable(0f) }
+    // The lines draw in from the left: an effects spring, so they never overshoot the last point.
+    val motion = MaterialTheme.motionScheme
     LaunchedEffect(series) {
         drawn.snapTo(0f)
-        drawn.animateTo(1f, tween(durationMillis = 700, easing = EaseOut))
+        drawn.animateTo(1f, motion.slowEffectsSpec())
     }
 
     val cursor = remember { Cursor(active) }

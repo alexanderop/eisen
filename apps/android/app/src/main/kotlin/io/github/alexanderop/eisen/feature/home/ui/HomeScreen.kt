@@ -62,6 +62,7 @@ import io.github.alexanderop.eisen.feature.workout.longestHold
 import io.github.alexanderop.eisen.feature.workout.targetText
 import io.github.alexanderop.eisen.feature.workout.totalReps
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.ExerciseTile
 import io.github.alexanderop.eisen.core.ui.fmt
 import io.github.alexanderop.eisen.core.ui.fmtLoad
@@ -338,7 +339,7 @@ private fun NextCard(model: Model, dispatch: (Msg) -> Unit) {
                     onClick = { dispatch(Msg.Workout(WorkoutEvent.Start)) },
                     enabled = rows.isNotEmpty(),
                     modifier = button,
-                    shape = MaterialTheme.shapes.medium,
+                    shapes = pressShapes(14.dp),
                 ) {
                     Text("Start workout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }

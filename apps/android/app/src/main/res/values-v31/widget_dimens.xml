@@ -1,5 +1,0 @@
-<resources>
-    <!-- Match the corners of every other widget on the home screen. -->
-    <dimen name="widget_corner_radius">@android:dimen/system_app_widget_background_radius</dimen>
-    <dimen name="widget_inner_radius">@android:dimen/system_app_widget_inner_radius</dimen>
-</resources>

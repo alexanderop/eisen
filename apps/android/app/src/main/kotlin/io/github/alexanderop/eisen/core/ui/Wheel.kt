@@ -44,6 +44,9 @@ import kotlin.math.roundToInt
 
 private val MarkShape = RoundedCornerShape(2.dp)
 
+/** From this many rows a wheel is one that spins fast. */
+private const val FAST_WHEEL_ROWS = 20
+
 /**
  * A vertical scroll wheel like the picker of an alarm clock: three rows show, the middle one between
  * two lime marks is the value. It snaps to a row, ticks once per row passed, and a tap on the row
@@ -79,8 +82,10 @@ fun Wheel(
             if (!scrolling && middle != current) settle(middle)
         }
     }
+    // A long wheel (seconds, minutes) is flung through many rows at once: a lighter tick per row.
+    val tick by rememberUpdatedState(if (labels.size >= FAST_WHEEL_ROWS) Haptic.FAST_STEP else Haptic.STEP)
     LaunchedEffect(state) {
-        snapshotFlow { middle }.drop(1).collect { if (state.isScrollInProgress) haptics.perform(Haptic.STEP) }
+        snapshotFlow { middle }.drop(1).collect { if (state.isScrollInProgress) haptics.perform(tick) }
     }
     // A value changed elsewhere, or the list around it, turns the wheel to it.
     LaunchedEffect(selected, labels.size) {

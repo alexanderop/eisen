@@ -19,9 +19,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,8 +35,8 @@ import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.feature.timer.MINUTE_CALLS
 import io.github.alexanderop.eisen.feature.timer.TimerCalls
 import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
-import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberFullSheetState
@@ -63,17 +60,18 @@ private fun minutesLabel(minutes: Int): String = if (minutes == 0) "Off" else "$
 @Composable
 fun TimerCallsControls(calls: TimerCalls, dispatch: (Msg) -> Unit, modifier: Modifier = Modifier, boxing: Boolean = false) {
     val haptics = rememberHaptics()
-    fun set(next: TimerCalls) {
-        dispatch(Msg.Timer.SetCalls(next))
-        haptics.perform(Haptic.TAP)
+    fun set(next: TimerCalls) = dispatch(Msg.Timer.SetCalls(next))
+    fun switch(next: TimerCalls, on: Boolean) {
+        set(next)
+        haptics.toggle(on)
     }
     Column(modifier.fillMaxWidth()) {
         // Boxing has its coach: halfway through a round is not said there.
         MinutesChoice(calls, ::set)
-        if (!boxing) CallSwitch(HalfIcon, "Halfway", calls.halfway) { set(calls.copy(halfway = it)) }
-        CallSwitch(FlagIcon, "Last 30 and 10 seconds", calls.final) { set(calls.copy(final = it)) }
-        CallSwitch(RepeatIcon, "Rounds and rest", calls.phases) { set(calls.copy(phases = it)) }
-        CallSwitch(BeepIcon, "3-2-1 beeps", calls.beeps) { set(calls.copy(beeps = it)) }
+        if (!boxing) CallSwitch(HalfIcon, "Halfway", calls.halfway) { switch(calls.copy(halfway = it), it) }
+        CallSwitch(FlagIcon, "Last 30 and 10 seconds", calls.final) { switch(calls.copy(final = it), it) }
+        CallSwitch(RepeatIcon, "Rounds and rest", calls.phases) { switch(calls.copy(phases = it), it) }
+        CallSwitch(BeepIcon, "3-2-1 beeps", calls.beeps) { switch(calls.copy(beeps = it), it) }
         Text(
             if (boxing) "The coach always calls the combinations. Time left is the time left in the round. Applies to all timers."
             else "Time left is the time left in the round. Applies to all timers.",
@@ -103,25 +101,7 @@ private fun MinutesChoice(calls: TimerCalls, set: (TimerCalls) -> Unit) {
             Spacer(Modifier.width(16.dp))
             Text("Time left, every", fontSize = 16.sp, modifier = Modifier.semantics { heading() })
         }
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)) {
-            MINUTE_CALLS.forEachIndexed { index, minutes ->
-                SegmentedButton(
-                    selected = calls.minutes == minutes,
-                    onClick = { set(calls.copy(minutes = minutes)) },
-                    shape = SegmentedButtonDefaults.itemShape(index, MINUTE_CALLS.size),
-                    icon = {},
-                    colors = SegmentedButtonDefaults.colors(
-                        activeContainerColor = EisenColors.Primary,
-                        activeContentColor = EisenColors.OnPrimary,
-                        inactiveContainerColor = EisenColors.Card,
-                        inactiveContentColor = EisenColors.MutedForeground,
-                        activeBorderColor = EisenColors.Primary,
-                        inactiveBorderColor = EisenColors.Border,
-                    ),
-                    label = { Text(minutesLabel(minutes), fontWeight = FontWeight.Bold, maxLines = 1) },
-                )
-            }
-        }
+        ChoiceGroup(MINUTE_CALLS, calls.minutes, ::minutesLabel, { set(calls.copy(minutes = it)) }, Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp))
     }
 }
 

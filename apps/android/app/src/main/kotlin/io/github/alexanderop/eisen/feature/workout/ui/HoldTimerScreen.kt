@@ -3,7 +3,6 @@ package io.github.alexanderop.eisen.feature.workout.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,10 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.keepScreenOn
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -58,6 +53,7 @@ import io.github.alexanderop.eisen.app.elm.holdEndsAt
 import io.github.alexanderop.eisen.app.elm.holdPhase
 import io.github.alexanderop.eisen.app.elm.holdSecondsShown
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.ClockRing
 import io.github.alexanderop.eisen.core.ui.formatClock
 
 private const val MINUTE_MS = 60_000L
@@ -166,21 +162,19 @@ private fun Dial(hold: HoldTimer, phase: HoldPhase, now: Long, size: Dp, dispatc
         Modifier
     }
     Box(Modifier.size(size).then(tap), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize()) {
-            val width = this.size.minDimension * 0.07f
-            val inset = width / 2
-            val arc = Size(this.size.width - width, this.size.height - width)
-            drawCircle(EisenColors.Muted, radius = (this.size.minDimension - width) / 2, style = Stroke(width))
-            drawArc(
-                color = color,
-                startAngle = -90f,
-                sweepAngle = 360f * ring.value,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = arc,
-                style = Stroke(width, cap = StrokeCap.Round),
-            )
-        }
+        // A hold always runs while it shows: the wave never stops.
+        ClockRing(
+            progress = { ring.value },
+            running = true,
+            color = color,
+            description = when {
+                phase == HoldPhase.LEAD_IN -> "Time to the start"
+                hold.target != null -> "Time left in the hold"
+                else -> "This minute of the hold"
+            },
+            size = size,
+            thickness = size * 0.07f,
+        )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 digits,

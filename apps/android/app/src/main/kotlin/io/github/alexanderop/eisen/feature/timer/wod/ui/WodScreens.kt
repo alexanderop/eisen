@@ -53,9 +53,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -143,7 +140,9 @@ import io.github.alexanderop.eisen.app.elm.wodFind
 import io.github.alexanderop.eisen.app.elm.wodItemSummary
 import io.github.alexanderop.eisen.app.elm.wodLoads
 import io.github.alexanderop.eisen.app.elm.wodRows
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.ExerciseMotion
 import io.github.alexanderop.eisen.feature.timer.wod.SuggestionKind
 import io.github.alexanderop.eisen.feature.timer.wod.WodSuggestion
@@ -183,7 +182,6 @@ import io.github.alexanderop.eisen.feature.timer.ui.StartIcon
 import io.github.alexanderop.eisen.feature.timer.ui.VoiceIcon
 import io.github.alexanderop.eisen.feature.timer.ui.VoiceSheet
 import io.github.alexanderop.eisen.feature.timer.ui.WheelBox
-import io.github.alexanderop.eisen.feature.timer.ui.segmentColors
 import io.github.alexanderop.eisen.feature.timer.ui.spokenSeconds
 
 /*
@@ -694,7 +692,7 @@ internal fun WodDetail(model: Model, wod: Wod, dispatch: (Msg) -> Unit) {
         Button(
             onClick = { dispatch(Msg.Wods.Start(wod.id)) },
             modifier = Modifier.fillMaxWidth().padding(16.dp).height(64.dp),
-            shape = RoundedCornerShape(16.dp),
+            shapes = pressShapes(16.dp),
         ) {
             Icon(StartIcon, contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
@@ -731,7 +729,7 @@ private fun MotionSheet(exercise: Exercise, line: String, onClose: () -> Unit) {
             Button(
                 onClick = { scope.launch { sheet.hide() }.invokeOnCompletion { onClose() } },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
+                shapes = pressShapes(16.dp),
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
         }
     }
@@ -824,19 +822,7 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
                 keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
                 modifier = Modifier.fillMaxWidth(),
             )
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                val modes = WOD_MODES
-                modes.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = mode == option,
-                        onClick = { dispatch(Msg.Wods.SetMode(option)) },
-                        shape = SegmentedButtonDefaults.itemShape(index, modes.size),
-                        icon = {},
-                        colors = segmentColors(),
-                        label = { Text(option.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false) },
-                    )
-                }
-            }
+            ChoiceGroup(WOD_MODES, mode, { it.title }, { dispatch(Msg.Wods.SetMode(it)) }, fontSize = 14.sp)
             when (mode) {
                 TimerMode.FOR_TIME -> {
                     val schemed = wod.scheme.isNotEmpty()
@@ -1145,7 +1131,7 @@ private fun WheelSheet(
             Button(
                 onClick = { scope.launch { sheet.hide() }.invokeOnCompletion { onClose() } },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
+                shapes = pressShapes(16.dp),
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) }
         }
     }
@@ -1289,7 +1275,7 @@ private fun ItemSheet(
                 Button(
                     onClick = { close(onClose) },
                     modifier = Modifier.weight(1f).height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shapes = pressShapes(16.dp),
                 ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
             }
         }

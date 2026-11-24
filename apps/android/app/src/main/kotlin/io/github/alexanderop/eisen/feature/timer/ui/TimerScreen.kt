@@ -44,7 +44,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,9 +76,6 @@ import io.github.alexanderop.eisen.feature.timer.timerSummary
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.TimerPage
 import io.github.alexanderop.eisen.app.elm.openWod
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.PRESET_NAME_LENGTH
 import io.github.alexanderop.eisen.app.elm.TimerSetup
@@ -93,14 +89,16 @@ import androidx.compose.material3.IconButtonDefaults
 import io.github.alexanderop.eisen.app.elm.lastTimerConfig
 import io.github.alexanderop.eisen.app.elm.timerCapSeconds
 import io.github.alexanderop.eisen.app.elm.timerWheelSeconds
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.pressShapes
+import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.Wheel
 import io.github.alexanderop.eisen.core.ui.formatClock
 import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberHaptics
-import kotlinx.coroutines.flow.drop
 import io.github.alexanderop.eisen.feature.timer.boxing.ui.BoxingModeCard
 import io.github.alexanderop.eisen.feature.timer.boxing.ui.BoxingSetupScreen
 import io.github.alexanderop.eisen.feature.timer.boxing.ui.tint
@@ -174,29 +172,8 @@ private fun TimerHeading(model: Model, dispatch: (Msg) -> Unit) {
 @Composable
 private fun PageSwitch(page: TimerPage, onChange: (TimerPage) -> Unit) {
     val pages = listOf(TimerPage.WODS to "WODs", TimerPage.TIMERS to "Timers")
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        pages.forEachIndexed { index, (option, label) ->
-            SegmentedButton(
-                selected = page == option,
-                onClick = { onChange(option) },
-                shape = SegmentedButtonDefaults.itemShape(index, pages.size),
-                icon = {},
-                colors = segmentColors(),
-                label = { Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
-            )
-        }
-    }
+    ChoiceGroup(pages.map { it.first }, page, { option -> pages.first { it.first == option }.second }, onChange, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
 }
-
-@Composable
-internal fun segmentColors() = SegmentedButtonDefaults.colors(
-    activeContainerColor = EisenColors.Primary,
-    activeContentColor = EisenColors.OnPrimary,
-    inactiveContainerColor = EisenColors.Card,
-    inactiveContentColor = EisenColors.MutedForeground,
-    activeBorderColor = EisenColors.Primary,
-    inactiveBorderColor = EisenColors.Border,
-)
 
 @Composable
 private fun TimerHome(model: Model, dispatch: (Msg) -> Unit) {
@@ -315,12 +292,9 @@ private val OnDestructive = Color(0xFF2B0A0A)
 /** Swiping a row to the left deletes it, like a workout in the history. TalkBack gets the same as an action. */
 @Composable
 internal fun SwipeToDelete(name: String, onDelete: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val haptics = rememberHaptics()
     // Not saved: a row brought back by Undo must come back as a row, not as a swiped-away one.
     val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold = { it * 0.4f }) }
-    LaunchedEffect(state) {
-        snapshotFlow { state.targetValue }.drop(1).collect { haptics.perform(Haptic.STEP) }
-    }
+    SwipeHaptics(state)
     SwipeToDismissBox(
         state = state,
         backgroundContent = {
@@ -418,7 +392,7 @@ private fun TimerSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) ->
         Button(
             onClick = { dispatch(Msg.Timer.Start) },
             modifier = Modifier.fillMaxWidth().padding(16.dp).height(64.dp),
-            shape = RoundedCornerShape(16.dp),
+            shapes = pressShapes(16.dp),
         ) {
             Text("Start", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
         }

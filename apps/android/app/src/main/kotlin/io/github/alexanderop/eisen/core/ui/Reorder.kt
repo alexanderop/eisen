@@ -213,7 +213,7 @@ abstract class ReorderState internal constructor(
         grab = itemCoordinates[key]?.takeIf { it.isAttached }?.let { fingerInRoot - it.positionInRoot().y } ?: 0f
         dragDelta = 0f
         draggingKey = key
-        haptics.perform(Haptic.TAP)
+        haptics.perform(Haptic.THRESHOLD)
         onDragStart(key)
         autoScroll = scope.launch { scrollAtEdges() }
         return true
