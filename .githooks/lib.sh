@@ -6,8 +6,9 @@ eisen_root() { git rev-parse --show-toplevel; }
 eisen_dir() { d="$(git rev-parse --git-path eisen)"; mkdir -p "$d"; (cd "$d" && pwd); }
 
 # Everything the APK is built from: the Android project and the assets it packs.
+# Sorted: git lists tracked files before new ones, and staging a new file must not change the hash.
 eisen_source_hash() {
-  (cd "$(eisen_root)" && git ls-files -co --exclude-standard -z -- apps/android apps/web/src/assets \
+  (cd "$(eisen_root)" && git ls-files -co --exclude-standard -z -- apps/android apps/web/src/assets | sort -z \
     | xargs -0 shasum 2>/dev/null | shasum | cut -c1-16)
 }
 
