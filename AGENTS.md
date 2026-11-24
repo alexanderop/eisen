@@ -24,5 +24,6 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21 ANDROID_HOME=/opt/homebrew/share/android-
   ./gradlew testDebugUnitTest assembleDebug
 ```
 
-Run the app on an emulator before calling a change done; tests alone are not proof. Test muted
-(`-no-audio`, then `adb shell cmd audio set-volume 3 0`).
+Run the app on the emulator before calling a change done; tests alone are not proof. The skill
+`.claude/skills/verify-eisen` does it: `bin/eisenctl launch --fresh`, a journey from its `features/`,
+evidence under `verify/android/`, `bin/eisenctl cleanup`. Test muted, always.

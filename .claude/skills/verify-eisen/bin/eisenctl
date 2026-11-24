@@ -1,0 +1,158 @@
+#!/bin/bash
+# Drives the Eisen Android app on the emulator for verification. See ../SKILL.md.
+# Every command reads its stdin from /dev/null, so it never waits for input.
+set -u
+exec < /dev/null
+
+SDK="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
+ADB="$SDK/platform-tools/adb"
+EMULATOR="$SDK/emulator/emulator"
+export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
+export ANDROID_HOME="$SDK"
+PKG=io.github.alexanderop.eisen
+AVD=eisen
+ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
+BASE="$ROOT/verify/android"
+STATE="$BASE/.state"
+FILES="eisen.json timer-run.json wod-draft.json"
+
+TAB="$(printf '\t')"
+die() { echo "eisenctl: $*" >&2; exit 1; }
+device() { "$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}'; }
+booted() { [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; }
+run_dir() { [ -f "$STATE/run" ] || die "no run: start one with 'eisenctl launch'"; cat "$STATE/run"; }
+dump() { "$ADB" exec-out uiautomator dump /dev/tty 2>/dev/null; }
+# One line per node that has a text or a description: "kind=value<TAB>[x1,y1][x2,y2]".
+# The tab ends the value, so "Timer" does not match "Timer voice".
+nodes() {
+  dump | tr '>' '>\n' | grep -oE '(text|content-desc)="[^"]+"[^>]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' \
+    | sed -E 's/^(text|content-desc)="([^"]+)".*bounds="(.*)"$/\1=\2'"$TAB"'\3/'
+}
+file_of() { "$ADB" shell "run-as $PKG cat files/$1" 2>/dev/null; }
+
+case "${1:-}" in
+  launch)
+    shift; fresh=0; build=1
+    for arg in "$@"; do case "$arg" in --fresh) fresh=1;; --no-build) build=0;; *) die "unknown option $arg";; esac; done
+    mkdir -p "$STATE"
+    [ -f "$STATE/run" ] && die "a run is open ($(cat "$STATE/run")): finish it with 'eisenctl cleanup' first"
+    if [ -z "$(device)" ]; then
+      "$EMULATOR" -list-avds | grep -qx "$AVD" || die "no AVD named $AVD (emulator -list-avds)"
+      nohup "$EMULATOR" -avd "$AVD" -no-audio -no-snapshot-save -no-boot-anim > "$STATE/emulator.log" 2>&1 &
+      echo $! > "$STATE/emulator.pid"
+      "$ADB" wait-for-device
+    fi
+    for _ in $(seq 120); do booted && break; sleep 2; done
+    booted || die "the emulator did not finish booting"
+    if [ "$build" = 1 ]; then
+      (cd "$ROOT/apps/android" && ./gradlew assembleDebug -q) || die "the debug build failed"
+    fi
+    [ -f "$APK" ] || die "no APK at $APK"
+    run="$BASE/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$run"; echo "$run" > "$STATE/run"
+    # What the emulator's app held before this run comes back in cleanup.
+    if "$ADB" shell pm list packages | grep -q "package:$PKG\$"; then
+      "$ADB" shell am force-stop $PKG
+      mkdir -p "$STATE/backup"
+      for name in $FILES; do file_of "$name" > "$STATE/backup/$name"; [ -s "$STATE/backup/$name" ] || rm -f "$STATE/backup/$name"; done
+    fi
+    "$ADB" install -r "$APK" > "$run/install.log" 2>&1 || die "install failed, see $run/install.log"
+    if [ "$fresh" = 1 ]; then "$ADB" shell pm clear $PKG > /dev/null; fi
+    "$ADB" shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
+    for scale in window_animation_scale transition_animation_scale animator_duration_scale; do "$ADB" shell settings put global $scale 0; done
+    "$ADB" shell cmd audio set-volume 3 0 > /dev/null 2>&1
+    "$ADB" logcat -c
+    "$ADB" shell am start -n $PKG/.MainActivity > /dev/null
+    for _ in $(seq 30); do nodes | grep -q "^text=Settings$TAB" && break; sleep 1; done
+    nodes | grep -q "^text=Settings$TAB" || die "the app did not show its tabs within 30s, see 'eisenctl texts'"
+    echo "ready: $run"
+    ;;
+  doctor)
+    ok=0
+    check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; ok=1; fi; }
+    check "one emulator is attached" '[ -n "$(device)" ]'
+    check "it is the AVD $AVD" '[ "$("$ADB" shell getprop ro.boot.qemu.avd_name | tr -d "\r")" = "$AVD" ]'
+    check "it has booted" 'booted'
+    check "a run is open (eisenctl launch)" '[ -f "$STATE/run" ] && [ -d "$(cat "$STATE/run")" ]'
+    check "the app is installed" '"$ADB" shell pm list packages | grep -q "package:$PKG\$"'
+    installed="$("$ADB" shell "sha256sum \$(pm path $PKG | head -1 | cut -d: -f2)" 2>/dev/null | cut -d" " -f1)"
+    check "the installed APK is the one built here" '[ -f "$APK" ] && [ "$installed" = "$(shasum -a 256 "$APK" | cut -d" " -f1)" ]'
+    check "the app is on screen" '"$ADB" shell dumpsys activity activities | grep -E "ResumedActivity|topResumedActivity" | grep -q "$PKG"'
+    check "media volume is 0 (test muted)" '"$ADB" shell dumpsys audio | grep -A1 "^- STREAM_MUSIC:" | grep -q "Muted: true"'
+    check "no crash since launch" '! "$ADB" logcat -d | grep -q "FATAL EXCEPTION"'
+    exit $ok
+    ;;
+  texts) nodes ;;
+  has) nodes | grep -qE "^(text|content-desc)=($2)$TAB" ;;
+  wait)
+    for _ in $(seq "${3:-15}"); do nodes | grep -qE "^(text|content-desc)=($2)$TAB" && exit 0; sleep 1; done
+    die "'$2' did not appear within ${3:-15}s"
+    ;;
+  tap)
+    line="$(nodes | grep -E "^(text|content-desc)=($2)$TAB" | sed -n "${3:-1}p")"
+    [ -n "$line" ] || die "nothing on screen matches '$2' (see 'eisenctl texts')"
+    set -- $(echo "$line" | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]$' | grep -oE '[0-9]+')
+    "$ADB" shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+    sleep 0.6
+    ;;
+  type) "$ADB" shell input text "$(echo "$2" | sed 's/ /%s/g')" ;;
+  back) "$ADB" shell input keyevent KEYCODE_BACK; sleep 0.6 ;;
+  scroll)
+    case "${2:-down}" in down) "$ADB" shell input swipe 540 1700 540 800 300;; up) "$ADB" shell input swipe 540 800 540 1700 300;; *) die "scroll down|up";; esac
+    # The list keeps rolling after the swipe, and a tap on a rolling list only stops it.
+    sleep 1.5
+    ;;
+  shot)
+    run="$(run_dir)"; [ -n "${2:-}" ] || die "shot <name>"
+    "$ADB" exec-out screencap -p > "$run/$2.png"
+    nodes > "$run/$2.txt"
+    echo "$run/$2.png"
+    ;;
+  state)
+    # The saved state as the app wrote it: the second, read-only view of what a screen claims.
+    run="$(run_dir)"; name="${2:-state}"
+    file_of eisen.json > "$run/$name.json"
+    echo "$run/$name.json"
+    ;;
+  log)
+    run="$(run_dir)"
+    "$ADB" logcat -d > "$run/logcat.txt"
+    echo "$run/logcat.txt"
+    ;;
+  adb) shift; "$ADB" "$@" ;;
+  cleanup)
+    [ -d "$STATE" ] || { echo "nothing to clean up"; exit 0; }
+    if [ -n "$(device)" ]; then
+      "$ADB" shell am force-stop $PKG
+      if [ -d "$STATE/backup" ]; then
+        "$ADB" shell pm clear $PKG > /dev/null
+        "$ADB" shell "run-as $PKG mkdir -p files"
+        for name in $FILES; do
+          [ -f "$STATE/backup/$name" ] && "$ADB" shell "run-as $PKG sh -c 'cat > files/$name'" < "$STATE/backup/$name"
+        done
+        "$ADB" shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
+      fi
+      for scale in window_animation_scale transition_animation_scale animator_duration_scale; do "$ADB" shell settings put global $scale 1; done
+      # Only an emulator this run started is stopped.
+      if [ -f "$STATE/emulator.pid" ] && kill -0 "$(cat "$STATE/emulator.pid")" 2>/dev/null; then "$ADB" emu kill > /dev/null 2>&1; fi
+    fi
+    [ -f "$STATE/run" ] && echo "evidence kept in $(cat "$STATE/run")"
+    /bin/rm -rf "$STATE"
+    ;;
+  *)
+    cat <<USAGE
+eisenctl launch [--fresh] [--no-build]   build, install, start; --fresh starts from empty app data
+eisenctl doctor                          read-only: is this instance worth driving?
+eisenctl texts                           what is on screen: text=... and content-desc=... with bounds
+eisenctl has <regex>                     exit 0 when a text or description matches the whole regex
+eisenctl wait <regex> [seconds]          until it appears (default 15)
+eisenctl tap <regex> [n]                 tap the n-th match (default the first)
+eisenctl type <text> | back | scroll down|up
+eisenctl shot <name>                     screenshot + the screen's texts into the run's evidence directory
+eisenctl state [name]                    the saved eisen.json into the evidence directory
+eisenctl log                             logcat since launch into the evidence directory
+eisenctl adb <args>                      plain adb
+eisenctl cleanup                         restore the emulator's app data, keep the evidence
+USAGE
+    ;;
+esac
