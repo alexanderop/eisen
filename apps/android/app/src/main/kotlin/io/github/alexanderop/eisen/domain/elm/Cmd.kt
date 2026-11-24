@@ -85,6 +85,13 @@ sealed interface Cmd {
     /** Plays one sound of the timers now, the way a run would. [fallback] plays instead when [sound] is not recorded. */
     data class PlayTimerSound(val sound: String, val fallback: String? = null) : Cmd
 
+    /**
+     * Plays sounds of the timers one after the other, each [TimerSound.at] milliseconds from now: a
+     * combination of the lifter's own, move by move, the way a run says it. [fallback] stands in for a
+     * sound that is not recorded.
+     */
+    data class PlayTimerSounds(val sounds: List<TimerSound>, val fallback: String? = null) : Cmd
+
     /** Something the screen shows or does once. See [UiEvent]. */
     data class Ui(val event: UiEvent) : Cmd
 }

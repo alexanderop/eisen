@@ -268,9 +268,10 @@ fun timerView(config: TimerConfig, active: Long): TimerView {
 /**
  * A sound the timer makes. [at] is in milliseconds after Start was tapped, pauses not counted,
  * the same clock as [timerView]. [sound] is "beep", "beep-long" or the name of a recording
- * in `assets/voice/timer`, without extension.
+ * in `assets/voice/timer`, without extension. [combo]: on the first move of a boxing combination of
+ * the lifter's own, its id, as that combination is said move by move.
  */
-data class TimerCue(val at: Long, val sound: String)
+data class TimerCue(val at: Long, val sound: String, val combo: String? = null)
 
 /**
  * Every sound of a timer from Start to the end, in order.
@@ -371,6 +372,10 @@ data class TimerSession(
      * A later run is measured against them while it is still going. Left out when nothing was tapped.
      */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val splits: List<Double>? = null,
+    /** Boxing: about how many punches the coach called for up to where the run ended. Left out of the file for the other modes. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val punches: Int? = null,
+    /** Boxing: the combinations the coach called up to where the run ended. Left out of the file for the other modes. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val combos: Int? = null,
 )
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
@@ -477,4 +482,10 @@ fun sessionSummary(session: TimerSession): String {
     val time = holdText(session.seconds)
     if (session.rounds == 0 && countsRoundsByTap(session.config.mode)) return time
     return "${session.rounds} ${if (session.rounds == 1) "round" else "rounds"} · $time"
+}
+
+/** A row of the history: [sessionSummary], and for a boxing run that counted them its punches: "6 rounds · 22:00 · about 480 punches". */
+fun sessionLine(session: TimerSession): String {
+    val punches = session.punches?.let { " · about $it ${if (it == 1) "punch" else "punches"}" }.orEmpty()
+    return "${sessionSummary(session)}$punches"
 }

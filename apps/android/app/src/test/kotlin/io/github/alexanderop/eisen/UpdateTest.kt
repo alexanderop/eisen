@@ -1,7 +1,11 @@
 package io.github.alexanderop.eisen
 
 import io.github.alexanderop.eisen.domain.BOXING_TEMPLATES
+import io.github.alexanderop.eisen.domain.BOXING_MOVES
+import io.github.alexanderop.eisen.domain.BoxingCues
+import io.github.alexanderop.eisen.domain.BoxingRoom
 import io.github.alexanderop.eisen.domain.BoxingRound
+import io.github.alexanderop.eisen.domain.BoxingStance
 import io.github.alexanderop.eisen.domain.BoxingStyle
 import io.github.alexanderop.eisen.domain.BoxingTheme
 import io.github.alexanderop.eisen.domain.Equipment
@@ -785,6 +789,7 @@ class UpdateTest {
         var guarded = 0
         var boxingRuns = 0
         var boxingEdits = 0
+        var ownSaved = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -988,6 +993,13 @@ class UpdateTest {
                     assertEquals(where, setup.config, after.state.timerConfigs[TimerMode.BOXING])
                 }
                 if (setup?.config?.mode == TimerMode.BOXING && step.model.timerSetup?.config?.boxing != setup.config.boxing && step.model.timerSetup?.config?.mode == TimerMode.BOXING) boxingEdits++
+                // A boxing plan is always within its limits: the lifter's own combinations valid and unique, every pick one the round can call.
+                setup?.config?.boxing?.let { plan ->
+                    assertEquals(where, plan, io.github.alexanderop.eisen.domain.boxingPlan(plan, plan.rounds.size))
+                    assertEquals(where, plan.own.map { it.id }.distinct(), plan.own.map { it.id })
+                    assertTrue(where, plan.own.size <= io.github.alexanderop.eisen.domain.MAX_OWN_COMBOS)
+                    if (msg is Msg.Timer.SaveOwn && plan.own != step.model.timerSetup?.config?.boxing?.own) ownSaved++
+                }
                 if (msg == Msg.Wods.Save && after.state != step.state) wodsSaved++
                 // A run carries a WOD exactly when it was started from one, and leaves the setups of the modes alone.
                 if (run != null && run.id != step.model.timerRun?.id) {
@@ -1035,6 +1047,7 @@ class UpdateTest {
         assertTrue("only $guarded taps on a result were too early", guarded >= 1)
         assertTrue("only $boxingRuns boxing runs started", boxingRuns >= 5)
         assertTrue("only $boxingEdits boxing plans were edited", boxingEdits >= 50)
+        assertTrue("only $ownSaved own combinations were saved", ownSaved >= 20)
     }
 
     private fun wasRunningRun(step: Step) = (step.model.timer as? TimerState.Running)?.run
@@ -1090,6 +1103,7 @@ class UpdateTest {
         val boxing = model.timerSetup?.takeIf { it.config.mode == TimerMode.BOXING }
         if (boxing != null && model.timer == null && random.nextInt(3) > 0) {
             val rounds = boxing.config.rounds
+            val ownIds = boxing.config.boxing?.own.orEmpty().map { it.id } + "own-99"
             val at = boxing.round ?: index(rounds)
             return pick(
                 listOf(
@@ -1114,6 +1128,17 @@ class UpdateTest {
                     { Msg.Timer.UpdatePreset },
                     { Msg.Timer.Start },
                     { Msg.Nav.Back },
+                    // The coach's second round: reminders, the non-stop finish, stance, room and the lifter's own combinations.
+                    { Msg.Timer.EditRound(at, (boxing.config.boxing?.rounds?.getOrNull(at) ?: BoxingRound(BoxingTheme.MIX, 6, 0)).copy(cues = pick(BoxingCues.entries), burnout = pick(listOf(0, 15, 30, 20)))) },
+                    { Msg.Timer.SetStance(pick(BoxingStance.entries)) },
+                    { Msg.Timer.SetRoom(pick(BoxingRoom.entries)) },
+                    { Msg.Timer.SaveOwn(null, List(random.nextInt(8)) { pick(BOXING_MOVES).id + if (random.nextInt(20) == 0) "x" else "" }, pick(listOf(null, at))) },
+                    { Msg.Timer.SaveOwn(pick(ownIds), List(1 + random.nextInt(6)) { pick(BOXING_MOVES).id }) },
+                    { Msg.Timer.DeleteOwn(pick(ownIds)) },
+                    { Msg.Timer.UndoDeleteOwn },
+                    { Msg.Timer.ListenMoves(List(random.nextInt(4)) { pick(BOXING_MOVES).id }) },
+                    { Msg.Timer.PlayCombo(pick(ownIds)) },
+                    { Msg.Timer.EditRound(at, BoxingRound(pick(listOf(BoxingTheme.OWN, BoxingTheme.BUILD, BoxingTheme.WARMUP)), 6, 0, ownIds.take(random.nextInt(2)))) },
                 ),
             )()
         }

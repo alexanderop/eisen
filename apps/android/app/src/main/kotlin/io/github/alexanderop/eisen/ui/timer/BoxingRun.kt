@@ -62,6 +62,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.domain.BoxingCombo
+import io.github.alexanderop.eisen.domain.BoxingCues
+import io.github.alexanderop.eisen.domain.burnoutOf
+import io.github.alexanderop.eisen.domain.cueLevel
 import io.github.alexanderop.eisen.domain.BoxingFocus
 import io.github.alexanderop.eisen.domain.BoxingRound
 import io.github.alexanderop.eisen.domain.BoxingStyle
@@ -73,8 +76,8 @@ import io.github.alexanderop.eisen.domain.boxingView
 import io.github.alexanderop.eisen.domain.timerView
 import io.github.alexanderop.eisen.domain.elm.Msg
 import io.github.alexanderop.eisen.domain.elm.TimerState
-import io.github.alexanderop.eisen.domain.elm.callWindow
 import io.github.alexanderop.eisen.domain.elm.combosText
+import io.github.alexanderop.eisen.domain.elm.punchesText
 import io.github.alexanderop.eisen.domain.elm.roundDetail
 import io.github.alexanderop.eisen.domain.elm.runCues
 import io.github.alexanderop.eisen.domain.elm.upNext
@@ -82,6 +85,9 @@ import io.github.alexanderop.eisen.ui.EisenColors
 import io.github.alexanderop.eisen.ui.formatClock
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
+
+/** The band of the non-stop finish: the red of the body shots. */
+private val NonStopRed = Color(0xFFFF4D4D)
 
 /** How long a new call lights the combination area up. */
 private const val FLASH_MS = 250L
@@ -100,7 +106,6 @@ internal fun BoxingRunScreen(state: TimerState.Running, now: Long, dispatch: (Ms
     val view = timerView(run.config, active)
     val cues = remember(run.id, run.seed, run.config, run.calls) { runCues(run) }
     val box = boxingView(run.config, cues, active)
-    val window = callWindow(run.config, cues, active)
     val theme = box.round.theme
     val style = run.config.boxing?.style ?: BoxingStyle.NAMES
     val rounds = run.config.rounds
@@ -150,9 +155,13 @@ internal fun BoxingRunScreen(state: TimerState.Running, now: Long, dispatch: (Ms
                     FocusBand(box.focus, theme.tint, compact)
                     Spacer(Modifier.height(8.dp))
                 }
+                // A reminder ("MOVE!") for its two seconds, in a line kept free all round, so nothing jumps when it comes.
+                if (view.phase == TimerPhase.WORK && (cueLevel(box.round) != BoxingCues.OFF || burnoutOf(box.round, run.config.work) > 0)) {
+                    SayLine(box.say, compact)
+                }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (view.phase) {
-                        TimerPhase.WORK -> CallArea(box.combo, box.go, box.goes, theme, style, window?.from, window?.until, active, now, run.startedAt + run.paused, paused, compact)
+                        TimerPhase.WORK -> CallArea(box.combo, box.go, box.goes, box.step, box.steps, theme, style, box.since, box.next, active, now, run.startedAt + run.paused, paused, compact)
                         TimerPhase.DONE -> Unit
                         else -> UpNextArea(if (view.phase == TimerPhase.REST) view.round + 1 else 1, box.round, compact)
                     }
@@ -259,9 +268,27 @@ private fun TimeBand(config: TimerConfig, phase: TimerPhase, left: Long?, total:
     }
 }
 
+/** The coach's reminder in the foreground colour, small and heavy: "MOVE!". Empty, it keeps its height. */
+@Composable
+private fun SayLine(say: String?, compact: Boolean) {
+    Box(Modifier.fillMaxWidth().height(if (compact) 34.dp else 42.dp).semantics { liveRegion = LiveRegionMode.Polite }, contentAlignment = Alignment.CenterStart) {
+        if (say != null) {
+            Text(
+                say.uppercase(),
+                color = EisenColors.Foreground,
+                fontSize = if (compact) 22.sp else 26.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.08.em,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 /**
- * "SPEED" on a band of the round's colour, "POWER" on a band of the foreground colour, both with dark
- * type, the same in both apps. It slides in and pulses once when the stretch changes.
+ * "SPEED" on a band of the round's colour, "POWER" on a band of the foreground colour, "NON-STOP" on
+ * the red of the body shots, all with dark type. It slides in and pulses once when the stretch changes.
  */
 @Composable
 private fun FocusBand(focus: BoxingFocus, tint: Color, compact: Boolean) {
@@ -274,7 +301,11 @@ private fun FocusBand(focus: BoxingFocus, tint: Color, compact: Boolean) {
         }
         seen = focus
     }
-    val speed = focus == BoxingFocus.SPEED
+    val band = when (focus) {
+        BoxingFocus.SPEED -> tint
+        BoxingFocus.POWER -> EisenColors.Foreground
+        BoxingFocus.BURNOUT -> NonStopRed
+    }
     Box(
         Modifier
             .fillMaxWidth()
@@ -285,12 +316,16 @@ private fun FocusBand(focus: BoxingFocus, tint: Color, compact: Boolean) {
                 scaleY = 1f + shift.value * 0.06f
             }
             .clip(RoundedCornerShape(14.dp))
-            .background(if (speed) tint else EisenColors.Foreground)
+            .background(band)
             .semantics { liveRegion = LiveRegionMode.Polite },
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            if (speed) "SPEED" else "POWER",
+            when (focus) {
+                BoxingFocus.SPEED -> "SPEED"
+                BoxingFocus.POWER -> "POWER"
+                BoxingFocus.BURNOUT -> "NON-STOP"
+            },
             color = EisenColors.OnPrimary,
             fontSize = if (compact) 24.sp else 28.sp,
             fontWeight = FontWeight.Black,
@@ -318,6 +353,8 @@ private fun CallArea(
     combo: BoxingCombo?,
     go: Int,
     goes: Int,
+    step: Int,
+    steps: Int,
     theme: BoxingTheme,
     style: BoxingStyle,
     from: Long?,
@@ -366,6 +403,7 @@ private fun CallArea(
     val (big, small, bigColor) = when {
         combo != null -> Triple(shown(combo, style), shown(combo, other), if (flash) EisenColors.OnPrimary else EisenColors.Foreground)
         theme == BoxingTheme.FREESTYLE -> Triple("Freestyle", "your pace, no calls", tint)
+        theme == BoxingTheme.WARMUP -> Triple(theme.title, "easy, stay loose", tint)
         else -> Triple(theme.title, "listen for the call", tint)
     }
     val numbers = combo != null && style == BoxingStyle.NUMBERS
@@ -385,8 +423,8 @@ private fun CallArea(
             verticalArrangement = Arrangement.Center,
         ) {
             FitText(
-                // Numbers are set with room around their dashes; names keep each "·" at the end of a line.
-                if (numbers) big.replace(" – ", "  –  ") else big.replace(" · ", "\u00A0· "),
+                // Numbers are set with room around their dashes; each dash, like each "·" of the names, stays at the end of a line.
+                if (numbers) big.replace(" – ", "\u00A0\u00A0–  ") else big.replace(" · ", "\u00A0· "),
                 color = bigColor,
                 max = when {
                     numbers -> if (compact) 92.sp else 120.sp
@@ -395,13 +433,18 @@ private fun CallArea(
                 },
                 min = if (combo != null) 40.sp else 28.sp,
                 // Names of the longest combinations need up to four lines to stay at least 40sp at 360 wide.
-                maxLines = if (numbers) 2 else 4,
+                // Up to three numbers stay on one line: "3 – 3" broken in two reads as two calls.
+                maxLines = if (numbers) (if (big.split(" – ").size <= 3) 1 else 2) else 4,
                 letterSpacing = if (numbers) 0.04.em else (-0.01).em,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
             if (combo != null && goes > 1) {
                 Goes(go, goes, if (flash) EisenColors.OnPrimary else tint, compact)
                 Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+            }
+            if (combo != null && steps > 0) {
+                Ladder(step, steps, if (flash) EisenColors.OnPrimary else EisenColors.MutedForeground)
+                Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
             }
             Text(
                 small,
@@ -441,6 +484,23 @@ private fun Goes(go: Int, goes: Int, color: Color, compact: Boolean) {
         }
         Spacer(Modifier.width(4.dp))
         Text("$go of $goes", color = color, fontSize = if (compact) 24.sp else 30.sp, fontWeight = FontWeight.Black, style = TextStyle(fontFeatureSettings = "tnum"))
+    }
+}
+
+/** A build-up's ladder: a small dot per step, filled up to the one on screen, and "Step 2 of 4". */
+@Composable
+private fun Ladder(step: Int, steps: Int, color: Color) {
+    Row(
+        Modifier.semantics(mergeDescendants = true) { contentDescription = "Step $step of $steps" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        for (at in 1..steps) {
+            val dot = if (at == step) 14.dp else 10.dp
+            Box(Modifier.size(dot).clip(CircleShape).background(if (at <= step) color else Color.Transparent).border(2.dp, color, CircleShape))
+        }
+        Spacer(Modifier.width(6.dp))
+        Text("Step $step of $steps", color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -502,11 +562,16 @@ private fun FitText(text: String, color: Color, max: TextUnit, min: TextUnit, ma
 
 // The result
 
-/** "166 combinations called" and the plan's timeline, under the rounds of a boxing result. */
+/**
+ * "166 combinations called", "About 480 punches" and how that compares with the boxing run before,
+ * and the plan's timeline, under the rounds of a boxing result.
+ */
 @Composable
-internal fun BoxingResultLines(config: TimerConfig, combos: Int) {
+internal fun BoxingResultLines(config: TimerConfig, combos: Int, punches: Int?, gap: String?) {
     Spacer(Modifier.height(4.dp))
     Text(combosText(combos), color = EisenColors.Foreground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    if (punches != null) Text(punchesText(punches), color = EisenColors.Foreground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    if (gap != null) Text(gap, color = EisenColors.MutedForeground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(16.dp))
     BoxingTimeline(config, Modifier.widthIn(max = 420.dp).padding(horizontal = 8.dp), height = 22.dp)
 }

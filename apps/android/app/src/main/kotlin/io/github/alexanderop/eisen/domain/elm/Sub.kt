@@ -2,6 +2,7 @@ package io.github.alexanderop.eisen.domain.elm
 
 import io.github.alexanderop.eisen.domain.TimerMode
 import io.github.alexanderop.eisen.domain.isAgain
+import io.github.alexanderop.eisen.domain.isCoachCue
 
 /**
  * A source outside the app that sends Msgs while the model asks for it. The runtime compares the
@@ -47,9 +48,13 @@ fun subscriptions(model: Model): Set<Sub> = buildSet {
     }
 }
 
-/** When the next "Again!" or "One more!" of a boxing [run] is said, on the wall clock, after [now]. */
+/**
+ * When the next call between the half-second ticks of a boxing [run] is said, on the wall clock, after
+ * [now]: an "Again!", a reminder, "Non-stop!" or a combination of the lifter's own, which the screen
+ * shows the moment it is said.
+ */
 private fun nextAgain(run: io.github.alexanderop.eisen.domain.TimerRun, now: Long): Long? {
     if (run.config.mode != TimerMode.BOXING) return null
     val zero = run.startedAt + run.paused
-    return runCues(run).firstOrNull { isAgain(it.sound) && zero + it.at > now }?.let { zero + it.at }
+    return runCues(run).firstOrNull { (isAgain(it.sound) || isCoachCue(it.sound) || it.sound == "box-nonstop" || it.combo != null) && zero + it.at > now }?.let { zero + it.at }
 }

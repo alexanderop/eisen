@@ -231,6 +231,9 @@ data class DeletedTimerSession(val session: TimerSession, val index: Int)
 
 data class DeletedWod(val wod: Wod, val index: Int)
 
+/** A combination of the lifter's own was deleted from the boxing plan [before], which became [after]. Undo brings [before] back while the plan is still [after]. */
+data class DeletedOwn(val before: BoxingPlan, val after: BoxingPlan)
+
 data class RemovedSlot(val routineId: String, val index: Int, val slot: Slot)
 
 /** Only the newest delete of each kind can be undone, like the snackbar that offers it. */
@@ -240,6 +243,7 @@ data class Undo(
     val deletedPreset: DeletedPreset? = null,
     val deletedTimer: DeletedTimerSession? = null,
     val deletedWod: DeletedWod? = null,
+    val deletedOwn: DeletedOwn? = null,
 )
 
 /**

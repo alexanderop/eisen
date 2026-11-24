@@ -75,6 +75,17 @@ import io.github.alexanderop.eisen.domain.movedRound
 import io.github.alexanderop.eisen.domain.roundCombos
 import io.github.alexanderop.eisen.domain.templatePlan
 import io.github.alexanderop.eisen.domain.withoutRound
+import io.github.alexanderop.eisen.domain.BOXING_MOVES
+import io.github.alexanderop.eisen.domain.BoxingCombo
+import io.github.alexanderop.eisen.domain.BoxingFocus
+import io.github.alexanderop.eisen.domain.MAX_OWN_MOVES
+import io.github.alexanderop.eisen.domain.OwnCombo
+import io.github.alexanderop.eisen.domain.boxingTotals
+import io.github.alexanderop.eisen.domain.comboSounds
+import io.github.alexanderop.eisen.domain.ownCombo
+import io.github.alexanderop.eisen.domain.withOwn
+import io.github.alexanderop.eisen.domain.withOwnMoves
+import io.github.alexanderop.eisen.domain.withoutOwn
 
 /*
  * The interval timers (Tabata, EMOM, AMRAP, For Time, Boxing). What a run sounds like is worked out once,
@@ -178,7 +189,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val old = plan.rounds.getOrNull(msg.index) ?: return model.only()
             // A new theme starts with all of its combinations; all of them picked is the same as none.
             val themed = if (msg.round.theme != old.theme) msg.round.copy(pick = emptyList()) else msg.round
-            val all = themeCombos(themed.theme).map { it.id }
+            val all = themeCombos(themed.theme, plan.own).map { it.id }
             val round = if (all.isNotEmpty() && all.all { it in themed.pick }) themed.copy(pick = emptyList()) else themed
             val heard = setup.heard.takeIf { round.theme == old.theme }
             replan(model, setup.copy(heard = heard), withRound(plan, msg.index, round))
@@ -229,7 +240,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
             // The lifter's choice of names or numbers stays: a template is about the rounds.
-            val applied = templatePlan(template.rounds, setup.config.rounds, plan.style)
+            val applied = templatePlan(template.rounds, setup.config.rounds, plan)
             if (applied == plan) return model.only()
             // Its Undo stands next to the chips until the next edit, or for a few seconds.
             boxingEdited(model, setup.copy(config = setup.config.copy(boxing = applied), beforeTemplate = plan, templateAt = env.now, removed = emptyList(), copied = false)) and
@@ -255,15 +266,58 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
             val round = plan.rounds.getOrNull(msg.index) ?: return model.only()
-            val combos = if (round.theme == BoxingTheme.FREESTYLE) emptyList() else roundCombos(round)
+            val combos = if (round.theme == BoxingTheme.FREESTYLE) emptyList() else roundCombos(round, plan.own)
             if (combos.isEmpty()) return model.only()
             val combo = combos[(combos.indexOfFirst { it.id == setup.heard } + 1) % combos.size]
-            model.copy(timerSetup = setup.copy(heard = combo.id)) and Cmd.PlayTimerSound(comboSound(combo, plan.style), fallback = "beep")
+            model.copy(timerSetup = setup.copy(heard = combo.id)) and playCombo(combo, plan.style)
         }
         is Msg.Timer.PlayCombo -> {
             val plan = boxingSetup(model)?.config?.boxing ?: return model.only()
-            val combo = BOXING_COMBOS.firstOrNull { it.id == msg.id } ?: return model.only()
-            model and Cmd.PlayTimerSound(comboSound(combo, plan.style), fallback = "beep")
+            val combo = themeCombos(BoxingTheme.MIX, plan.own).firstOrNull { it.id == msg.id } ?: return model.only()
+            model and playCombo(combo, plan.style)
+        }
+        is Msg.Timer.ListenMoves -> {
+            val plan = boxingSetup(model)?.config?.boxing ?: return model.only()
+            if (msg.moves.isEmpty() || msg.moves.size > MAX_OWN_MOVES || msg.moves.any { id -> BOXING_MOVES.none { it.id == id } }) return model.only()
+            model and playCombo(ownCombo(OwnCombo("own-0", msg.moves)), plan.style)
+        }
+        is Msg.Timer.SetStance -> {
+            val setup = boxingSetup(model) ?: return model.only()
+            val plan = setup.config.boxing ?: return model.only()
+            if (plan.stance == msg.stance) model.only() else replan(model, setup, plan.copy(stance = msg.stance))
+        }
+        is Msg.Timer.SetRoom -> {
+            val setup = boxingSetup(model) ?: return model.only()
+            val plan = setup.config.boxing ?: return model.only()
+            if (plan.room == msg.room) model.only() else replan(model, setup, plan.copy(room = msg.room))
+        }
+        is Msg.Timer.SaveOwn -> {
+            val setup = boxingSetup(model) ?: return model.only()
+            val plan = setup.config.boxing ?: return model.only()
+            val saved = if (msg.id == null) withOwn(plan, msg.moves) else withOwnMoves(plan, msg.id, msg.moves)
+            if (saved === plan) return model.only()
+            // Made from the "My combos" tile of a round: that round calls it from now on.
+            val round = msg.round?.takeIf { msg.id == null }?.let { saved.rounds.getOrNull(it) }
+            val next = if (round == null) saved else withRound(saved, msg.round!!, round.copy(theme = BoxingTheme.OWN, pick = emptyList()))
+            replan(model, setup, next)
+        }
+        is Msg.Timer.DeleteOwn -> {
+            val setup = boxingSetup(model) ?: return model.only()
+            val plan = setup.config.boxing ?: return model.only()
+            val left = withoutOwn(plan, msg.id)
+            if (left === plan) return model.only()
+            val (edited, cmds) = replan(model, setup, left)
+            val after = edited.timerSetup?.config?.boxing ?: left
+            edited.copy(undo = edited.undo.copy(deletedOwn = DeletedOwn(plan, after))) and cmds +
+                Cmd.Ui(UiEvent.Snackbar("Combination deleted", actionLabel = "Undo", onAction = Msg.Timer.UndoDeleteOwn, tag = TIMER_SNACKBAR))
+        }
+        Msg.Timer.UndoDeleteOwn -> {
+            val deleted = model.undo.deletedOwn ?: return model.only()
+            val cleared = model.copy(undo = model.undo.copy(deletedOwn = null))
+            val setup = boxingSetup(cleared)
+            // Only while nothing else changed the plan since: an Undo never takes a later edit back.
+            if (setup?.config?.boxing != deleted.after) return cleared.only()
+            replan(cleared, setup, deleted.before)
         }
         Msg.Timer.CloseSetup -> if (model.timerSetup == null) model.only() else model.copy(timerSetup = null, now = env.now).only()
         is Msg.Timer.SetCalls -> {
@@ -449,6 +503,13 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
     }
 }
 
+/** Says [combo] the way a run calls it: its recording, or one of the lifter's own move by move. It beeps where a recording is missing. */
+private fun playCombo(combo: BoxingCombo, style: BoxingStyle): Cmd {
+    val sounds = comboSounds(combo, style)
+    return if (sounds.size == 1) Cmd.PlayTimerSound(sounds.single().second, fallback = "beep")
+    else Cmd.PlayTimerSounds(sounds.map { (at, sound) -> TimerSound(at, sound) }, fallback = "beep")
+}
+
 /** The setup open in the Timer tab when it is a boxing one. */
 fun boxingSetup(model: Model): TimerSetup? = model.timerSetup?.takeIf { it.config.mode == TimerMode.BOXING }
 
@@ -568,38 +629,25 @@ private fun closeRun(model: Model, env: Env): Next =
  * [session] goes into the history and its result shows, with the WOD it was a run of, and for a boxing
  * [run] the combinations it called up to [endedAt].
  */
-private fun fileRun(model: Model, session: TimerSession, run: TimerRun, endedAt: Long, now: Long, undo: TimerRun? = null): Model =
-    model.withState { state ->
-        if (state.timerSessions.any { it.id == session.id }) state else state.copy(timerSessions = listOf(session) + state.timerSessions)
-    }.copy(timer = TimerState.Finished(session, run.wod, undo, at = now, combos = combosCalled(run, endedAt)), now = now)
+private fun fileRun(model: Model, session: TimerSession, run: TimerRun, endedAt: Long, now: Long, undo: TimerRun? = null): Model {
+    val totals = boxingTotalsOf(run, endedAt)
+    val counted = if (totals == null) session else session.copy(combos = totals.first, punches = totals.second)
+    return model.withState { state ->
+        if (state.timerSessions.any { it.id == counted.id }) state else state.copy(timerSessions = listOf(counted) + state.timerSessions)
+    }.copy(timer = TimerState.Finished(counted, run.wod, undo, at = now, combos = totals?.first), now = now)
+}
+
+/** The combinations a boxing [run] called up to [at] on the wall clock and the punches they asked for. Null for the other modes. */
+fun boxingTotalsOf(run: TimerRun, at: Long): Pair<Int, Int>? {
+    if (run.config.mode != TimerMode.BOXING) return null
+    return boxingTotals(runCues(run), run.config.boxing?.own.orEmpty(), activeTime(run, at))
+}
 
 /** How many combinations a boxing [run] called up to [at] on the wall clock. Null for the other modes. */
-fun combosCalled(run: TimerRun, at: Long): Int? {
-    if (run.config.mode != TimerMode.BOXING) return null
-    val active = activeTime(run, at)
-    return comboCount(runCues(run).filter { it.at <= active })
-}
+fun combosCalled(run: TimerRun, at: Long): Int? = boxingTotalsOf(run, at)?.first
 
 /** Every sound of [run], the same list its service plays and its screen shows the combinations of. */
 fun runCues(run: TimerRun): List<TimerCue> = timerCues(run.config, run.calls, run.seed ?: 1)
-
-/**
- * The combination on a boxing run's screen at [active]: called, or called for again ("Again!"), at
- * [from], and the next of those (or the end of the round) at [until], for the bar that fills until
- * then. Null before the first call of a round and outside one.
- */
-data class CallWindow(val from: Long, val until: Long)
-
-fun callWindow(config: TimerConfig, cues: List<TimerCue>, active: Long): CallWindow? {
-    val view = timerView(config, active)
-    val left = view.phaseLeft
-    if (view.phase != TimerPhase.WORK || left == null) return null
-    val start = active - view.phaseElapsed
-    val end = active + left
-    val calls = cues.filter { it.at in start until end && (soundCombo(it.sound) != null || isAgain(it.sound)) }
-    val from = calls.lastOrNull { it.at <= active }?.at ?: return null
-    return CallWindow(from, calls.firstOrNull { it.at > active }?.at ?: end)
-}
 
 /** How many combinations round [index] of [config] calls: the line under the pace in the round sheet. */
 fun roundCalls(config: TimerConfig, calls: TimerCalls, index: Int): Int {
@@ -664,7 +712,7 @@ internal fun schedule(model: Model, run: TimerRun, now: Long): Cmd.ScheduleTimer
     val sounds = (runCues(run) + restCues).filter { it.at >= active }.sortedBy { it.at }.map { TimerSound(zero + it.at, it.sound) }
     // A boxing call is felt too, so a glance is not needed to know a new one came.
     val called = if (run.config.mode == TimerMode.BOXING) {
-        runCues(run).filter { soundCombo(it.sound) != null || isAgain(it.sound) }.map { it.at to TIMER_CALL_VIBRATION }
+        runCues(run).filter { it.combo != null || soundCombo(it.sound) != null || isAgain(it.sound) }.map { it.at to TIMER_CALL_VIBRATION }
     } else {
         emptyList()
     }
@@ -848,7 +896,10 @@ fun timerNotice(run: TimerRun, now: Long, state: AppState): TimerNotice {
     }
     val phase = if (rest != null) "Rest" else phaseName(view.phase)
     // Boxing says what the round is about: "Round 2 of 6 · 2-punch combos", in a rest what comes next.
-    val theme = if (run.config.mode == TimerMode.BOXING) boxingView(run.config, emptyList(), activeTime(run, now)).round.theme.title else null
+    val theme = if (run.config.mode != TimerMode.BOXING) null else boxingView(run.config, emptyList(), activeTime(run, now)).let { box ->
+        // The non-stop finish of a round says so: "Round 2 of 6 · non-stop".
+        if (box.focus == BoxingFocus.BURNOUT) "non-stop" else box.round.theme.title
+    }
     val where = when {
         theme != null && view.phase == TimerPhase.WORK -> "$round · $theme"
         theme != null && view.phase == TimerPhase.REST -> "Rest · next: $theme"

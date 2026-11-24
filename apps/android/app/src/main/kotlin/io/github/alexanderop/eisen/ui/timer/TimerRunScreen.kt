@@ -1004,7 +1004,7 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                         !wodForTime -> Text(rounds, color = EisenColors.Foreground, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
                         wod!!.rounds > 1 -> Text("${session.rounds} of ${wod.rounds} rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                     }
-                    if (combos != null) BoxingResultLines(session.config, combos)
+                    if (combos != null) BoxingResultLines(session.config, combos, session.punches, io.github.alexanderop.eisen.domain.elm.punchesGap(session, sessions))
                 }
                 if (against != null) {
                     Spacer(Modifier.height(8.dp))

@@ -52,6 +52,14 @@ object TimerSounds {
         }
     }
 
+    /** Sounds one after the other, each the given milliseconds from now. A new call drops what an earlier one still had to say. */
+    fun playAll(context: Context, sounds: List<Pair<Long, String>>, fallback: String? = null) {
+        main.removeCallbacksAndMessages(SEQUENCE)
+        for ((after, sound) in sounds) main.postAtTime({ play(context, sound, fallback) }, SEQUENCE, android.os.SystemClock.uptimeMillis() + after)
+    }
+
+    private val SEQUENCE = Any()
+
     /** Silences a line that is being said: a pause or the end of a run. */
     fun stop() {
         line?.let { runCatching { it.stop() } }

@@ -1,7 +1,9 @@
 package io.github.alexanderop.eisen.domain.elm
 
 import io.github.alexanderop.eisen.domain.BOXING_TEMPLATES
+import io.github.alexanderop.eisen.domain.BoxingRoom
 import io.github.alexanderop.eisen.domain.BoxingRound
+import io.github.alexanderop.eisen.domain.BoxingStance
 import io.github.alexanderop.eisen.domain.BoxingStyle
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.ExerciseLog
@@ -241,8 +243,28 @@ sealed interface Msg {
         /** "Listen" in the round sheet: the next combination of round [index], in order, said in the chosen style. */
         data class Listen(val index: Int) : Timer
 
-        /** The play button of a combination in the round sheet's list: says it in the chosen style. */
+        /** The play button of a combination in the round sheet's list or of the lifter's own: says it in the chosen style. */
         data class PlayCombo(val id: String) : Timer
+
+        /** "Orthodox" or "Southpaw": which hand the key of the calls says leads. */
+        data class SetStance(val stance: BoxingStance) : Timer
+
+        /** "Roomy", "Normal" or "Tight": how long the coach waits for a combination to be thrown. */
+        data class SetRoom(val room: BoxingRoom) : Timer
+
+        /** "Listen" in the combo builder: the moves so far, said the way the coach will say them. */
+        data class ListenMoves(val moves: List<String>) : Timer
+
+        /**
+         * "Save" in the combo builder: a new combination of the lifter's own when [id] is null, else new
+         * moves for that one. Opened from the "My combos" tile of round [round], a new one makes that
+         * round a "My combos" round.
+         */
+        data class SaveOwn(val id: String?, val moves: List<String>, val round: Int? = null) : Timer
+
+        /** "Delete" in the combo builder: the combination goes from the plan and every round, with Undo. */
+        data class DeleteOwn(val id: String) : Timer
+        data object UndoDeleteOwn : Timer
 
         /** A drag of a round's tile, or "Move earlier" / "Move later": round [from] goes to place [to]. */
         data class MoveRound(val from: Int, val to: Int) : Timer

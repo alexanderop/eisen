@@ -328,7 +328,7 @@ class BoxingUpdateTest {
 
         // The shape the PWA writes: the plan inside the boxing config, none in the others.
         val json = encodeState(freshState())
-        assertTrue(json.contains("\"boxing\":{\"mode\":\"boxing\",\"work\":180,\"rest\":60,\"rounds\":6,\"boxing\":{\"rounds\":[{\"theme\":\"jab\",\"every\":4,\"split\":0,\"pick\":[]},"))
+        assertTrue(json.contains("\"boxing\":{\"mode\":\"boxing\",\"work\":180,\"rest\":60,\"rounds\":6,\"boxing\":{\"rounds\":[{\"theme\":\"jab\",\"every\":4,\"split\":0,\"pick\":[],\"cues\":\"off\",\"burnout\":0},"))
         assertTrue(json.contains("\"tabata\":{\"mode\":\"tabata\",\"work\":20,\"rest\":10,\"rounds\":8}"))
 
         // A hand-edited preset with fewer rounds in its plan than on its timer.

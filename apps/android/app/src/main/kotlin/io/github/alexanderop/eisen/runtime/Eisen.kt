@@ -161,6 +161,7 @@ object Eisen {
                 is Cmd.ShowTimer -> TimerSystem.show(cmd.notice)
                 Cmd.HideTimer -> TimerSystem.hide()
                 is Cmd.PlayTimerSound -> TimerSounds.play(app, cmd.sound, cmd.fallback)
+                is Cmd.PlayTimerSounds -> TimerSounds.playAll(app, cmd.sounds.map { it.at to it.sound }, cmd.fallback)
                 is Cmd.SaveTimerPage -> Prefs.saveTimerPage(app, cmd.page)
                 is Cmd.SaveDraft -> DraftFile.write(app, cmd.draft)
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.

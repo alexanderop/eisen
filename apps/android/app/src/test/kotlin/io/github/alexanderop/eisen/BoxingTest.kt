@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen
 
 import io.github.alexanderop.eisen.domain.BOXING_COMBOS
+import io.github.alexanderop.eisen.domain.BOXING_LINES
 import io.github.alexanderop.eisen.domain.BOXING_TEMPLATES
 import io.github.alexanderop.eisen.domain.BOXING_THEMES
 import io.github.alexanderop.eisen.domain.BoxingFocus
@@ -74,13 +75,14 @@ class BoxingTest {
 
     @Test fun `has combinations for every theme and a recording for each in both styles`() {
         assertEquals(
-            "jab:6 two:6 three:7 four:7 body:9 hooks:7 defense:6 mix:43 freestyle:0",
+            "warmup:3 jab:6 two:6 three:7 four:7 body:9 hooks:7 defense:6 build:19 own:0 mix:43 freestyle:0",
             BOXING_THEMES.joinToString(" ") { "${it.key}:${themeCombos(it).size}" },
         )
         assertEquals(43, BOXING_COMBOS.map { it.id }.toSet().size)
         val recordings = boxingRecordings()
-        // 43 combinations twice, nine themes, speed and power, again and one more.
-        assertEquals(99, recordings.size)
+        // 43 combinations twice, twelve themes, speed and power, again and one more, non-stop,
+        // eight reminders, and the 14 moves of the lifter's own combinations twice.
+        assertEquals(86 + 12 + 4 + 1 + 8 + 28, recordings.size)
         assertEquals("Jab, cross, hook.", recordings["box-jab-cross-hook-n"])
         assertEquals("One, two, three.", recordings["box-jab-cross-hook-d"])
         assertEquals("Long combos.", recordings["box-theme-four"])
@@ -91,7 +93,10 @@ class BoxingTest {
         // The APK takes its assets from the PWA's folder, see `app/build.gradle.kts`.
         val folder = java.io.File("../../web/src/assets/voice/timer")
         val missing = boxingRecordings().keys.filterNot { java.io.File(folder, "$it.mp3").isFile }
-        assertTrue("no recording of $missing", missing.isEmpty())
+        // The lines of the second round of the coach are being recorded; the player skips one until it is there.
+        val coming = BOXING_LINES.keys.filter { it.startsWith("box-cue-") || it in listOf("box-nonstop", "box-theme-warmup", "box-theme-build", "box-theme-own") } +
+            boxingRecordings().keys.filter { it.startsWith("box-move-") }
+        assertTrue("no recording of ${missing - coming.toSet()}", (missing - coming.toSet()).isEmpty())
     }
 
     @Test fun `names the recording of a combination and finds it again`() {
@@ -264,7 +269,7 @@ class BoxingTest {
     }
 
     @Test fun `lays a template over any number of rounds by repeating it, in the style the lifter chose`() {
-        assertEquals(listOf("Ladder", "Speed and power", "Head and body", "Classic"), BOXING_TEMPLATES.map { it.name })
+        assertEquals(listOf("Ladder", "Speed and power", "Head and body", "Classic", "Pad work", "Full session"), BOXING_TEMPLATES.map { it.name })
         val ladder = templatePlan(BOXING_TEMPLATES[0].rounds, 6, BoxingStyle.NUMBERS)
         assertEquals(BoxingStyle.NUMBERS, ladder.style)
         assertEquals(listOf(BoxingTheme.JAB, BoxingTheme.TWO, BoxingTheme.THREE, BoxingTheme.FOUR, BoxingTheme.JAB, BoxingTheme.TWO), ladder.rounds.map { it.theme })

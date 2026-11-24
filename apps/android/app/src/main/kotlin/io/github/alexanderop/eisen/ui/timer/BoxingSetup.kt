@@ -54,10 +54,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -77,7 +79,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import io.github.alexanderop.eisen.domain.BOXING_BURNOUTS
 import io.github.alexanderop.eisen.domain.BOXING_COMBOS
+import io.github.alexanderop.eisen.domain.BOXING_CUE_LEVELS
+import io.github.alexanderop.eisen.domain.BOXING_ROOMS
+import io.github.alexanderop.eisen.domain.BoxingCues
+import io.github.alexanderop.eisen.domain.BoxingRoom
+import io.github.alexanderop.eisen.domain.BoxingStance
+import io.github.alexanderop.eisen.domain.OwnCombo
+import io.github.alexanderop.eisen.domain.burnoutOf
+import io.github.alexanderop.eisen.domain.cueLevel
+import io.github.alexanderop.eisen.domain.elm.burnoutText
+import io.github.alexanderop.eisen.domain.elm.remindersText
+import io.github.alexanderop.eisen.domain.elm.stanceKey
 import io.github.alexanderop.eisen.domain.BOXING_PACES
 import io.github.alexanderop.eisen.domain.BOXING_SPLITS
 import io.github.alexanderop.eisen.domain.BOXING_TEMPLATES
@@ -255,6 +269,22 @@ private fun Stripes(round: BoxingRound, work: Int, vertical: Boolean, modifier: 
     val shade = round.theme.shade
     Canvas(modifier.fillMaxSize()) {
         drawRect(tint)
+        // A non-stop finish: the end of the round hatched, across the time on the timeline, at the bottom of a tile.
+        val burn = burnoutOf(round, work)
+        if (burn > 0) {
+            val length = if (vertical) size.width else size.height
+            val cap = if (vertical) length * burn / work else maxOf(length * 0.28f, 14.dp.toPx())
+            val from = length - cap
+            val step = 7.dp.toPx()
+            clipRect(left = if (vertical) from else 0f, top = if (vertical) 0f else from) {
+                drawRect(Color.White.copy(alpha = 0.28f))
+                var x = -size.height
+                while (x < size.width + size.height) {
+                    drawLine(shade, Offset(x, size.height), Offset(x + size.height, 0f), strokeWidth = 2.5.dp.toPx())
+                    x += step
+                }
+            }
+        }
         if (round.split <= 0) return@Canvas
         val stretches = if (vertical) ceil(work / round.split.toDouble()).toInt() else 4
         val length = if (vertical) size.width else size.height
@@ -276,6 +306,9 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
     val calls = model.state.settings.timerCalls
     var voiceOpen by rememberSaveable { mutableStateOf(false) }
     var naming by rememberSaveable { mutableStateOf(false) }
+    // The combo builder: the combination it edits ("" for a new one) and the round whose tile opened it (-1 for none).
+    var building by rememberSaveable { mutableStateOf<String?>(null) }
+    var buildingFor by rememberSaveable { mutableStateOf(-1) }
     val preset = presetOf(model, setup)
     val haptics = rememberHaptics()
     fun edit(change: (TimerConfig) -> TimerConfig) = dispatch(Msg.Timer.Edit(change(config)))
@@ -318,7 +351,7 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         BOXING_TEMPLATES.forEachIndexed { index, template ->
-                            val applied = templatePlan(template.rounds, config.rounds, plan.style) == plan
+                            val applied = templatePlan(template.rounds, config.rounds, plan) == plan
                             TemplateChip(template.name, template.hint, applied) {
                                 dispatch(Msg.Timer.ApplyTemplate(index))
                                 haptics.perform(Haptic.TAP)
@@ -371,9 +404,20 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
                     }
                 }
 
+                SectionLabel("My combos")
+                OwnCombos(plan, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }, onEdit = { building = it; buildingFor = -1 })
+
                 SectionLabel("Calls")
                 CallsChoice(plan.style) {
                     dispatch(Msg.Timer.SetStyle(it))
+                    haptics.perform(Haptic.TAP)
+                }
+                RoomChoice(plan.room) {
+                    dispatch(Msg.Timer.SetRoom(it))
+                    haptics.perform(Haptic.TAP)
+                }
+                StanceChoice(plan.stance) {
+                    dispatch(Msg.Timer.SetStance(it))
                     haptics.perform(Haptic.TAP)
                 }
 
@@ -390,7 +434,22 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
         }
     }
 
-    if (setup.round != null) RoundSheet(setup, calls, dispatch)
+    if (setup.round != null) RoundSheet(setup, calls, dispatch) { round -> building = ""; buildingFor = round }
+    building?.let { id ->
+        val editing = plan.own.firstOrNull { it.id == id }
+        ComboBuilder(
+            editing = editing,
+            style = plan.style,
+            onListen = { dispatch(Msg.Timer.ListenMoves(it)) },
+            onSave = { moves ->
+                dispatch(Msg.Timer.SaveOwn(editing?.id, moves, buildingFor.takeIf { it >= 0 }))
+                haptics.perform(Haptic.TAP)
+                building = null
+            },
+            onDelete = editing?.let { { dispatch(Msg.Timer.DeleteOwn(it.id)); building = null } },
+            onClose = { building = null },
+        )
+    }
     if (voiceOpen) VoiceSheet(calls, dispatch, onClose = { voiceOpen = false }, boxing = true)
     if (naming) {
         NameDialog(
@@ -500,6 +559,41 @@ private fun CallsChoice(style: BoxingStyle, onChange: (BoxingStyle) -> Unit) {
     }
 }
 
+/** "Time to throw": how long the coach waits for a combination, with the hint of the chosen one. */
+@Composable
+private fun RoomChoice(room: BoxingRoom, onChange: (BoxingRoom) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Time to throw", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (option in BOXING_ROOMS) {
+                Chip(option.title, room == option, EisenColors.Primary, Modifier.weight(1f), description = "${option.title}. ${option.hint}") { onChange(option) }
+            }
+        }
+        Text(room.hint, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 13.sp, color = EisenColors.MutedForeground)
+    }
+}
+
+/** "Orthodox" or "Southpaw". It only changes the key of which hand throws what. */
+@Composable
+private fun StanceChoice(stance: BoxingStance, onChange: (BoxingStance) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Stance", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            BoxingStance.entries.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = stance == option,
+                    onClick = { onChange(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index, BoxingStance.entries.size),
+                    icon = {},
+                    colors = segmentColors(),
+                    label = { Text(option.title, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+                )
+            }
+        }
+        Text(stanceKey(stance), Modifier.semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 13.sp, color = EisenColors.MutedForeground)
+    }
+}
+
 // The round sheet
 
 /**
@@ -509,7 +603,7 @@ private fun CallsChoice(style: BoxingStyle, onChange: (BoxingStyle) -> Unit) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> Unit) {
+private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> Unit, onBuild: (Int) -> Unit) {
     val index = setup.round ?: return
     val config = setup.config
     val plan = boxingPlan(config.boxing, config.rounds)
@@ -522,6 +616,8 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
         haptics.perform(Haptic.STEP)
     }
     val free = round.theme == BoxingTheme.FREESTYLE
+    val build = round.theme == BoxingTheme.BUILD
+    val own = plan.own
     ModalBottomSheet(onDismissRequest = { dispatch(Msg.Timer.CloseRound) }, sheetState = sheetState, containerColor = EisenColors.Card) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -540,30 +636,22 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                 Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                ThemeGrid(round.theme, plan.style) { change(round.copy(theme = it)) }
+                ThemeGrid(round.theme, plan.style, own) { theme ->
+                    // "My combos" without any opens the builder: the new combination makes this round one.
+                    if (theme == BoxingTheme.OWN && own.isEmpty()) onBuild(index) else change(round.copy(theme = theme))
+                }
                 Text(
-                    if (free) round.theme.hint else "${round.theme.hint} · ${comboTotal(round.theme)}",
+                    if (free) round.theme.hint else "${round.theme.hint} · ${comboTotal(round.theme, own)}",
                     fontSize = 14.sp,
                     color = EisenColors.MutedForeground,
                 )
 
                 if (free) {
                     // In place of the coach's settings, one calm block of about their height.
-                    Box(
-                        Modifier.fillMaxWidth().heightIn(min = 300.dp).clip(RowShape).background(EisenColors.Muted).padding(24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "No calls in a freestyle round. You box, the clock runs.",
-                            fontSize = 17.sp,
-                            lineHeight = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = EisenColors.MutedForeground,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+                    CalmBlock("No combinations in a freestyle round. You box, the clock runs.", 196.dp)
+                    CuesRow(round) { change(round.copy(cues = it)) }
                 } else {
-                    SheetRow(pickText(round), "Choose the combinations of this round") { picking = true }
+                    if (!build) SheetRow(pickText(round, own), "Choose the combinations of this round") { picking = true }
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Pace", fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -580,14 +668,15 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                             }
                         }
                         Text(
-                            callsText(roundCalls(config, calls, index), config.work, drillOf(round)),
+                            callsText(roundCalls(config, calls, index), config.work, drillOf(round, own)),
                             Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                             fontSize = 14.sp,
                             color = EisenColors.MutedForeground,
                         )
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (build) CalmBlock("The coach starts with one punch and adds one at a time. Each step is thrown twice.", 126.dp)
+                    else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Speed and power", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             for (split in BOXING_SPLITS) {
@@ -603,7 +692,10 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                         )
                     }
 
-                    ListenButton(setup.heard?.let { id -> BOXING_COMBOS.firstOrNull { it.id == id } }?.let { shown(it, plan.style) }, round.theme.tint) {
+                    CuesRow(round) { change(round.copy(cues = it)) }
+                    BurnoutRow(round, config.work) { change(round.copy(burnout = it)) }
+
+                    ListenButton(setup.heard?.let { id -> themeCombos(BoxingTheme.MIX, own).firstOrNull { it.id == id } }?.let { shown(it, plan.style) }, round.theme.tint) {
                         dispatch(Msg.Timer.Listen(index))
                     }
                 }
@@ -643,7 +735,50 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
         }
     }
-    if (picking && !free) PickSheet(round, plan.style, onPick = { change(round.copy(pick = it)) }, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }) { picking = false }
+    if (picking && !free && !build) PickSheet(round, plan.style, own, onPick = { change(round.copy(pick = it)) }, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }) { picking = false }
+}
+
+/** In place of settings a round does not have: one calm line in a block of their height. */
+@Composable
+private fun CalmBlock(text: String, height: Dp) {
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = height).clip(RowShape).background(EisenColors.Muted).padding(horizontal = 24.dp, vertical = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground, textAlign = TextAlign.Center)
+    }
+}
+
+/** A row of chips with a title over it and a line under it, like speed and power. */
+@Composable
+private fun ChipChoice(title: String, line: String, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), content = content)
+        Text(line, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 14.sp, color = EisenColors.MutedForeground)
+    }
+}
+
+/** "Reminders": off, some or many. A warm-up always has many: the chips show it and cannot change it. */
+@Composable
+private fun CuesRow(round: BoxingRound, onChange: (BoxingCues) -> Unit) {
+    val warmup = round.theme == BoxingTheme.WARMUP
+    val level = cueLevel(round)
+    ChipChoice("Reminders", remindersText(round.theme)) {
+        for (option in BOXING_CUE_LEVELS) {
+            Chip(option.title, level == option, round.theme.tint, Modifier.weight(1f), enabled = !warmup) { onChange(option) }
+        }
+    }
+}
+
+/** "Non-stop finish": off, 15 or 30 seconds. In a round too short for it the line says so. */
+@Composable
+private fun BurnoutRow(round: BoxingRound, work: Int, onChange: (Int) -> Unit) {
+    ChipChoice("Non-stop finish", burnoutText(round, work)) {
+        for (seconds in BOXING_BURNOUTS) {
+            Chip(if (seconds == 0) "Off" else "${seconds}s", round.burnout == seconds, round.theme.tint, Modifier.weight(1f)) { onChange(seconds) }
+        }
+    }
 }
 
 /** A row that opens something: "Combinations: all 7". */
@@ -711,31 +846,36 @@ private fun ActionButton(label: String, enabled: Boolean, modifier: Modifier, de
     ) { Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1) }
 }
 
-/** The nine themes, three by three: the colour down the left edge, the name and an example. */
+/**
+ * The twelve themes, three by four: the colour down the left edge, the name and an example. "My
+ * combos" looks switched off while there is none; a tap on it opens the builder.
+ */
 @Composable
-private fun ThemeGrid(chosen: BoxingTheme, style: BoxingStyle, onChoose: (BoxingTheme) -> Unit) {
+private fun ThemeGrid(chosen: BoxingTheme, style: BoxingStyle, own: List<OwnCombo>, onChoose: (BoxingTheme) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (row in BOXING_THEMES.chunked(3)) {
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (theme in row) {
                     val selected = theme == chosen
                     val shape = RoundedCornerShape(12.dp)
+                    val off = theme == BoxingTheme.OWN && own.isEmpty()
                     Row(
                         Modifier
                             .weight(1f)
                             .fillMaxHeight()
                             .heightIn(min = 80.dp)
+                            .alpha(if (off) 0.55f else 1f)
                             .clip(shape)
                             .background(if (selected) theme.tint.copy(alpha = 0.16f) else EisenColors.Muted)
                             .border(if (selected) 2.dp else 1.dp, if (selected) theme.tint else EisenColors.Border, shape)
                             .selectable(selected = selected, role = Role.RadioButton) { onChoose(theme) }
-                            .semantics(mergeDescendants = true) { contentDescription = "${theme.title}. ${theme.hint}" },
+                            .semantics(mergeDescendants = true) { contentDescription = if (off) "${theme.title}. Make one first" else "${theme.title}. ${theme.hint}" },
                     ) {
                         Box(Modifier.width(8.dp).fillMaxHeight().background(theme.tint))
                         Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
                             Text(theme.title, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.ExtraBold, color = if (selected) theme.tint else EisenColors.Foreground, maxLines = 2)
                             Spacer(Modifier.height(3.dp))
-                            Text(themeExample(theme, style), fontSize = 12.sp, lineHeight = 15.sp, color = EisenColors.MutedForeground, maxLines = 2)
+                            Text(themeExample(theme, style, own), fontSize = 12.sp, lineHeight = 15.sp, color = EisenColors.MutedForeground, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -745,15 +885,16 @@ private fun ThemeGrid(chosen: BoxingTheme, style: BoxingStyle, onChoose: (Boxing
 }
 
 @Composable
-private fun Chip(label: String, selected: Boolean, tint: Color, modifier: Modifier, description: String? = null, onClick: () -> Unit) {
+internal fun Chip(label: String, selected: Boolean, tint: Color, modifier: Modifier, description: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     Box(
         modifier
             .heightIn(min = 48.dp)
+            .alpha(if (enabled || selected) 1f else 0.5f)
             .clip(shape)
             .background(if (selected) tint else EisenColors.Muted)
             .border(1.dp, if (selected) tint else EisenColors.Border, shape)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
         contentAlignment = Alignment.Center,
     ) {
@@ -770,10 +911,10 @@ private fun Chip(label: String, selected: Boolean, tint: Color, modifier: Modifi
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickSheet(round: BoxingRound, style: BoxingStyle, onPick: (List<String>) -> Unit, onPlay: (String) -> Unit, onClose: () -> Unit) {
+private fun PickSheet(round: BoxingRound, style: BoxingStyle, own: List<OwnCombo>, onPick: (List<String>) -> Unit, onPlay: (String) -> Unit, onClose: () -> Unit) {
     val sheetState = rememberFullSheetState()
     var fromNone by rememberSaveable(round.theme) { mutableStateOf(false) }
-    val all = themeCombos(round.theme).size
+    val all = themeCombos(round.theme, own).size
     fun checked(id: String) = if (round.pick.isEmpty()) !fromNone else id in round.pick
     ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState, containerColor = EisenColors.Card) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
@@ -791,7 +932,7 @@ private fun PickSheet(round: BoxingRound, style: BoxingStyle, onPick: (List<Stri
                 TextButton(onClick = { fromNone = true; onPick(emptyList()) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("None", fontWeight = FontWeight.Bold) }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 8.dp)) {
-                for ((theme, combos) in comboGroups(round.theme)) {
+                for ((theme, combos) in comboGroups(round.theme, own)) {
                     if (round.theme == BoxingTheme.MIX) {
                         Row(Modifier.padding(top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(10.dp).clip(CircleShape).background(theme.tint))
@@ -805,7 +946,7 @@ private fun PickSheet(round: BoxingRound, style: BoxingStyle, onPick: (List<Stri
                             Modifier
                                 .fillMaxWidth()
                                 .toggleable(value = on, role = Role.Checkbox) {
-                                    val next = if (round.pick.isEmpty() && fromNone) listOf(combo.id) else toggledPick(round, combo.id)
+                                    val next = if (round.pick.isEmpty() && fromNone) listOf(combo.id) else toggledPick(round, combo.id, own)
                                     fromNone = false
                                     onPick(next)
                                 }

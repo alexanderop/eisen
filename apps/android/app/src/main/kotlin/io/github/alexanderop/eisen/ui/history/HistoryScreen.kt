@@ -388,7 +388,7 @@ private fun TimerRow(session: TimerSession, record: Boolean) {
                         }
                     }
                 }
-                Text("${formatDate(session.startedAt)} · ${sessionSummary(session)}", fontSize = 13.sp, color = EisenColors.MutedForeground)
+                Text("${formatDate(session.startedAt)} · ${io.github.alexanderop.eisen.domain.sessionLine(session)}", fontSize = 13.sp, color = EisenColors.MutedForeground)
             }
             val outcome = timerOutcome(session)
             if (outcome != TimerOutcome.COMPLETED) {
