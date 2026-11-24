@@ -79,7 +79,7 @@ const val DISCARD_UNDO_MS = 6_000L
  */
 private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     // The workout belongs to the session. Nothing else may put a different one on disk.
-    var model = if (after.state.active == after.session.active) after else after.copy(state = after.state.copy(active = after.session.active))
+    var model = if (after.state.active == after.session.active) after else after.withState { it.copy(active = after.session.active) }
     val extra = mutableListOf<Cmd>()
     // A backup, an erase or a closed workout screen took the set away: the timer goes without logging.
     if (model.hold?.let { holdFits(model, it) } == false) model = model.copy(hold = null)
@@ -87,7 +87,7 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     if (model.restScreen?.let { restScreenFits(model, it) } == false) model = model.copy(restScreen = null)
     // A backup or an erase took the WOD away whose detail showed.
     val detail = model.wods.detail
-    if (detail != null && findWod(model.state.wods, detail) == null) model = model.copy(wods = model.wods.copy(detail = null))
+    if (detail != null && findWod(model.state.wods, detail) == null) model = model.wods { it.copy(detail = null) }
     // The draft file holds the builder's draft, or the one from before the process ended.
     val kept = keptDraft(model.wods)
     if (kept != keptDraft(before.wods)) extra += Cmd.SaveDraft(kept)
@@ -136,7 +136,7 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
     // screen after a finish), so the clock is read again for it.
     if (result.session::class != model.session::class) next = next.copy(now = env.now)
     // Undo brings the discarded workout back on screen, where it was.
-    if (model.session is Session.Discarded && result.session is Session.Running) next = next.copy(nav = next.nav.copy(workoutOpen = true))
+    if (model.session is Session.Discarded && result.session is Session.Running) next = next.nav { it.copy(workoutOpen = true) }
     if (next.repsQuestion != null && (event is WorkoutEvent.LogReps || next.session.active == null)) next = next.copy(repsQuestion = null)
     if (next.settling != null && next.session.active == null) next = next.copy(settling = null)
     // The timer of a hold names its set by place: a list that changed order, lost the exercise or
@@ -174,14 +174,14 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
                 val log = next.session.active?.exercises?.getOrNull(effect.exercise)
                 if (log != null && next.timer !is TimerState.Running) {
                     val hold = HoldTimer(effect.exercise, effect.set, log.id, log.targetReps, startsAt = env.now + HOLD_LEAD_IN_SECONDS * 1000L)
-                    next = next.copy(hold = hold, now = env.now, nav = next.nav.copy(workoutOpen = true))
+                    next = next.nav { it.copy(workoutOpen = true) }.copy(hold = hold, now = env.now)
                 }
             }
             // A new workout forgets the last summary and the ticked warmups, and shows itself.
-            is Effect.Started -> next = next.copy(lastChanges = null, warmupDone = emptySet(), nav = next.nav.copy(workoutOpen = true))
-            is Effect.Saved -> next = next.copy(lastChanges = effect.changes, nav = next.nav.copy(workoutOpen = false))
+            is Effect.Started -> next = next.nav { it.copy(workoutOpen = true) }.copy(lastChanges = null, warmupDone = emptySet())
+            is Effect.Saved -> next = next.nav { it.copy(workoutOpen = false) }.copy(lastChanges = effect.changes)
             is Effect.DiscardedWorkout -> {
-                next = next.copy(nav = next.nav.copy(workoutOpen = false))
+                next = next.nav { it.copy(workoutOpen = false) }
                 cmds += Cmd.Ui(
                     UiEvent.Snackbar(
                         text = "Workout discarded",
@@ -279,12 +279,12 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
     val nav = model.nav
     // The Timer tab tapped again while it shows: back to the top of its page. A builder with changes asks first.
     if (msg is Msg.Nav.SelectTab && msg.tab == Tab.TIMER && nav.tab == Tab.TIMER && model.timer == null) {
-        val top = model.copy(timerSetup = null, wods = model.wods.copy(detail = null), nav = nav.copy(timerTop = nav.timerTop + 1), now = env.now)
+        val top = model.wods { it.copy(detail = null) }.nav { it.copy(timerTop = it.timerTop + 1) }.copy(timerSetup = null, now = env.now)
         return if (model.wods.draft != null && nav.timerPage == TimerPage.WODS) wods(Msg.Wods.Leave, top, env) else top.only()
     }
     if (msg is Msg.Nav.ShowTimerPage) {
         if (msg.page == nav.timerPage) return model.only()
-        return model.copy(nav = nav.copy(timerPage = msg.page), now = env.now) and Cmd.SaveTimerPage(msg.page)
+        return model.nav { it.copy(timerPage = msg.page) }.copy(now = env.now) and Cmd.SaveTimerPage(msg.page)
     }
     val next = when (msg) {
         is Msg.Nav.ShowTimerPage -> nav
@@ -350,7 +350,7 @@ private fun hold(msg: Msg.Hold, model: Model, env: Env): Next {
     return when (msg) {
         Msg.Hold.SkipLeadIn ->
             if (hold.started || env.now >= hold.startsAt) model.only()
-            else holdClock(model.copy(hold = hold.copy(startsAt = env.now), now = env.now), env)
+            else holdClock(model.hold { it.copy(startsAt = env.now) }.copy(now = env.now), env)
         Msg.Hold.Stop -> when {
             // Before the hold there is only Cancel and the skip.
             env.now < hold.startsAt -> model.only()
@@ -377,7 +377,7 @@ private fun holdClock(model: Model, env: Env): Next {
     val cmds = mutableListOf<Cmd>()
     var next = model
     if (!hold.started && env.now >= hold.startsAt) {
-        next = next.copy(hold = hold.copy(started = true))
+        next = next.hold { it.copy(started = true) }
         if (env.now - hold.startsAt <= HOLD_CUE_LATE_MILLIS) cmds += holdCues(model, beeps = 1, HOLD_START_VIBRATION)
     }
     val end = holdEndsAt(hold)
@@ -417,7 +417,7 @@ private fun startRest(model: Model, seconds: Int, note: String, env: Env): Next 
     // The first rest asks to allow notifications, so the next ones count down on the lock screen.
     // The rest starts whatever the answer is.
     if (started.notifications.granted || started.notifications.asked) return started and cmds
-    return started.copy(notifications = started.notifications.copy(asked = true)) and
+    return started.notifications { it.copy(asked = true) } and
         listOf(Cmd.MarkNotificationsAsked, Cmd.Ui(UiEvent.RequestNotificationPermission)) + cmds
 }
 
@@ -459,7 +459,7 @@ private fun rest(msg: Msg.Rest, model: Model, env: Env): Next {
             when {
                 screen == null || screen.minimised -> model.only()
                 screen.setDone -> model.copy(restScreen = null).only()
-                else -> model.copy(restScreen = screen.copy(minimised = true)).only()
+                else -> model.restScreen { it.copy(minimised = true) }.only()
             }
         }
         is Msg.Rest.Rated -> {
@@ -468,7 +468,7 @@ private fun rest(msg: Msg.Rest, model: Model, env: Env): Next {
         }
         Msg.Rest.Open -> {
             val screen = model.restScreen
-            if (screen == null || !screen.minimised) model.only() else model.copy(restScreen = screen.copy(minimised = false), now = env.now).only()
+            if (screen == null || !screen.minimised) model.only() else model.restScreen { it.copy(minimised = false) }.copy(now = env.now).only()
         }
         Msg.Rest.AlarmTen -> {
             val left = (current ?: return model.only()).endsAt - env.now
@@ -490,7 +490,7 @@ private fun rest(msg: Msg.Rest, model: Model, env: Env): Next {
         is Msg.Rest.CueFinished -> if (model.rest == msg.rest) model and Cmd.HideRestCountdown else model.only()
         Msg.Rest.Tick -> if (current == null) model.only() else model.copy(now = env.now).only()
         is Msg.Rest.NotificationPermission -> {
-            val allowed = model.copy(notifications = model.notifications.copy(granted = msg.granted))
+            val allowed = model.notifications { it.copy(granted = msg.granted) }
             // The rest started before the answer came, so it has no notification yet. Running it again
             // with nothing added shows one. Not for short or ending rests, whose cues it would change.
             if (msg.granted && current != null && current.endsAt - current.startedAt >= WARN_MIN_REST_SECONDS * 1000L &&
@@ -510,7 +510,7 @@ private fun app(msg: Msg.App, model: Model, env: Env): Next = when (msg) {
     // Health Connect may have been installed, updated or removed while the app was away.
     // A hold that ended while the app was away is logged now.
     is Msg.App.Foreground -> {
-        val shown = model.copy(visible = true, now = env.now, notifications = model.notifications.copy(granted = msg.notificationsGranted))
+        val shown = model.notifications { it.copy(granted = msg.notificationsGranted) }.copy(visible = true, now = env.now)
         val (checked, cmds) = holdClock(shown, env)
         checked and listOf<Cmd>(Cmd.Health(HealthJob.CheckAvailability)) + cmds
     }
@@ -521,11 +521,11 @@ private fun app(msg: Msg.App, model: Model, env: Env): Next = when (msg) {
 private fun launch(msg: Msg.App.LaunchWorkout, model: Model, env: Env): Next {
     if (msg.restored || msg.fromHistory) return model.only()
     // Resume: the running workout just shows.
-    if (model.session.active != null) return model.copy(nav = model.nav.copy(workoutOpen = true)).only()
+    if (model.session.active != null) return model.nav { it.copy(workoutOpen = true) }.only()
     val routines = model.state.routines
     if (routines.isEmpty()) return model.only()
     val id = msg.routineId
-    val selected = if (id != null && routines.any { it.id == id }) model.copy(state = model.state.copy(nextRoutineId = id)) else model
+    val selected = if (id != null && routines.any { it.id == id }) model.withState { it.copy(nextRoutineId = id) } else model
     // A workout whose exercises were all deleted cannot start. The app opens on the home screen.
     return workout(WorkoutEvent.Start, selected, env)
 }

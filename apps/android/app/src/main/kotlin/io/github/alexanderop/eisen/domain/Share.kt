@@ -265,8 +265,8 @@ private fun decodeExercise(value: JsonElement): SharedExercise? {
         bodyweight = bodyweight,
         // Older links carry 0 for every bodyweight exercise, which reads as no added weight.
         weight = weight,
-        targetReps = if (target == 0.0) null else target!!.toInt(),
-        sets = reps.map { if (it == -1.0) null else it!!.toInt() },
+        targetReps = target?.toInt()?.takeIf { it != 0 },
+        sets = reps.map { held -> held?.toInt()?.takeIf { it != -1 } },
         record = record,
         timed = timed,
     )
@@ -290,8 +290,8 @@ fun decodeShared(code: String): SharedWorkout? {
     return SharedWorkout(
         name = name,
         unit = if (unit == 1.0) WeightUnit.LB else WeightUnit.KG,
-        startedAt = startMinute!!.toLong() * MINUTE_MS,
-        minutes = if (minutes == 0.0) null else minutes!!.toLong(),
+        startedAt = (startMinute ?: return null).toLong() * MINUTE_MS,
+        minutes = minutes?.toLong()?.takeIf { it != 0L },
         exercises = exercises.filterNotNull(),
     )
 }

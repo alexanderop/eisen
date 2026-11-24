@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.domain
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -100,13 +101,44 @@ private val PrettyJson = Json(StateJson) { prettyPrint = true }
 fun encodeState(state: AppState, pretty: Boolean = false): String =
     (if (pretty) PrettyJson else StateJson).encodeToString(AppState.serializer(), state)
 
-/** Reads a stored state or a backup of any version. Null when it is not one. */
-fun decodeState(json: String): AppState? = try {
-    val migrated = migrate(StateJson.parseToJsonElement(json))
-    if (isAppState(migrated)) StateJson.decodeFromJsonElement<AppState>(migrated).let(::inLimits) else null
-} catch (_: Exception) {
-    null
+/** What reading a stored state or a backup came to: the state, or why there is none. */
+sealed interface Loaded {
+    data class Ok(val state: AppState) : Loaded
+
+    /** Not JSON at all: some other file. */
+    data object NotJson : Loaded
+
+    /** JSON, but not a state of this app. */
+    data object NotEisen : Loaded
+
+    /** Written by a newer build than this one. */
+    data class TooNew(val version: Int) : Loaded
+
+    /** A state of this app that cannot be read: what the reader stumbled over. */
+    data class Broken(val reason: String) : Loaded
 }
+
+/** Reads a stored state or a backup of any version, and says why when it cannot. */
+fun loadState(json: String): Loaded {
+    val element = try {
+        StateJson.parseToJsonElement(json)
+    } catch (_: SerializationException) {
+        return Loaded.NotJson
+    }
+    val version = element.obj()?.get("version").int() ?: return Loaded.NotEisen
+    if (version > STATE_VERSION) return Loaded.TooNew(version)
+    return try {
+        val migrated = migrate(element)
+        if (isAppState(migrated)) Loaded.Ok(inLimits(StateJson.decodeFromJsonElement<AppState>(migrated))) else Loaded.NotEisen
+    } catch (error: Exception) {
+        Loaded.Broken(error.message.orEmpty().lineSequence().first().take(REASON_LENGTH))
+    }
+}
+
+private const val REASON_LENGTH = 140
+
+/** The state of a stored state or a backup of any version. Null when [loadState] has none. */
+fun decodeState(json: String): AppState? = (loadState(json) as? Loaded.Ok)?.state
 
 /** What a file holds that has limits of its own: the WODs, and boxing plans with one round per round. */
 private fun inLimits(state: AppState): AppState {

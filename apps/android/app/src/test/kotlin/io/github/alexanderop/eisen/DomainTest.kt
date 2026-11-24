@@ -233,6 +233,22 @@ class DomainTest {
         assertFalse(isAppState(migrate(JsonPrimitive("nope"))))
     }
 
+    @Test fun `says why a file is not a state`() {
+        val fresh = freshState(kg)
+        assertEquals(Loaded.Ok(fresh), loadState(encodeState(fresh)))
+        assertEquals(Loaded.NotJson, loadState("not json"))
+        assertEquals(Loaded.NotJson, loadState(""))
+        assertEquals(Loaded.NotEisen, loadState("\"nope\""))
+        assertEquals(Loaded.NotEisen, loadState("""{"not":"eisen"}"""))
+        assertEquals(Loaded.NotEisen, loadState("""{"version":9}"""))
+        assertEquals(Loaded.TooNew(99), loadState("""{"version":99}"""))
+        // A state of this app with a part that cannot be read names the part.
+        val damaged = encodeState(fresh).replaceFirst("\"restDone\":", "\"restGone\":")
+        val broken = loadState(damaged) as Loaded.Broken
+        assertTrue(broken.reason, "restDone" in broken.reason)
+        assertNull(decodeState(damaged))
+    }
+
     @Test fun `reads a backup written by the PWA`() {
         // Whole numbers without a decimal point, the way JavaScript writes them.
         val pwa = """

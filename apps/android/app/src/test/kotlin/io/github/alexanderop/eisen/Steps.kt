@@ -56,3 +56,28 @@ fun assertIgnored(before: Step, msg: Msg) {
 }
 
 fun assertIgnored(before: Step, event: WorkoutEvent) = assertIgnored(before, Msg.Workout(event))
+
+/**
+ * The shortest part of [trail] that still fails: halves are left out, then quarters, down to single
+ * entries, and what is left is gone over until nothing more can go. The order is kept.
+ * A property test calls this on a failing walk, so its report shows the few steps that matter.
+ */
+fun <T> shrink(trail: List<T>, fails: (List<T>) -> Boolean): List<T> {
+    var current = trail
+    var size = maxOf(1, current.size / 2)
+    while (true) {
+        var removed = false
+        var at = 0
+        while (at < current.size) {
+            val candidate = current.subList(0, at) + current.subList(minOf(at + size, current.size), current.size)
+            if (candidate.isNotEmpty() && fails(candidate)) {
+                current = candidate
+                removed = true
+            } else {
+                at += size
+            }
+        }
+        if (size == 1 && !removed) return current
+        size = maxOf(1, size / 2)
+    }
+}

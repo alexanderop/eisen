@@ -38,24 +38,24 @@ internal fun wods(msg: Msg.Wods, model: Model, env: Env): Next {
     val wods = model.wods
     val draft = wods.draft
     return when (msg) {
-        is Msg.Wods.Filter -> if (msg.filter == wods.filter) model.only() else model.copy(wods = wods.copy(filter = msg.filter)).only()
+        is Msg.Wods.Filter -> if (msg.filter == wods.filter) model.only() else model.wods { it.copy(filter = msg.filter) }.only()
         is Msg.Wods.Open -> {
             if (findWod(model.state.wods, msg.id) == null || wods.detail == msg.id) return model.only()
             val searched = if (msg.suggested) wods.copy(query = "") else wods
-            model.copy(wods = searched.copy(detail = msg.id, suggesting = false), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+            model.nav { it.copy(tab = Tab.TIMER) }.copy(wods = searched.copy(detail = msg.id, suggesting = false), now = env.now).only()
         }
         is Msg.Wods.Search -> {
             val query = msg.query.take(MAX_QUERY)
             val next = wods.copy(query = query, suggesting = query.isNotBlank())
             if (next == wods) model.only() else model.copy(wods = next).only()
         }
-        Msg.Wods.CloseSuggestions -> if (!wods.suggesting) model.only() else model.copy(wods = wods.copy(suggesting = false)).only()
+        Msg.Wods.CloseSuggestions -> if (!wods.suggesting) model.only() else model.wods { it.copy(suggesting = false) }.only()
         is Msg.Wods.SearchMovement -> {
             val next = wods.copy(query = msg.name.take(MAX_QUERY), suggesting = false)
             if (next == wods) model.only() else model.copy(wods = next).only()
         }
-        Msg.Wods.ClearSearch -> if (wods.query.isEmpty() && !wods.suggesting) model.only() else model.copy(wods = wods.copy(query = "", suggesting = false)).only()
-        Msg.Wods.Close -> if (wods.detail == null) model.only() else model.copy(wods = wods.copy(detail = null), now = env.now).only()
+        Msg.Wods.ClearSearch -> if (wods.query.isEmpty() && !wods.suggesting) model.only() else model.wods { it.copy(query = "", suggesting = false) }.only()
+        Msg.Wods.Close -> if (wods.detail == null) model.only() else model.wods { it.copy(detail = null) }.copy(now = env.now).only()
         is Msg.Wods.Start -> {
             val wod = findWod(model.state.wods, msg.id) ?: return model.only()
             startWod(model, wod, env)
@@ -64,39 +64,39 @@ internal fun wods(msg: Msg.Wods, model: Model, env: Env): Next {
         Msg.Wods.New -> {
             if (draft != null) return model.only()
             val blank = Wod(env.newId(), "", DEFAULT_TIMERS.getValue(TimerMode.FOR_TIME), 1, emptyList(), emptyList())
-            model.copy(wods = wods.copy(draft = WodDraft(blank, blank)), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+            model.wods { it.copy(draft = WodDraft(blank, blank)) }.nav { it.copy(tab = Tab.TIMER) }.copy(now = env.now).only()
         }
         is Msg.Wods.Edit -> {
             val own = model.state.wods.firstOrNull { it.id == msg.id }
             if (draft != null || own == null) return model.only()
-            model.copy(wods = wods.copy(detail = own.id, draft = WodDraft(own, own)), now = env.now).only()
+            model.wods { it.copy(detail = own.id, draft = WodDraft(own, own)) }.copy(now = env.now).only()
         }
         // A new WOD like the benchmark: nothing is stored until Save, so backing out leaves nothing behind.
         is Msg.Wods.Copy -> {
             val source = WOD_LIBRARY.firstOrNull { it.id == msg.id }
             if (draft != null || source == null) return model.only()
             val copy = wod(source.copy(id = env.newId(), name = copyName(wodName(source))))
-            model.copy(wods = wods.copy(draft = WodDraft(copy, copy)), now = env.now).only()
+            model.wods { it.copy(draft = WodDraft(copy, copy)) }.copy(now = env.now).only()
         }
         Msg.Wods.ContinueDraft -> {
             val pending = wods.pending
             if (draft != null || pending == null) return model.only()
             val detail = pending.wod.id.takeIf { id -> model.state.wods.any { it.id == id } } ?: wods.detail
-            model.copy(wods = wods.copy(draft = pending, pending = null, detail = detail), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+            model.wods { it.copy(draft = pending, pending = null, detail = detail) }.nav { it.copy(tab = Tab.TIMER) }.copy(now = env.now).only()
         }
-        Msg.Wods.DiscardDraft -> if (wods.pending == null) model.only() else model.copy(wods = wods.copy(pending = null)).only()
+        Msg.Wods.DiscardDraft -> if (wods.pending == null) model.only() else model.wods { it.copy(pending = null) }.only()
         is Msg.Wods.Delete -> {
             val index = model.state.wods.indexOfFirst { it.id == msg.id }
             if (index == -1) return model.only()
             val gone = model.state.wods[index]
             val left = wods.copy(detail = wods.detail.takeIf { it != msg.id }, draft = draft?.takeIf { it.wod.id != msg.id })
             model.withState { state -> state.copy(wods = state.wods.filter { it.id != msg.id }) }
-                .copy(wods = left, undo = model.undo.copy(deletedWod = DeletedWod(gone, index)), now = env.now) and
+                .undo { it.copy(deletedWod = DeletedWod(gone, index)) }.copy(wods = left, now = env.now) and
                 Cmd.Ui(UiEvent.Snackbar("Deleted ${wodName(gone)}", actionLabel = "Undo", onAction = Msg.Wods.UndoDelete, tag = WOD_SNACKBAR))
         }
         Msg.Wods.UndoDelete -> {
             val deleted = model.undo.deletedWod ?: return model.only()
-            val cleared = model.copy(undo = model.undo.copy(deletedWod = null))
+            val cleared = model.undo { it.copy(deletedWod = null) }
             if (model.state.wods.any { it.id == deleted.wod.id }) return cleared.only()
             cleared.withState { state -> state.copy(wods = state.wods.toMutableList().apply { add(deleted.index.coerceIn(0, size), deleted.wod) }) }.only()
         }
@@ -130,15 +130,15 @@ internal fun wods(msg: Msg.Wods, model: Model, env: Env): Next {
             // Other work is another WOD: its old times are not something to beat any more.
             val saved = if (old != null && !sameWork(old, built)) built.copy(id = env.newId()) else built
             model.withState { state -> state.copy(wods = if (old != null) state.wods.map { if (it.id == old.id) saved else it } else state.wods + saved) }
-                .copy(wods = wods.copy(detail = saved.id, draft = null), now = env.now).only()
+                .wods { it.copy(detail = saved.id, draft = null) }.copy(now = env.now).only()
         }
         Msg.Wods.Leave -> when {
             draft == null || draft.asking -> model.only()
-            draftChanged(draft) -> model.copy(wods = wods.copy(draft = draft.copy(asking = true))).only()
-            else -> model.copy(wods = wods.copy(draft = null), now = env.now).only()
+            draftChanged(draft) -> model.wods { it.copy(draft = draft.copy(asking = true)) }.only()
+            else -> model.wods { it.copy(draft = null) }.copy(now = env.now).only()
         }
-        Msg.Wods.KeepEditing -> if (draft?.asking != true) model.only() else model.copy(wods = wods.copy(draft = draft.copy(asking = false))).only()
-        Msg.Wods.Discard -> if (draft == null) model.only() else model.copy(wods = wods.copy(draft = null), now = env.now).only()
+        Msg.Wods.KeepEditing -> if (draft?.asking != true) model.only() else model.wods { it.copy(draft = draft.copy(asking = false)) }.only()
+        Msg.Wods.Discard -> if (draft == null) model.only() else model.wods { it.copy(draft = null) }.copy(now = env.now).only()
     }
 }
 
@@ -151,7 +151,7 @@ private fun editDraft(model: Model, change: (Wod) -> Wod): Next {
     val changed = change(draft.wod)
     val next = wod(changed).copy(name = changed.name)
     if (next == draft.wod) return model.only()
-    return model.copy(wods = model.wods.copy(draft = draft.copy(wod = next))).only()
+    return model.wods { it.copy(draft = draft.copy(wod = next)) }.only()
 }
 
 /**
@@ -174,7 +174,7 @@ private fun setMode(model: Model, draft: WodDraft, mode: TimerMode): Next {
         items = items,
     )
     val changed = draft.copy(wod = wod(next).copy(name = current.name), kept = kept, keptRounds = keptRounds, keptScheme = keptScheme)
-    return model.copy(wods = model.wods.copy(draft = changed)).only()
+    return model.wods { it.copy(draft = changed) }.only()
 }
 
 /** Leaving the builder would lose something. */

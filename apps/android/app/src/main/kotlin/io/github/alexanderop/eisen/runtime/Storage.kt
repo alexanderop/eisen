@@ -8,9 +8,10 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import io.github.alexanderop.eisen.domain.AppState
+import io.github.alexanderop.eisen.domain.Loaded
 import io.github.alexanderop.eisen.domain.StateJson
 import io.github.alexanderop.eisen.domain.TimerRun
-import io.github.alexanderop.eisen.domain.decodeState
+import io.github.alexanderop.eisen.domain.loadState
 import io.github.alexanderop.eisen.domain.elm.RestState
 import io.github.alexanderop.eisen.domain.elm.TimerPage
 import io.github.alexanderop.eisen.domain.elm.WodDraft
@@ -27,9 +28,22 @@ internal object StateFile {
     private const val NAME = "eisen.json"
     private val writer = Executors.newSingleThreadExecutor()
 
-    /** Null when there is no file yet or it cannot be read. What then happens is `init`'s business. */
-    fun read(context: Context): AppState? =
-        runCatching { decodeState(File(context.filesDir, NAME).readText()) }.getOrNull()
+    private const val UNREADABLE = "eisen.unreadable.json"
+
+    /**
+     * Null when there is no file yet or it cannot be read. What then happens is `init`'s business:
+     * it starts fresh and the next write goes over this file, so what it held is kept beside it.
+     */
+    fun read(context: Context): AppState? {
+        val text = runCatching { File(context.filesDir, NAME).readText() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        return when (val loaded = loadState(text)) {
+            is Loaded.Ok -> loaded.state
+            else -> {
+                runCatching { File(context.filesDir, UNREADABLE).writeText(text) }
+                null
+            }
+        }
+    }
 
     /** Off the main thread, one write after the other, so the newest state is the one that stays. */
     fun write(context: Context, state: AppState) {

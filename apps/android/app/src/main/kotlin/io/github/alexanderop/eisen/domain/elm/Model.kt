@@ -75,6 +75,19 @@ data class Model(
     val now: Long = 0,
 )
 
+/*
+ * Elm's record update, `{ model | wods = change model.wods }`: the model with one part changed.
+ * A part that is null stays null.
+ */
+internal inline fun Model.wods(change: (WodsModel) -> WodsModel): Model = copy(wods = change(wods))
+internal inline fun Model.nav(change: (Navigation) -> Navigation): Model = copy(nav = change(nav))
+internal inline fun Model.undo(change: (Undo) -> Undo): Model = copy(undo = change(undo))
+internal inline fun Model.health(change: (HealthModel) -> HealthModel): Model = copy(health = change(health))
+internal inline fun Model.notifications(change: (Notifications) -> Notifications): Model = copy(notifications = change(notifications))
+internal inline fun Model.timerSetup(change: (TimerSetup) -> TimerSetup): Model = copy(timerSetup = timerSetup?.let(change))
+internal inline fun Model.hold(change: (HoldTimer) -> HoldTimer): Model = copy(hold = hold?.let(change))
+internal inline fun Model.restScreen(change: (RestScreen) -> RestScreen): Model = copy(restScreen = restScreen?.let(change))
+
 /** A running rest. Based on timestamps, so it stays right when the app is closed. */
 data class RestState(val startedAt: Long, val endsAt: Long, val note: String)
 

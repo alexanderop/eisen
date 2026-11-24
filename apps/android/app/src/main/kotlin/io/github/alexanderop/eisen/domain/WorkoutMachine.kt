@@ -51,6 +51,9 @@ data class Run(
     val arranged: Boolean = false,
 )
 
+/** The run with its workout changed. */
+internal inline fun Run.workout(change: (Workout) -> Workout): Run = copy(workout = change(workout))
+
 enum class FinishReason {
     /** Some sets are open. Finishing saves what was logged. */
     EARLY,
@@ -251,18 +254,18 @@ private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): T
             if (workout.exercises.any { it.id == event.id }) return null
             val ready = state.ensureProgress(event.id)
             val log = createLog(exercise, defaultSlot(exercise), ready.progress, ready.settings.unit)
-            Transition(Session.Running(run.copy(workout = workout.copy(exercises = workout.exercises + log))), ready)
+            Transition(Session.Running(run.workout { it.copy(exercises = it.exercises + log) }), ready)
         }
         is WorkoutEvent.RemoveExercise -> {
             val log = workout.exercises.getOrNull(event.exercise) ?: return null
             if (workout.exercises.size <= 1) return null
             val exercises = workout.exercises.filterIndexed { index, _ -> index != event.exercise }
-            Transition(Session.Running(run.copy(workout = workout.copy(exercises = exercises), ranking = run.ranking - log.id)), state)
+            Transition(Session.Running(run.workout { it.copy(exercises = exercises) }.copy(ranking = run.ranking - log.id)), state)
         }
         is WorkoutEvent.Defer -> {
             val log = workout.exercises.getOrNull(event.exercise) ?: return null
             val exercises = workout.exercises.filterIndexed { index, _ -> index != event.exercise } + log
-            Transition(Session.Running(run.copy(workout = workout.copy(exercises = exercises), ranking = run.ranking - log.id)), state)
+            Transition(Session.Running(run.workout { it.copy(exercises = exercises) }.copy(ranking = run.ranking - log.id)), state)
         }
         is WorkoutEvent.Move -> move(run, event)?.let { Transition(Session.Running(it), state) }
         is WorkoutEvent.Rise -> {
@@ -480,9 +483,9 @@ private fun discard(run: Run, state: AppState): Transition {
 private fun setWorkingWeight(session: Session, state: AppState, event: WorkoutEvent.SetWorkingWeight): Transition {
     val weight = event.weight.coerceAtLeast(0.0)
     val next = state.editProgress(event.id) { it.copy(weight = weight, fails = 0) }
-    fun follow(run: Run) = run.copy(
-        workout = run.workout.copy(exercises = run.workout.exercises.map { if (it.id == event.id) it.copy(weight = weight) else it }),
-    )
+    fun follow(run: Run) = run.workout { workout ->
+        workout.copy(exercises = workout.exercises.map { if (it.id == event.id) it.copy(weight = weight) else it })
+    }
     val following = when (session) {
         // A discarded workout keeps the weights it had, so Undo brings back exactly that.
         Session.Idle, is Session.Discarded -> session
@@ -502,7 +505,7 @@ private fun move(run: Run, event: WorkoutEvent.Move): Run? {
     val places = open.map { it.index }.sorted()
     val exercises = run.workout.exercises.toMutableList()
     places.forEachIndexed { k, place -> exercises[place] = moved[k].log }
-    return run.copy(workout = run.workout.copy(exercises = exercises), arranged = true)
+    return run.workout { it.copy(exercises = exercises) }.copy(arranged = true)
 }
 
 fun isStarted(log: ExerciseLog): Boolean = log.sets.any { it != null }

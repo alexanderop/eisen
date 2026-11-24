@@ -33,6 +33,7 @@ import io.github.alexanderop.eisen.domain.elm.HealthAvailability
 import io.github.alexanderop.eisen.domain.elm.HealthJob
 import io.github.alexanderop.eisen.domain.elm.HealthModel
 import io.github.alexanderop.eisen.domain.elm.Msg
+import io.github.alexanderop.eisen.domain.elm.BACKUP_TOO_NEW
 import io.github.alexanderop.eisen.domain.elm.NOT_A_BACKUP
 import io.github.alexanderop.eisen.domain.elm.Navigation
 import io.github.alexanderop.eisen.domain.elm.Notifications
@@ -377,6 +378,17 @@ class UpdateTest {
         assertEquals(NOT_A_BACKUP, refused.model.dataNotice)
         assertTrue(refused.cmds.isEmpty())
         assertEquals(NOT_A_BACKUP, before.send(Msg.Data.BackupRead(null)).model.dataNotice)
+    }
+
+    @Test fun `a backup that is too new or damaged changes no data and says which`() {
+        val before = stepOf()
+        val newer = before.send(Msg.Data.Import("{\"version\":99}"))
+        assertSame(before.state, newer.state)
+        assertEquals(BACKUP_TOO_NEW, newer.model.dataNotice)
+        val damaged = before.send(Msg.Data.Import(encodeState(before.state).replaceFirst("\"restDone\":", "\"restGone\":")))
+        assertSame(before.state, damaged.state)
+        assertTrue(damaged.model.dataNotice, damaged.model.dataNotice!!.startsWith("That backup is damaged: ") && "restDone" in damaged.model.dataNotice!!)
+        assertTrue(damaged.cmds.isEmpty())
     }
 
     @Test fun `backup files are read, written and shared through Cmds`() {
@@ -794,239 +806,249 @@ class UpdateTest {
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
         // The timer's and the WODs' Msgs and the ratings dilute the walk, so it takes more seeds to reach everything as often as before.
+        /** One Msg and every rule that must hold after it. Gives back where the walk stands then. */
+        fun check(step: Step, sent: Sent): Step {
+            val (msg, now, id) = sent
+            val after = step.send(msg, now = now, id = id)
+            val where = "$id, $msg"
+
+            // Pure: the same Msg on the same model at the same time gives the same answer.
+            assertEquals(where, after, step.send(msg, now = now, id = id))
+            // The workout belongs to the session.
+            assertEquals(where, after.session.active, after.state.active)
+            // The file is written exactly when the saved state changed, with that state.
+            val saves = after.cmds.filterIsInstance<Cmd.Save>()
+            assertEquals(where, if (after.state != step.state) listOf(Cmd.Save(after.state)) else emptyList<Cmd>(), saves)
+            // The widget and the shortcuts are redrawn exactly when what they show changed, with that.
+            val surfaces = refreshHomeSurfaces(after.state)
+            val redraws = after.cmds.filterIsInstance<Cmd.RefreshHomeSurfaces>()
+            assertEquals(where, if (surfaces != refreshHomeSurfaces(step.state)) listOf(surfaces) else emptyList<Cmd>(), redraws)
+            // There is always a next workout, and it exists.
+            val ids = after.state.routines.map { it.id }
+            assertTrue(where, after.state.nextRoutineId in ids)
+            // The editor never shows a routine that is gone.
+            assertTrue(where, after.model.nav.routine == null || after.model.nav.routine in ids)
+            // Every slot is a known exercise, at most once per routine.
+            val known = exercises(after.model).map { it.id }.toSet()
+            for (routine in after.state.routines) {
+                assertTrue(where, routine.slots.all { it.exerciseId in known })
+                assertEquals(where, routine.slots.size, routine.slots.map { it.exerciseId }.toSet().size)
+            }
+            // A hold timer only exists over an open set of a timed exercise of the running workout on
+            // screen, and its clock runs as long as it does.
+            after.model.hold?.let { hold ->
+                assertTrue(where, after.session is Session.Running)
+                assertTrue(where, holdFits(after.model, hold))
+                assertTrue(where, showsWorkout(after.model))
+                assertTrue(where, Sub.HoldClock(hold.startsAt) in subscriptions(after.model))
+            }
+            if (after.model.hold == null) assertTrue(where, subscriptions(after.model).none { it is Sub.HoldClock })
+            // An open rest screen belongs to the running rest and a logged set of its exercise, and
+            // never shows with a hold timer.
+            // The "set done" screen has no rest and never minimises.
+            after.model.restScreen?.let { screen ->
+                if (screen.setDone) {
+                    assertNull(where, after.model.rest)
+                    assertFalse(where, screen.minimised)
+                    if (step.model.restScreen != screen) doneScreens++
+                } else {
+                    assertNotNull(where, after.model.rest)
+                }
+                assertNull(where, after.model.hold)
+                assertTrue(where, restScreenFits(after.model, screen))
+                if (step.model.restScreen == null) screens++
+            }
+            // A rating only ever sits on a logged set with a target count of reps, and never past the sets.
+            for (log in after.state.history.flatMap { it.exercises } + after.state.active?.exercises.orEmpty()) {
+                assertTrue(where, log.rir.size <= log.sets.size)
+                for (set in log.rir.indices) if (log.rir[set] != null) assertTrue(where, canRate(log, set) && rirOf(log, set) != null)
+            }
+            // The wheels, the chips and putting the screen away or back never touch the rest, its alarms or its notification.
+            val event = (msg as? Msg.Workout)?.event
+            if (event is WorkoutEvent.CorrectReps || event is WorkoutEvent.RateSet || event is WorkoutEvent.SetWeight || msg == Msg.Rest.Minimise || msg == Msg.Rest.Open) {
+                assertEquals(where, step.model.rest, after.model.rest)
+                assertTrue(where, after.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown })
+                assertEquals(where, step.model.repsQuestion, after.model.repsQuestion)
+            }
+            if (event is WorkoutEvent.RateSet && after.model != step.model) {
+                rated++
+                assertEquals(where, event.rir, rirOf(after.workout.exercises[event.exercise], event.set))
+                assertEquals(where, step.workout.exercises[event.exercise].sets, after.workout.exercises[event.exercise].sets)
+            }
+            if (event is WorkoutEvent.CorrectReps && after.model != step.model) {
+                corrected++
+                assertEquals(where, step.model.restScreen, after.model.restScreen)
+                assertEquals(where, event.reps, after.workout.exercises[event.exercise].sets[event.set])
+            }
+            // The timer logs a set of its own exercise only, never more than its target.
+            val before = step.model.hold
+            if (before != null && after.model.hold == null && msg is Msg.Hold && after.session is Session.Running) {
+                val logged = after.workout.exercises.getOrNull(before.exercise)?.sets?.getOrNull(before.set)
+                if (logged != null) {
+                    held++
+                    assertTrue(where, logged in 1..(before.target ?: MAX_HELD_SECONDS))
+                }
+            }
+            // An interval timer: a run covers the rest and the hold timer, and its clock runs while it goes.
+            val run = after.model.timerRun
+            if (run != null) {
+                assertNull(where, after.model.rest)
+                assertNull(where, after.model.hold)
+                val tick = if (run.config.mode == TimerMode.BOXING) 500L else 1000L
+                assertEquals(where, run.pausedAt == null, Sub.TimerClock(run.startedAt + run.paused, tick) in subscriptions(after.model))
+            } else {
+                assertTrue(where, subscriptions(after.model).none { it is Sub.TimerClock })
+            }
+            // A WOD run keeps the time of every tap, one per tap and in order; a plain timer keeps none.
+            for (kept in listOfNotNull(run, (after.model.timer as? TimerState.Finished)?.undo)) {
+                if (kept.wod != null) {
+                    assertEquals(where, kept.taps, kept.splits.size)
+                    assertEquals(where, kept.splits.sorted(), kept.splits)
+                } else {
+                    assertTrue(where, kept.splits.isEmpty())
+                }
+            }
+            // A skipped rest never adds a split or a tap.
+            if (msg == Msg.Timer.SkipRest && run != null && wasRunningRun(step) != null) {
+                assertEquals(where, wasRunningRun(step)!!.splits, run.splits)
+                assertEquals(where, wasRunningRun(step)!!.taps, run.taps)
+            }
+            // The result does not answer within a second of showing: that is the thumb of the last tap.
+            val shown = step.model.timer as? TimerState.Finished
+            if (shown != null && msg is Msg.Timer && now - shown.at in 0 until RESULT_GUARD_MILLIS &&
+                (msg == Msg.Timer.UndoFinish || msg == Msg.Timer.Done || msg == Msg.Timer.Again || msg == Msg.Timer.DontCount || msg is Msg.Timer.CorrectRounds)
+            ) {
+                assertSame(where, step.model, after.model)
+                guarded++
+            }
+            // The run is kept in its file exactly when it changed, with that run.
+            val kept = after.cmds.filterIsInstance<Cmd.SaveTimer>()
+            assertEquals(where, if (run != step.model.timerRun) listOf(Cmd.SaveTimer(run)) else emptyList<Cmd>(), kept)
+            if (run != null && step.model.timerRun == null) timed++
+            // A round counts only when the one before is at least the tap guard ago.
+            val wasRunning = step.model.timer as? TimerState.Running
+            if (msg == Msg.Timer.Tap && run != null && wasRunning != null && run.taps > wasRunning.run.taps) {
+                val last = wasRunning.tappedAt
+                assertTrue(where, last == null || now - last >= TAP_GUARD_MILLIS)
+            }
+            // A corrected result is the same session as the one in the history.
+            val finishedTimer = after.model.timer as? TimerState.Finished
+            if (msg is Msg.Timer.CorrectRounds && finishedTimer != null && after.model != step.model) {
+                assertTrue(where, finishedTimer.session.rounds >= 0)
+                assertTrue(where, finishedTimer.session in after.state.timerSessions)
+            }
+            // The history of timers only grows by a run that ended, with numbers it can have.
+            if (msg is Msg.Timer && msg != Msg.Timer.UndoDeleteSession && after.state.timerSessions.size != step.state.timerSessions.size) {
+                if (after.state.timerSessions.size > step.state.timerSessions.size) {
+                    val ended = step.model.timerRun
+                    val session = after.state.timerSessions.first()
+                    assertNotNull(where, ended)
+                    assertEquals(where, ended!!.id, session.id)
+                    assertEquals(where, session, (after.model.timer as? TimerState.Finished)?.session)
+                    // The last tap of a WOD is filed with the run, so the run its result can bring back has it.
+                    val filedRun = (after.model.timer as? TimerState.Finished)?.undo ?: ended
+                    assertEquals(where, filedRun.splits.takeIf { filedRun.wod != null && it.isNotEmpty() }, session.splits)
+                    assertTrue(where, session.seconds in 0..(timerSeconds(session.config) ?: MAX_OPEN_TIMER_SECONDS))
+                    assertTrue(where, session.finishedAt >= session.startedAt && session.rounds >= 0)
+                    if (!countsRoundsByTap(session.config.mode)) assertTrue(where, session.rounds <= session.config.rounds)
+                    filed++
+                    if (session.completed && msg != Msg.Timer.Finish && msg != Msg.Timer.Tap) ranOut++
+                } else {
+                    assertTrue(where, msg is Msg.Timer.DeleteSession || msg == Msg.Timer.UndoFinish || msg == Msg.Timer.DontCount)
+                }
+            }
+            // The lifter's WODs: ids of their own, never a benchmark's, each in its limits; the draft too, but for its name.
+            val own = after.state.wods.map { it.id }
+            assertEquals(where, own.size, own.toSet().size)
+            assertTrue(where, own.none(::isLibraryWod))
+            for (saved in after.state.wods) assertEquals(where, wod(saved), saved)
+            after.model.wods.draft?.let { draft ->
+                assertEquals(where, wod(draft.wod).copy(name = draft.wod.name), draft.wod)
+                if (step.model.wods.draft == null) drafted++
+            }
+            after.model.wods.detail?.let { assertNotNull(where, findWod(after.state.wods, it)) }
+            // The suggestions only open over something typed, and the search fits its field.
+            assertTrue(where, !after.model.wods.suggesting || after.model.wods.query.isNotBlank())
+            assertTrue(where, after.model.wods.query.length <= MAX_QUERY)
+            // The draft file is written exactly when what it keeps changed, with that.
+            val keptAfter = keptDraft(after.model.wods)
+            assertEquals(where, if (keptAfter != keptDraft(step.model.wods)) listOf(Cmd.SaveDraft(keptAfter)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SaveDraft>())
+            // A finished WOD run is complete only with every step tapped off; Undo brings back the run its last tap ended.
+            val ended = (step.model.timer as? TimerState.Finished)?.undo
+            if (msg == Msg.Timer.UndoFinish && ended != null && after.model != step.model) {
+                undone++
+                assertEquals(where, ended.taps - 1, after.model.timerRun!!.taps)
+                assertTrue(where, after.state.timerSessions.none { it.id == ended.id })
+            }
+            // A boxing plan always has one round per round and stays in its limits, wherever it is kept,
+            // and a boxing run always has the seed that picks its combinations.
+            val setup = after.model.timerSetup
+            val configs = listOfNotNull(setup?.config, run?.config, (after.model.timer as? TimerState.Finished)?.session?.config) +
+                after.state.timerConfigs.values + after.state.timerPresets.map { it.config } + after.state.timerSessions.map { it.config }
+            for (config in configs.filter { it.mode == TimerMode.BOXING }) {
+                assertEquals(where, timerConfig(config), config)
+                assertEquals(where, config.rounds, config.boxing!!.rounds.size)
+            }
+            if (run?.config?.mode == TimerMode.BOXING) {
+                assertNotNull(where, run.seed)
+                if (run.id != step.model.timerRun?.id) boxingRuns++
+            }
+            setup?.round?.let { assertTrue(where, it in 0 until setup.config.rounds && setup.config.mode == TimerMode.BOXING) }
+            // A run waits for the notification question only while none goes, and a boxing setup's edits are its mode's last config.
+            if (after.model.pendingStart != null) assertNull(where, run)
+            if (setup?.config?.mode == TimerMode.BOXING && msg is Msg.Timer && step.model.timerSetup?.config != setup.config && msg !is Msg.Timer.Open && msg !is Msg.Timer.OpenPreset && msg !is Msg.Timer.StartPreset) {
+                assertEquals(where, setup.config, after.state.timerConfigs[TimerMode.BOXING])
+            }
+            if (setup?.config?.mode == TimerMode.BOXING && step.model.timerSetup?.config?.boxing != setup.config.boxing && step.model.timerSetup?.config?.mode == TimerMode.BOXING) boxingEdits++
+            // A boxing plan is always within its limits: the lifter's own combinations valid and unique, every pick one the round can call.
+            setup?.config?.boxing?.let { plan ->
+                assertEquals(where, plan, io.github.alexanderop.eisen.domain.boxingPlan(plan, plan.rounds.size))
+                assertEquals(where, plan.own.map { it.id }.distinct(), plan.own.map { it.id })
+                assertTrue(where, plan.own.size <= io.github.alexanderop.eisen.domain.MAX_OWN_COMBOS)
+                if (msg is Msg.Timer.SaveOwn && plan.own != step.model.timerSetup?.config?.boxing?.own) ownSaved++
+            }
+            if (msg == Msg.Wods.Save && after.state != step.state) wodsSaved++
+            // A run carries a WOD exactly when it was started from one, and leaves the setups of the modes alone.
+            if (run != null && run.id != step.model.timerRun?.id) {
+                val expected = when {
+                    msg is Msg.Wods.Start -> findWod(step.state.wods, msg.id)
+                    msg == Msg.Timer.Again -> (step.model.timer as? TimerState.Finished)?.wod?.let { findWod(step.state.wods, it.id) ?: it }
+                    msg == Msg.Timer.UndoFinish -> (step.model.timer as? TimerState.Finished)?.undo?.wod
+                    // A run that waited for the notification question starts with its answer.
+                    msg is Msg.Rest.NotificationPermission -> step.model.pendingStart?.wod
+                    else -> null
+                }
+                assertEquals(where, expected, run.wod)
+                if (run.wod != null) {
+                    wodRuns++
+                    assertEquals(where, step.state.timerConfigs, after.state.timerConfigs)
+                }
+            }
+            // A filed run of a WOD is filed under its id, and its result shows the WOD.
+            if (after.state.timerSessions.size > step.state.timerSessions.size && msg is Msg.Timer && msg != Msg.Timer.UndoDeleteSession) {
+                val session = after.state.timerSessions.first()
+                assertEquals(where, step.model.timerRun?.wod?.id, session.wodId)
+                assertEquals(where, step.model.timerRun?.wod, (after.model.timer as TimerState.Finished).wod)
+                if (session.wodId != null) wodsFiled++
+            }
+            if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
+            if (after.model != step.model) changed++
+            return after
+        }
         for (seed in 1L..320L) {
             val random = java.util.Random(seed)
             var step = stepOf(withHolds)
             var now = STARTED_AT
+            val trail = mutableListOf<Sent>()
             repeat(300) { turn ->
                 now += random.nextInt(120_000)
-                val msg = randomMsg(step.model, random)
-                val id = "r$seed-$turn"
-                val after = step.send(msg, now = now, id = id)
-                val where = "seed $seed, turn $turn, $msg"
-
-                // Pure: the same Msg on the same model at the same time gives the same answer.
-                assertEquals(where, after, step.send(msg, now = now, id = id))
-                // The workout belongs to the session.
-                assertEquals(where, after.session.active, after.state.active)
-                // The file is written exactly when the saved state changed, with that state.
-                val saves = after.cmds.filterIsInstance<Cmd.Save>()
-                assertEquals(where, if (after.state != step.state) listOf(Cmd.Save(after.state)) else emptyList<Cmd>(), saves)
-                // The widget and the shortcuts are redrawn exactly when what they show changed, with that.
-                val surfaces = refreshHomeSurfaces(after.state)
-                val redraws = after.cmds.filterIsInstance<Cmd.RefreshHomeSurfaces>()
-                assertEquals(where, if (surfaces != refreshHomeSurfaces(step.state)) listOf(surfaces) else emptyList<Cmd>(), redraws)
-                // There is always a next workout, and it exists.
-                val ids = after.state.routines.map { it.id }
-                assertTrue(where, after.state.nextRoutineId in ids)
-                // The editor never shows a routine that is gone.
-                assertTrue(where, after.model.nav.routine == null || after.model.nav.routine in ids)
-                // Every slot is a known exercise, at most once per routine.
-                val known = exercises(after.model).map { it.id }.toSet()
-                for (routine in after.state.routines) {
-                    assertTrue(where, routine.slots.all { it.exerciseId in known })
-                    assertEquals(where, routine.slots.size, routine.slots.map { it.exerciseId }.toSet().size)
+                val sent = Sent(randomMsg(step.model, random), now, "r$seed-$turn")
+                trail += sent
+                step = runCatching { check(step, sent) }.getOrElse { failure ->
+                    // The walk is cut down to the Msgs the failure needs, so the report is a handful of lines and not three hundred.
+                    val shortest = shrink(trail) { part -> runCatching { part.fold(stepOf(withHolds), ::check) }.isFailure }
+                    throw AssertionError("${failure.message}\nShortest walk that fails, ${shortest.size} of ${trail.size} Msgs:\n${shortest.joinToString("\n") { "  ${it.id} at ${it.now}: ${it.msg}" }}", failure)
                 }
-                // A hold timer only exists over an open set of a timed exercise of the running workout on
-                // screen, and its clock runs as long as it does.
-                after.model.hold?.let { hold ->
-                    assertTrue(where, after.session is Session.Running)
-                    assertTrue(where, holdFits(after.model, hold))
-                    assertTrue(where, showsWorkout(after.model))
-                    assertTrue(where, Sub.HoldClock(hold.startsAt) in subscriptions(after.model))
-                }
-                if (after.model.hold == null) assertTrue(where, subscriptions(after.model).none { it is Sub.HoldClock })
-                // An open rest screen belongs to the running rest and a logged set of its exercise, and
-                // never shows with a hold timer.
-                // The "set done" screen has no rest and never minimises.
-                after.model.restScreen?.let { screen ->
-                    if (screen.setDone) {
-                        assertNull(where, after.model.rest)
-                        assertFalse(where, screen.minimised)
-                        if (step.model.restScreen != screen) doneScreens++
-                    } else {
-                        assertNotNull(where, after.model.rest)
-                    }
-                    assertNull(where, after.model.hold)
-                    assertTrue(where, restScreenFits(after.model, screen))
-                    if (step.model.restScreen == null) screens++
-                }
-                // A rating only ever sits on a logged set with a target count of reps, and never past the sets.
-                for (log in after.state.history.flatMap { it.exercises } + after.state.active?.exercises.orEmpty()) {
-                    assertTrue(where, log.rir.size <= log.sets.size)
-                    for (set in log.rir.indices) if (log.rir[set] != null) assertTrue(where, canRate(log, set) && rirOf(log, set) != null)
-                }
-                // The wheels, the chips and putting the screen away or back never touch the rest, its alarms or its notification.
-                val event = (msg as? Msg.Workout)?.event
-                if (event is WorkoutEvent.CorrectReps || event is WorkoutEvent.RateSet || event is WorkoutEvent.SetWeight || msg == Msg.Rest.Minimise || msg == Msg.Rest.Open) {
-                    assertEquals(where, step.model.rest, after.model.rest)
-                    assertTrue(where, after.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown })
-                    assertEquals(where, step.model.repsQuestion, after.model.repsQuestion)
-                }
-                if (event is WorkoutEvent.RateSet && after.model != step.model) {
-                    rated++
-                    assertEquals(where, event.rir, rirOf(after.workout.exercises[event.exercise], event.set))
-                    assertEquals(where, step.workout.exercises[event.exercise].sets, after.workout.exercises[event.exercise].sets)
-                }
-                if (event is WorkoutEvent.CorrectReps && after.model != step.model) {
-                    corrected++
-                    assertEquals(where, step.model.restScreen, after.model.restScreen)
-                    assertEquals(where, event.reps, after.workout.exercises[event.exercise].sets[event.set])
-                }
-                // The timer logs a set of its own exercise only, never more than its target.
-                val before = step.model.hold
-                if (before != null && after.model.hold == null && msg is Msg.Hold && after.session is Session.Running) {
-                    val logged = after.workout.exercises.getOrNull(before.exercise)?.sets?.getOrNull(before.set)
-                    if (logged != null) {
-                        held++
-                        assertTrue(where, logged in 1..(before.target ?: MAX_HELD_SECONDS))
-                    }
-                }
-                // An interval timer: a run covers the rest and the hold timer, and its clock runs while it goes.
-                val run = after.model.timerRun
-                if (run != null) {
-                    assertNull(where, after.model.rest)
-                    assertNull(where, after.model.hold)
-                    val tick = if (run.config.mode == TimerMode.BOXING) 500L else 1000L
-                    assertEquals(where, run.pausedAt == null, Sub.TimerClock(run.startedAt + run.paused, tick) in subscriptions(after.model))
-                } else {
-                    assertTrue(where, subscriptions(after.model).none { it is Sub.TimerClock })
-                }
-                // A WOD run keeps the time of every tap, one per tap and in order; a plain timer keeps none.
-                for (kept in listOfNotNull(run, (after.model.timer as? TimerState.Finished)?.undo)) {
-                    if (kept.wod != null) {
-                        assertEquals(where, kept.taps, kept.splits.size)
-                        assertEquals(where, kept.splits.sorted(), kept.splits)
-                    } else {
-                        assertTrue(where, kept.splits.isEmpty())
-                    }
-                }
-                // A skipped rest never adds a split or a tap.
-                if (msg == Msg.Timer.SkipRest && run != null && wasRunningRun(step) != null) {
-                    assertEquals(where, wasRunningRun(step)!!.splits, run.splits)
-                    assertEquals(where, wasRunningRun(step)!!.taps, run.taps)
-                }
-                // The result does not answer within a second of showing: that is the thumb of the last tap.
-                val shown = step.model.timer as? TimerState.Finished
-                if (shown != null && msg is Msg.Timer && now - shown.at in 0 until RESULT_GUARD_MILLIS &&
-                    (msg == Msg.Timer.UndoFinish || msg == Msg.Timer.Done || msg == Msg.Timer.Again || msg == Msg.Timer.DontCount || msg is Msg.Timer.CorrectRounds)
-                ) {
-                    assertSame(where, step.model, after.model)
-                    guarded++
-                }
-                // The run is kept in its file exactly when it changed, with that run.
-                val kept = after.cmds.filterIsInstance<Cmd.SaveTimer>()
-                assertEquals(where, if (run != step.model.timerRun) listOf(Cmd.SaveTimer(run)) else emptyList<Cmd>(), kept)
-                if (run != null && step.model.timerRun == null) timed++
-                // A round counts only when the one before is at least the tap guard ago.
-                val wasRunning = step.model.timer as? TimerState.Running
-                if (msg == Msg.Timer.Tap && run != null && wasRunning != null && run.taps > wasRunning.run.taps) {
-                    val last = wasRunning.tappedAt
-                    assertTrue(where, last == null || now - last >= TAP_GUARD_MILLIS)
-                }
-                // A corrected result is the same session as the one in the history.
-                val finishedTimer = after.model.timer as? TimerState.Finished
-                if (msg is Msg.Timer.CorrectRounds && finishedTimer != null && after.model != step.model) {
-                    assertTrue(where, finishedTimer.session.rounds >= 0)
-                    assertTrue(where, finishedTimer.session in after.state.timerSessions)
-                }
-                // The history of timers only grows by a run that ended, with numbers it can have.
-                if (msg is Msg.Timer && msg != Msg.Timer.UndoDeleteSession && after.state.timerSessions.size != step.state.timerSessions.size) {
-                    if (after.state.timerSessions.size > step.state.timerSessions.size) {
-                        val ended = step.model.timerRun
-                        val session = after.state.timerSessions.first()
-                        assertNotNull(where, ended)
-                        assertEquals(where, ended!!.id, session.id)
-                        assertEquals(where, session, (after.model.timer as? TimerState.Finished)?.session)
-                        // The last tap of a WOD is filed with the run, so the run its result can bring back has it.
-                        val filedRun = (after.model.timer as? TimerState.Finished)?.undo ?: ended
-                        assertEquals(where, filedRun.splits.takeIf { filedRun.wod != null && it.isNotEmpty() }, session.splits)
-                        assertTrue(where, session.seconds in 0..(timerSeconds(session.config) ?: MAX_OPEN_TIMER_SECONDS))
-                        assertTrue(where, session.finishedAt >= session.startedAt && session.rounds >= 0)
-                        if (!countsRoundsByTap(session.config.mode)) assertTrue(where, session.rounds <= session.config.rounds)
-                        filed++
-                        if (session.completed && msg != Msg.Timer.Finish && msg != Msg.Timer.Tap) ranOut++
-                    } else {
-                        assertTrue(where, msg is Msg.Timer.DeleteSession || msg == Msg.Timer.UndoFinish || msg == Msg.Timer.DontCount)
-                    }
-                }
-                // The lifter's WODs: ids of their own, never a benchmark's, each in its limits; the draft too, but for its name.
-                val own = after.state.wods.map { it.id }
-                assertEquals(where, own.size, own.toSet().size)
-                assertTrue(where, own.none(::isLibraryWod))
-                for (saved in after.state.wods) assertEquals(where, wod(saved), saved)
-                after.model.wods.draft?.let { draft ->
-                    assertEquals(where, wod(draft.wod).copy(name = draft.wod.name), draft.wod)
-                    if (step.model.wods.draft == null) drafted++
-                }
-                after.model.wods.detail?.let { assertNotNull(where, findWod(after.state.wods, it)) }
-                // The suggestions only open over something typed, and the search fits its field.
-                assertTrue(where, !after.model.wods.suggesting || after.model.wods.query.isNotBlank())
-                assertTrue(where, after.model.wods.query.length <= MAX_QUERY)
-                // The draft file is written exactly when what it keeps changed, with that.
-                val keptAfter = keptDraft(after.model.wods)
-                assertEquals(where, if (keptAfter != keptDraft(step.model.wods)) listOf(Cmd.SaveDraft(keptAfter)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SaveDraft>())
-                // A finished WOD run is complete only with every step tapped off; Undo brings back the run its last tap ended.
-                val ended = (step.model.timer as? TimerState.Finished)?.undo
-                if (msg == Msg.Timer.UndoFinish && ended != null && after.model != step.model) {
-                    undone++
-                    assertEquals(where, ended.taps - 1, after.model.timerRun!!.taps)
-                    assertTrue(where, after.state.timerSessions.none { it.id == ended.id })
-                }
-                // A boxing plan always has one round per round and stays in its limits, wherever it is kept,
-                // and a boxing run always has the seed that picks its combinations.
-                val setup = after.model.timerSetup
-                val configs = listOfNotNull(setup?.config, run?.config, (after.model.timer as? TimerState.Finished)?.session?.config) +
-                    after.state.timerConfigs.values + after.state.timerPresets.map { it.config } + after.state.timerSessions.map { it.config }
-                for (config in configs.filter { it.mode == TimerMode.BOXING }) {
-                    assertEquals(where, timerConfig(config), config)
-                    assertEquals(where, config.rounds, config.boxing!!.rounds.size)
-                }
-                if (run?.config?.mode == TimerMode.BOXING) {
-                    assertNotNull(where, run.seed)
-                    if (run.id != step.model.timerRun?.id) boxingRuns++
-                }
-                setup?.round?.let { assertTrue(where, it in 0 until setup.config.rounds && setup.config.mode == TimerMode.BOXING) }
-                // A run waits for the notification question only while none goes, and a boxing setup's edits are its mode's last config.
-                if (after.model.pendingStart != null) assertNull(where, run)
-                if (setup?.config?.mode == TimerMode.BOXING && msg is Msg.Timer && step.model.timerSetup?.config != setup.config && msg !is Msg.Timer.Open && msg !is Msg.Timer.OpenPreset && msg !is Msg.Timer.StartPreset) {
-                    assertEquals(where, setup.config, after.state.timerConfigs[TimerMode.BOXING])
-                }
-                if (setup?.config?.mode == TimerMode.BOXING && step.model.timerSetup?.config?.boxing != setup.config.boxing && step.model.timerSetup?.config?.mode == TimerMode.BOXING) boxingEdits++
-                // A boxing plan is always within its limits: the lifter's own combinations valid and unique, every pick one the round can call.
-                setup?.config?.boxing?.let { plan ->
-                    assertEquals(where, plan, io.github.alexanderop.eisen.domain.boxingPlan(plan, plan.rounds.size))
-                    assertEquals(where, plan.own.map { it.id }.distinct(), plan.own.map { it.id })
-                    assertTrue(where, plan.own.size <= io.github.alexanderop.eisen.domain.MAX_OWN_COMBOS)
-                    if (msg is Msg.Timer.SaveOwn && plan.own != step.model.timerSetup?.config?.boxing?.own) ownSaved++
-                }
-                if (msg == Msg.Wods.Save && after.state != step.state) wodsSaved++
-                // A run carries a WOD exactly when it was started from one, and leaves the setups of the modes alone.
-                if (run != null && run.id != step.model.timerRun?.id) {
-                    val expected = when {
-                        msg is Msg.Wods.Start -> findWod(step.state.wods, msg.id)
-                        msg == Msg.Timer.Again -> (step.model.timer as? TimerState.Finished)?.wod?.let { findWod(step.state.wods, it.id) ?: it }
-                        msg == Msg.Timer.UndoFinish -> (step.model.timer as? TimerState.Finished)?.undo?.wod
-                        // A run that waited for the notification question starts with its answer.
-                        msg is Msg.Rest.NotificationPermission -> step.model.pendingStart?.wod
-                        else -> null
-                    }
-                    assertEquals(where, expected, run.wod)
-                    if (run.wod != null) {
-                        wodRuns++
-                        assertEquals(where, step.state.timerConfigs, after.state.timerConfigs)
-                    }
-                }
-                // A filed run of a WOD is filed under its id, and its result shows the WOD.
-                if (after.state.timerSessions.size > step.state.timerSessions.size && msg is Msg.Timer && msg != Msg.Timer.UndoDeleteSession) {
-                    val session = after.state.timerSessions.first()
-                    assertEquals(where, step.model.timerRun?.wod?.id, session.wodId)
-                    assertEquals(where, step.model.timerRun?.wod, (after.model.timer as TimerState.Finished).wod)
-                    if (session.wodId != null) wodsFiled++
-                }
-                if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
-                if (after.model != step.model) changed++
-                step = after
             }
         }
         assertTrue("only $finished workouts finished", finished >= 10)
@@ -1049,6 +1071,9 @@ class UpdateTest {
         assertTrue("only $boxingEdits boxing plans were edited", boxingEdits >= 50)
         assertTrue("only $ownSaved own combinations were saved", ownSaved >= 20)
     }
+
+    /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
+    private data class Sent(val msg: Msg, val now: Long, val id: String)
 
     private fun wasRunningRun(step: Step) = (step.model.timer as? TimerState.Running)?.run
 

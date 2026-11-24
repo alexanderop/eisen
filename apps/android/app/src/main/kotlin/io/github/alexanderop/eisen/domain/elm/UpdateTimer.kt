@@ -140,11 +140,11 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         is Msg.Timer.Open -> {
             // Boxing comes back with the rounds the lifter took off the end, while the process lives.
             val removed = if (msg.mode == TimerMode.BOXING) model.boxingRemoved else emptyList()
-            model.copy(timerSetup = TimerSetup(lastTimerConfig(model, msg.mode), removed = removed), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+            model.nav { it.copy(tab = Tab.TIMER) }.copy(timerSetup = TimerSetup(lastTimerConfig(model, msg.mode), removed = removed), now = env.now).only()
         }
         is Msg.Timer.OpenPreset -> {
             val preset = model.state.timerPresets.firstOrNull { it.id == msg.id } ?: return model.only()
-            model.copy(timerSetup = TimerSetup(timerConfig(preset.config), preset.id, preset.name), nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+            model.nav { it.copy(tab = Tab.TIMER) }.copy(timerSetup = TimerSetup(timerConfig(preset.config), preset.id, preset.name), now = env.now).only()
         }
         is Msg.Timer.StartPreset -> {
             if (model.timer is TimerState.Running) return model.only()
@@ -156,14 +156,14 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val setup = model.timerSetup
             if (setup?.presetId == null) return model.only()
             val name = msg.name.take(PRESET_NAME_LENGTH)
-            if (name == setup.name) model.only() else model.copy(timerSetup = setup.copy(name = name)).only()
+            if (name == setup.name) model.only() else model.timerSetup { it.copy(name = name) }.only()
         }
         is Msg.Timer.Edit -> {
             val setup = model.timerSetup
             if (setup == null || setup.config.mode != msg.config.mode) return model.only()
             if (setup.config.mode != TimerMode.BOXING) {
                 val config = timerConfig(msg.config)
-                return if (config == setup.config) model.only() else model.copy(timerSetup = setup.copy(config = config)).only()
+                return if (config == setup.config) model.only() else model.timerSetup { it.copy(config = config) }.only()
             }
             // Fewer rounds keep the ones that fell off the end, so raising the number brings them back.
             val plan = msg.config.boxing ?: setup.config.boxing ?: BoxingPlan(emptyList(), BoxingStyle.NAMES)
@@ -177,11 +177,11 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         is Msg.Timer.OpenRound -> {
             val setup = boxingSetup(model) ?: return model.only()
             if (msg.index !in 0 until setup.config.rounds || setup.round == msg.index) return model.only()
-            model.copy(timerSetup = setup.copy(round = msg.index, copied = false, heard = null)).only()
+            model.timerSetup { it.copy(round = msg.index, copied = false, heard = null) }.only()
         }
         Msg.Timer.CloseRound -> {
             val setup = model.timerSetup
-            if (setup?.round == null) model.only() else model.copy(timerSetup = setup.copy(round = null, copied = false, heard = null)).only()
+            if (setup?.round == null) model.only() else model.timerSetup { it.copy(round = null, copied = false, heard = null) }.only()
         }
         is Msg.Timer.EditRound -> {
             val setup = boxingSetup(model) ?: return model.only()
@@ -254,7 +254,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         is Msg.Timer.ForgetTemplate -> {
             val setup = model.timerSetup
             if (setup?.beforeTemplate == null || setup.templateAt != msg.at) model.only()
-            else model.copy(timerSetup = setup.copy(beforeTemplate = null, templateAt = null)).only()
+            else model.timerSetup { it.copy(beforeTemplate = null, templateAt = null) }.only()
         }
         is Msg.Timer.SetStyle -> {
             val setup = boxingSetup(model) ?: return model.only()
@@ -269,7 +269,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val combos = if (round.theme == BoxingTheme.FREESTYLE) emptyList() else roundCombos(round, plan.own)
             if (combos.isEmpty()) return model.only()
             val combo = combos[(combos.indexOfFirst { it.id == setup.heard } + 1) % combos.size]
-            model.copy(timerSetup = setup.copy(heard = combo.id)) and playCombo(combo, plan.style)
+            model.timerSetup { it.copy(heard = combo.id) } and playCombo(combo, plan.style)
         }
         is Msg.Timer.PlayCombo -> {
             val plan = boxingSetup(model)?.config?.boxing ?: return model.only()
@@ -297,8 +297,9 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val saved = if (msg.id == null) withOwn(plan, msg.moves) else withOwnMoves(plan, msg.id, msg.moves)
             if (saved === plan) return model.only()
             // Made from the "My combos" tile of a round: that round calls it from now on.
-            val round = msg.round?.takeIf { msg.id == null }?.let { saved.rounds.getOrNull(it) }
-            val next = if (round == null) saved else withRound(saved, msg.round!!, round.copy(theme = BoxingTheme.OWN, pick = emptyList()))
+            val at = msg.round?.takeIf { msg.id == null }
+            val round = at?.let { saved.rounds.getOrNull(it) }
+            val next = if (at == null || round == null) saved else withRound(saved, at, round.copy(theme = BoxingTheme.OWN, pick = emptyList()))
             replan(model, setup, next)
         }
         is Msg.Timer.DeleteOwn -> {
@@ -308,12 +309,12 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             if (left === plan) return model.only()
             val (edited, cmds) = replan(model, setup, left)
             val after = edited.timerSetup?.config?.boxing ?: left
-            edited.copy(undo = edited.undo.copy(deletedOwn = DeletedOwn(plan, after))) and cmds +
+            edited.undo { it.copy(deletedOwn = DeletedOwn(plan, after)) } and cmds +
                 Cmd.Ui(UiEvent.Snackbar("Combination deleted", actionLabel = "Undo", onAction = Msg.Timer.UndoDeleteOwn, tag = TIMER_SNACKBAR))
         }
         Msg.Timer.UndoDeleteOwn -> {
             val deleted = model.undo.deletedOwn ?: return model.only()
-            val cleared = model.copy(undo = model.undo.copy(deletedOwn = null))
+            val cleared = model.undo { it.copy(deletedOwn = null) }
             val setup = boxingSetup(cleared)
             // Only while nothing else changed the plan since: an Undo never takes a later edit back.
             if (setup?.config?.boxing != deleted.after) return cleared.only()
@@ -323,7 +324,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         is Msg.Timer.SetCalls -> {
             // The segmented choice only offers these; anything else from a backup becomes the nearest one below.
             val minutes = MINUTE_CALLS.last { it <= maxOf(0, msg.calls.minutes) }
-            model.withState { it.copy(settings = it.settings.copy(timerCalls = msg.calls.copy(minutes = minutes))) }.only()
+            model.withState { state -> state.settings { it.copy(timerCalls = msg.calls.copy(minutes = minutes)) } }.only()
         }
         Msg.Timer.PlaySample -> model and Cmd.PlayTimerSound("halfway")
         is Msg.Timer.SavePreset -> savePreset(model, msg.name, env)
@@ -333,10 +334,10 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             // A name cleared to nothing keeps the one it had.
             val name = setup.name.trim().ifEmpty { preset.name }
             val updated = preset.copy(name = name, config = setup.config)
-            if (updated == preset) return (if (name == setup.name) model else model.copy(timerSetup = setup.copy(name = name))).only()
+            if (updated == preset) return (if (name == setup.name) model else model.timerSetup { it.copy(name = name) }).only()
             // Confirmed where it was tapped ("Saved"), not by a snackbar over the Start button.
             model.withState { state -> state.copy(timerPresets = state.timerPresets.map { if (it.id == preset.id) updated else it }) }
-                .copy(timerSetup = setup.copy(name = name)).only()
+                .timerSetup { it.copy(name = name) }.only()
         }
         is Msg.Timer.DeletePreset -> {
             val index = model.state.timerPresets.indexOfFirst { it.id == msg.id }
@@ -344,12 +345,12 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val preset = model.state.timerPresets[index]
             val setup = model.timerSetup?.let { if (it.presetId == msg.id) it.copy(presetId = null) else it }
             model.withState { it.copy(timerPresets = it.timerPresets.filter { saved -> saved.id != msg.id }) }
-                .copy(timerSetup = setup, undo = model.undo.copy(deletedPreset = DeletedPreset(preset, index))) and
+                .undo { it.copy(deletedPreset = DeletedPreset(preset, index)) }.copy(timerSetup = setup) and
                 Cmd.Ui(UiEvent.Snackbar("Deleted ${preset.name}", actionLabel = "Undo", onAction = Msg.Timer.UndoDeletePreset, tag = TIMER_SNACKBAR))
         }
         Msg.Timer.UndoDeletePreset -> {
             val deleted = model.undo.deletedPreset ?: return model.only()
-            val cleared = model.copy(undo = model.undo.copy(deletedPreset = null))
+            val cleared = model.undo { it.copy(deletedPreset = null) }
             if (model.state.timerPresets.any { it.id == deleted.preset.id }) return cleared.only()
             cleared.withState { state ->
                 state.copy(timerPresets = state.timerPresets.toMutableList().apply { add(deleted.index.coerceIn(0, size), deleted.preset) })
@@ -469,17 +470,17 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             if (notice == timerNotice(run, model.now, model.state)) ticked.only() else ticked and Cmd.ShowTimer(notice)
         }
         Msg.Timer.Done -> if (model.timer !is TimerState.Finished) model.only()
-        else model.copy(timer = null, timerSetup = null, nav = model.nav.copy(tab = Tab.TIMER), now = env.now).only()
+        else model.nav { it.copy(tab = Tab.TIMER) }.copy(timer = null, timerSetup = null, now = env.now).only()
         Msg.Timer.DontCount -> {
             val finished = result ?: return model.only()
             val closed = timer(Msg.Timer.Done, model, env).first
             // Back to the WOD it was a run of, while it still exists.
             val back = finished.wod?.let { findWod(model.state.wods, it.id) }
-                ?.let { closed.copy(wods = closed.wods.copy(detail = it.id)) } ?: closed
+                ?.let { wod -> closed.wods { it.copy(detail = wod.id) } } ?: closed
             val index = model.state.timerSessions.indexOfFirst { it.id == finished.session.id }
             if (index == -1) return back.only()
             back.withState { it.copy(timerSessions = it.timerSessions.filter { saved -> saved.id != finished.session.id }) }
-                .copy(undo = back.undo.copy(deletedTimer = DeletedTimerSession(finished.session, index))) and
+                .undo { it.copy(deletedTimer = DeletedTimerSession(finished.session, index)) } and
                 Cmd.Ui(UiEvent.Snackbar("Run not counted", actionLabel = "Undo", onAction = Msg.Timer.UndoDeleteSession, tag = TIMER_SNACKBAR))
         }
         // Another run started meanwhile and owns the service now.
@@ -489,12 +490,12 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             if (index == -1) return model.only()
             val session = model.state.timerSessions[index]
             model.withState { it.copy(timerSessions = it.timerSessions.filter { saved -> saved.id != msg.id }) }
-                .copy(undo = model.undo.copy(deletedTimer = DeletedTimerSession(session, index))) and
+                .undo { it.copy(deletedTimer = DeletedTimerSession(session, index)) } and
                 Cmd.Ui(UiEvent.Snackbar("Timer deleted", actionLabel = "Undo", onAction = Msg.Timer.UndoDeleteSession, tag = HISTORY_SNACKBAR))
         }
         Msg.Timer.UndoDeleteSession -> {
             val deleted = model.undo.deletedTimer ?: return model.only()
-            val cleared = model.copy(undo = model.undo.copy(deletedTimer = null))
+            val cleared = model.undo { it.copy(deletedTimer = null) }
             if (model.state.timerSessions.any { it.id == deleted.session.id }) return cleared.only()
             cleared.withState { state ->
                 state.copy(timerSessions = state.timerSessions.toMutableList().apply { add(deleted.index.coerceIn(0, size), deleted.session) })
@@ -549,7 +550,7 @@ private fun savePreset(model: Model, name: String, env: Env): Next {
     val typed = name.trim().take(PRESET_NAME_LENGTH)
     val preset = TimerPreset(env.newId(), typed.ifEmpty { defaultPresetName(setup.config.mode, model.state.timerPresets) }, setup.config)
     // Confirmed where it was tapped ("Saved"), not by a snackbar over the Start button.
-    return model.withState { it.copy(timerPresets = it.timerPresets + preset) }.copy(timerSetup = setup.copy(presetId = preset.id, name = preset.name)).only()
+    return model.withState { it.copy(timerPresets = it.timerPresets + preset) }.timerSetup { it.copy(presetId = preset.id, name = preset.name) }.only()
 }
 
 /** What "Save as preset" offers as the name: "Tabata", or "Tabata 2", "Tabata 3"... when taken. The numbers are in its second line. */
@@ -567,7 +568,7 @@ fun defaultPresetName(mode: TimerMode, presets: List<TimerPreset>): String {
 private fun startTimer(model: Model, config: TimerConfig, name: String, env: Env, wod: Wod? = null): Next {
     // Asked before the run, not over its lead-in: the run starts with the answer, whatever it is.
     if (!model.notifications.granted && !model.notifications.asked) {
-        return model.copy(notifications = model.notifications.copy(asked = true), pendingStart = PendingStart(config, name, wod), now = env.now) and
+        return model.notifications { it.copy(asked = true) }.copy(pendingStart = PendingStart(config, name, wod), now = env.now) and
             listOf(Cmd.MarkNotificationsAsked, Cmd.Ui(UiEvent.RequestNotificationPermission))
     }
     // A boxing run picks its combinations with a seed of its own, so a reload calls the same ones and "Again" others.

@@ -4,17 +4,18 @@ import io.github.alexanderop.eisen.domain.AppState
 import io.github.alexanderop.eisen.domain.Env
 import io.github.alexanderop.eisen.domain.Equipment
 import io.github.alexanderop.eisen.domain.Feel
+import io.github.alexanderop.eisen.domain.Loaded
 import io.github.alexanderop.eisen.domain.Routine
 import io.github.alexanderop.eisen.domain.Session
 import io.github.alexanderop.eisen.domain.WorkoutEvent
 import io.github.alexanderop.eisen.domain.convertProgress
 import io.github.alexanderop.eisen.domain.customExercise
-import io.github.alexanderop.eisen.domain.decodeState
 import io.github.alexanderop.eisen.domain.defaultSlot
 import io.github.alexanderop.eisen.domain.editProgress
 import io.github.alexanderop.eisen.domain.ensureProgress
 import io.github.alexanderop.eisen.domain.findExercise
 import io.github.alexanderop.eisen.domain.freshState
+import io.github.alexanderop.eisen.domain.loadState
 import io.github.alexanderop.eisen.domain.unitDefaults
 
 /*
@@ -40,6 +41,9 @@ internal fun Model.withState(change: (AppState) -> AppState): Model {
     return if (next == state) this else copy(state = next)
 }
 
+/** The state with its settings changed. */
+internal inline fun AppState.settings(change: (io.github.alexanderop.eisen.domain.Settings) -> io.github.alexanderop.eisen.domain.Settings): AppState = copy(settings = change(settings))
+
 private fun AppState.editRoutine(id: String, change: (Routine) -> Routine): AppState =
     copy(routines = routines.map { if (it.id == id) change(it) else it })
 
@@ -57,7 +61,7 @@ internal fun routines(msg: Msg.Routines, model: Model, env: Env): Next = when (m
         while ("Workout $number" in taken) number++
         val routine = Routine(env.newId(), "Workout $number", emptyList())
         val added = model.withState { it.copy(routines = it.routines + routine) }
-        (if (msg.openEditor) added.copy(nav = added.nav.copy(routine = routine.id)) else added).only()
+        (if (msg.openEditor) added.nav { it.copy(routine = routine.id) } else added).only()
     }
     is Msg.Routines.Rename -> model.withState { state -> state.editRoutine(msg.id) { it.copy(name = msg.name.take(ROUTINE_NAME_LENGTH)) } }.only()
     // An empty name would leave a blank card.
@@ -74,7 +78,7 @@ internal fun routines(msg: Msg.Routines, model: Model, env: Env): Next = when (m
             val routines = state.routines.filter { it.id != msg.id }
             val next = if (state.nextRoutineId == msg.id) routines[0].id else state.nextRoutineId
             val nav = if (model.nav.routine == msg.id) model.nav.copy(routine = null) else model.nav
-            model.copy(state = state.copy(routines = routines, nextRoutineId = next), nav = nav).only()
+            model.withState { it.copy(routines = routines, nextRoutineId = next) }.copy(nav = nav).only()
         }
     }
     is Msg.Routines.AddSlot -> addSlot(model, msg.routineId, msg.exerciseId)
@@ -98,7 +102,7 @@ internal fun routines(msg: Msg.Routines, model: Model, env: Env): Next = when (m
         if (removed == null) {
             model.only()
         } else {
-            insertSlot(model.copy(undo = model.undo.copy(removedSlot = null)), Msg.Routines.InsertSlot(removed.routineId, removed.index, removed.slot))
+            insertSlot(model.undo { it.copy(removedSlot = null) }, Msg.Routines.InsertSlot(removed.routineId, removed.index, removed.slot))
         }
     }
 }
@@ -126,7 +130,7 @@ private fun removeSlot(msg: Msg.Routines.RemoveSlot, model: Model): Next {
     if (!msg.offerUndo) return removed and felt
     val name = model.state.findExercise(msg.exerciseId)?.name ?: "Deleted exercise"
     // A second remove replaces the first snackbar, so only the newest one can be undone.
-    return removed.copy(undo = removed.undo.copy(removedSlot = RemovedSlot(msg.routineId, index, slots[index]))) and felt + Cmd.Ui(
+    return removed.undo { it.copy(removedSlot = RemovedSlot(msg.routineId, index, slots[index])) } and felt + Cmd.Ui(
         UiEvent.Snackbar("Removed $name", actionLabel = "Undo", onAction = Msg.Routines.UndoRemoveSlot, tag = SLOT_SNACKBAR),
     )
 }
@@ -189,7 +193,7 @@ internal fun history(msg: Msg.History, model: Model): Next = when (msg) {
                 deleted.only()
             } else {
                 // A second delete replaces the first snackbar, so only the newest one can be undone.
-                deleted.copy(undo = deleted.undo.copy(deletedWorkout = DeletedWorkout(workout, index))) and Cmd.Ui(
+                deleted.undo { it.copy(deletedWorkout = DeletedWorkout(workout, index)) } and Cmd.Ui(
                     UiEvent.Snackbar("Workout deleted", actionLabel = "Undo", onAction = Msg.History.UndoDelete, tag = HISTORY_SNACKBAR),
                 )
             }
@@ -199,7 +203,7 @@ internal fun history(msg: Msg.History, model: Model): Next = when (msg) {
     Msg.History.UndoDelete -> {
         val deleted = model.undo.deletedWorkout
         if (deleted == null) model.only()
-        else restoreWorkout(model.copy(undo = model.undo.copy(deletedWorkout = null)), deleted.workout, deleted.index)
+        else restoreWorkout(model.undo { it.copy(deletedWorkout = null) }, deleted.workout, deleted.index)
     }
 }
 
@@ -214,7 +218,7 @@ private fun restoreWorkout(model: Model, workout: io.github.alexanderop.eisen.do
 
 internal fun settings(msg: Msg.Settings, model: Model): Next {
     fun edit(change: (io.github.alexanderop.eisen.domain.Settings) -> io.github.alexanderop.eisen.domain.Settings): Model =
-        model.withState { it.copy(settings = change(it.settings)) }
+        model.withState { it.settings(change) }
     return when (msg) {
         is Msg.Settings.SetUnit -> setUnit(model, msg)
         is Msg.Settings.SetBar -> edit { it.copy(bar = msg.bar) }.only()
@@ -244,14 +248,22 @@ private fun setUnit(model: Model, msg: Msg.Settings.SetUnit): Next {
             progress = state.progress.mapValues { (id, entry) ->
                 convertProgress(entry, state.findExercise(id)?.equipment ?: Equipment.BARBELL, from, msg.unit)
             },
-            settings = state.settings.copy(unit = msg.unit, bar = unitDefaults(msg.unit).bar),
-        )
+        ).settings { it.copy(unit = msg.unit, bar = unitDefaults(msg.unit).bar) }
     }.only()
 }
 
 // Backups
 
 const val NOT_A_BACKUP = "That file is not an Eisen backup. Nothing was changed."
+const val BACKUP_TOO_NEW = "That backup is from a newer version of Eisen. Update the app, then import it again. Nothing was changed."
+
+/** What the lifter is told about a file that could not be imported. */
+fun refusal(loaded: Loaded): String? = when (loaded) {
+    is Loaded.Ok -> null
+    Loaded.NotJson, Loaded.NotEisen -> NOT_A_BACKUP
+    is Loaded.TooNew -> BACKUP_TOO_NEW
+    is Loaded.Broken -> "That backup is damaged: ${loaded.reason}. Nothing was changed."
+}
 const val BACKUP_RESTORED = "Backup restored."
 
 internal fun data(msg: Msg.Data, model: Model, env: Env): Next = when (msg) {
@@ -264,13 +276,12 @@ internal fun data(msg: Msg.Data, model: Model, env: Env): Next = when (msg) {
     Msg.Data.SendFailed -> model.copy(dataNotice = "Could not create the backup.").only()
     Msg.Data.Reset -> {
         val (stopped, cmds) = stopRest(model)
-        stopped.copy(
+        stopped.nav { it.copy(workoutOpen = false, routine = null) }.copy(
             state = freshState(model.state.settings.unit),
             session = Session.Idle,
             lastChanges = null,
             repsQuestion = null,
             undo = Undo(),
-            nav = stopped.nav.copy(workoutOpen = false, routine = null),
             dataNotice = "All data erased.",
         ) and cmds
     }
@@ -278,16 +289,18 @@ internal fun data(msg: Msg.Data, model: Model, env: Env): Next = when (msg) {
 
 /** A backup's workout replaces the running one, its rest goes, and a discarded one can no longer come back. */
 private fun import(model: Model, json: String): Next {
-    val parsed = decodeState(json) ?: return model.copy(dataNotice = NOT_A_BACKUP).only()
+    val parsed = when (val loaded = loadState(json)) {
+        is Loaded.Ok -> loaded.state
+        else -> return model.copy(dataNotice = refusal(loaded)).only()
+    }
     val (stopped, cmds) = stopRest(model)
     val routine = stopped.nav.routine?.takeIf { id -> parsed.routines.any { it.id == id } }
-    return stopped.copy(
+    return stopped.nav { it.copy(routine = routine) }.copy(
         state = parsed,
         session = Session.restore(parsed),
         lastChanges = null,
         repsQuestion = null,
         undo = Undo(),
-        nav = stopped.nav.copy(routine = routine),
         dataNotice = BACKUP_RESTORED,
     ) and cmds
 }
@@ -300,24 +313,24 @@ private const val HEALTH_REFUSED = "Health Connect did not allow Eisen to write 
 internal fun health(msg: Msg.Health, model: Model): Next {
     val health = model.health
     fun switched(on: Boolean, notice: String? = health.notice): Next {
-        val next = model.copy(health = health.copy(enabled = on, notice = notice))
+        val next = model.health { it.copy(enabled = on, notice = notice) }
         return if (on == health.enabled) next.only() else next and Cmd.SaveHealthEnabled(on)
     }
     return when (msg) {
         Msg.Health.Toggle ->
             if (health.enabled) switched(false, notice = null)
             // Already allowed, for example after turning sync off and on again: no need to ask.
-            else model.copy(health = health.copy(notice = null)) and Cmd.Health(HealthJob.CheckPermission(PermissionCheck.TOGGLE))
+            else model.health { it.copy(notice = null) } and Cmd.Health(HealthJob.CheckPermission(PermissionCheck.TOGGLE))
         is Msg.Health.PermissionChecked -> when (msg.purpose) {
             PermissionCheck.TOGGLE -> if (msg.granted) switched(true) else model and Cmd.Ui(UiEvent.RequestHealthPermission)
             // Taken away in Health Connect while the app was closed: show the switch as off.
             PermissionCheck.STARTUP -> if (!msg.granted && health.enabled) switched(false) else model.only()
         }
         is Msg.Health.PermissionResult -> switched(msg.granted, notice = if (msg.granted) null else HEALTH_REFUSED)
-        Msg.Health.PermissionRequestFailed -> model.copy(health = health.copy(notice = "Could not open Health Connect.")).only()
+        Msg.Health.PermissionRequestFailed -> model.health { it.copy(notice = "Could not open Health Connect.") }.only()
         Msg.Health.SyncPast ->
             if (health.syncing) model.only()
-            else model.copy(health = health.copy(syncing = true, notice = "Syncing…")) and Cmd.Health(HealthJob.SyncPast(model.state.history, model.state.timerSessions))
+            else model.health { it.copy(syncing = true, notice = "Syncing…") } and Cmd.Health(HealthJob.SyncPast(model.state.history, model.state.timerSessions))
         is Msg.Health.SyncedPast -> {
             val count = msg.count
             val notice = when {
@@ -326,12 +339,12 @@ internal fun health(msg: Msg.Health, model: Model): Next {
                 count == 1 -> "1 workout synced."
                 else -> "$count workouts synced."
             }
-            model.copy(health = health.copy(syncing = false, notice = notice)).only()
+            model.health { it.copy(syncing = false, notice = notice) }.only()
         }
         Msg.Health.Revoked -> switched(false)
         Msg.Health.RowsShown -> model and Cmd.Health(HealthJob.CheckAvailability)
         is Msg.Health.Availability ->
             if (msg.availability == health.availability) model.only()
-            else model.copy(health = health.copy(availability = msg.availability)).only()
+            else model.health { it.copy(availability = msg.availability) }.only()
     }
 }

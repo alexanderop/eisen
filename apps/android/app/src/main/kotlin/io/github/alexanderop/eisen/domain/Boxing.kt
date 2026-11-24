@@ -614,7 +614,7 @@ fun boxingCues(config: TimerConfig, calls: TimerCalls, seed: Int): List<TimerCue
             // The first stretch is announced after the theme, the others as they begin. None in the non-stop finish.
             var into = 0L
             while (into < limit) {
-                val focus = focusAt(round, into)!!
+                val focus = focusAt(round, into) ?: break
                 val at = if (into == 0L) FIRST_CALL - 1500 else into
                 if (at < burnFrom) say(start + at, "box-${focus.name.lowercase()}")
                 into += round.split * SECOND
