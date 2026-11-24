@@ -12,6 +12,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
@@ -597,7 +605,15 @@ private const val SETTLE_FROM = 0.82f
  * drawing only: the tap is handled on the frame it lands, and a second tap never waits for them.
  */
 @Composable
-fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modifier = Modifier, description: String = text, badge: String? = null) {
+fun SetButton(
+    text: String,
+    state: SetState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    description: String = text,
+    badge: String? = null,
+    hold: SetHold? = null,
+) {
     val motion = MaterialTheme.motionScheme
     val background by animateColorAsState(
         when (state) {
@@ -635,7 +651,8 @@ fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modi
                 .clip(shape)
                 .background(background)
                 .then(if (state == SetState.MISSED) Modifier.border(2.dp, EisenColors.Warn, shape) else Modifier)
-                .clickable(interactionSource = press, indication = ripple(), role = Role.Button, onClickLabel = description, onClick = onClick),
+                .clickable(interactionSource = press, indication = ripple(), role = Role.Button, onClickLabel = description, onClick = onClick)
+                .then(if (hold != null) Modifier.holdToPick(hold) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             // A hold such as "10:00" is longer than any count of reps.
@@ -660,6 +677,63 @@ fun SetButton(text: String, state: SetState, onClick: () -> Unit, modifier: Modi
             }
         }
     }
+}
+
+/**
+ * What holding a set does besides its tap. [start] is called with the set's bounds in the root once
+ * the hold is long enough (or TalkBack's long press or [action] asks) and says whether numbers opened
+ * that follow the finger: then [slide] gets every move after the finger left the set's spot and
+ * [lift] where it let go (root), and whether it slid first. Either way the tap does not fire on release.
+ * [label] is what TalkBack says a long press does, null for none; [action] the same as a custom action.
+ */
+class SetHold(
+    val label: String?,
+    val action: String?,
+    val start: (anchor: Rect) -> Boolean,
+    val slide: (at: Offset) -> Unit = {},
+    val lift: (at: Offset, slid: Boolean) -> Unit = { _, _ -> },
+)
+
+/**
+ * The hold of a set, next to its click: it watches the press without taking it, so the tap lands on the
+ * frame it always did. The touch is claimed for the set ([LongPressClaim]), so the card around does not
+ * lift itself for reordering; once the hold is long enough every touch is consumed here, before the
+ * click, the card's swipe and the list's scroll see it.
+ */
+private fun Modifier.holdToPick(hold: SetHold): Modifier = composed {
+    val current by rememberUpdatedState(hold)
+    val claim = LocalLongPressClaim.current
+    val holder = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    fun bounds(): Rect? = holder[0]?.takeIf { it.isAttached }?.boundsInRoot()
+    onPlaced { holder[0] = it }
+        .semantics {
+            hold.label?.let { label -> onLongClick(label) { bounds()?.let { current.start(it) } != null } }
+            hold.action?.let { action -> customActions = listOf(CustomAccessibilityAction(action) { bounds()?.let { current.start(it) } != null }) }
+        }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                claim?.claim(down.id)
+                val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                val layout = holder[0]?.takeIf { it.isAttached } ?: return@awaitEachGesture
+                press.consume()
+                val follows = current.start(layout.boundsInRoot())
+                var at = layout.localToRoot(press.position)
+                var slid = false
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == press.id } ?: break
+                    event.changes.forEach { it.consume() }
+                    if (layout.isAttached) at = layout.localToRoot(change.position)
+                    if (!change.pressed) {
+                        if (follows) current.lift(at, slid)
+                        break
+                    }
+                    if (!slid && (change.position - press.position).getDistance() > viewConfiguration.touchSlop) slid = true
+                    if (follows && slid) current.slide(at)
+                }
+            }
+        }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

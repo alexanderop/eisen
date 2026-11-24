@@ -224,7 +224,8 @@ private fun touch(event: WorkoutEvent, model: Model, env: Env): Next {
         is WorkoutEvent.LogHold -> logs?.getOrNull(event.exercise)
         // Listed one by one, so a new event does not compile until it says whether it settles an exercise.
         // A correction or a rating from the rest screen changes no set from open to logged, so nothing moves.
-        WorkoutEvent.Start, is WorkoutEvent.CorrectReps, is WorkoutEvent.RateSet, is WorkoutEvent.SetWeight, is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise,
+        // Asking for the count of a max-reps set logs nothing yet.
+        WorkoutEvent.Start, is WorkoutEvent.EnterReps, is WorkoutEvent.CorrectReps, is WorkoutEvent.RateSet, is WorkoutEvent.SetWeight, is WorkoutEvent.SetWorkingWeight, is WorkoutEvent.AddExercise,
         is WorkoutEvent.RemoveExercise, is WorkoutEvent.Defer, is WorkoutEvent.Move, is WorkoutEvent.Rise,
         WorkoutEvent.RequestFinish, WorkoutEvent.RequestDiscard, WorkoutEvent.Confirm, WorkoutEvent.Cancel,
         WorkoutEvent.Undo, WorkoutEvent.Forget,
@@ -248,10 +249,21 @@ private fun workoutScreen(msg: Msg.WorkoutScreen, model: Model, env: Env): Next 
         model.copy(warmupDone = if (msg.key in done) done - msg.key else done + msg.key).only()
     }
     Msg.WorkoutScreen.CloseRepsEntry -> model.copy(repsQuestion = null).only()
+    is Msg.WorkoutScreen.PickReps -> pickReps(msg, model, env)
     is Msg.WorkoutScreen.Settle ->
         if (model.settling == Settling(msg.id, msg.since)) settle(model, env) else model.only()
     Msg.WorkoutScreen.SettleNow -> settle(model, env)
     is Msg.WorkoutScreen.MoveBy -> moveBy(msg, model, env)
+}
+
+/**
+ * A number picked on a set: [WorkoutEvent.LogReps] does the logging. The first pick also tells the
+ * workout screen that the lifter knows the gesture, so its hint goes, for good.
+ */
+private fun pickReps(msg: Msg.WorkoutScreen.PickReps, model: Model, env: Env): Next {
+    if (model.session !is Session.Running) return model.only()
+    val (picked, cmds) = touch(WorkoutEvent.LogReps(msg.exercise, msg.set, msg.reps), model, env)
+    return (if (picked.state.pickedReps) picked else picked.withState { it.copy(pickedReps = true) }) and cmds
 }
 
 /** Moves an open exercise one place among the open ones, counted in the order the screen shows once settled. */

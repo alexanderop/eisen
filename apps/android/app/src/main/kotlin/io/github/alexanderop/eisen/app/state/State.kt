@@ -73,6 +73,11 @@ data class AppState(
     val active: Workout?,
     /** Finished workouts, newest first. */
     val history: List<Workout>,
+    /**
+     * The lifter has picked the reps of a set by holding it once, so the workout screen no longer explains
+     * how. Older files have no such field and older builds ignore it: no migration.
+     */
+    val pickedReps: Boolean = false,
     /** Saved interval timers, in the order the Timer tab shows them. */
     val timerPresets: List<TimerPreset> = emptyList(),
     /** Finished interval timers, newest first. */

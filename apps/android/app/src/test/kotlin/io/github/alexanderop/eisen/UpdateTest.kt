@@ -531,6 +531,21 @@ class UpdateTest {
         assertEquals(listOf("row"), second.run.ranking)
     }
 
+    @Test fun `the first number picked on a set ends the hint for good, and logs like LogReps`() {
+        val running = started()
+        assertFalse(running.state.pickedReps)
+        val picked = running.send(Msg.WorkoutScreen.PickReps(0, 0, 4))
+        assertEquals(running.send(WorkoutEvent.LogReps(0, 0, 4)).workout, picked.workout)
+        assertTrue(picked.state.pickedReps)
+        assertEquals(1, picked.cmds.filterIsInstance<Cmd.Save>().size)
+        assertEquals(Settling("hackSquat", LATER), picked.model.settling)
+        // It stays after the workout, and a picker with nothing running changes nothing.
+        val finished = picked.send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm)
+        assertTrue(finished.state.pickedReps)
+        assertIgnored(finished, Msg.WorkoutScreen.PickReps(0, 0, 4))
+        assertIgnored(stepOf(), Msg.WorkoutScreen.PickReps(0, 0, 4))
+    }
+
     @Test fun `a max-reps set settles when its count is logged, not when it is tapped`() {
         val asked = started().send(WorkoutEvent.TapSet(3, 0))
         assertNull(asked.model.settling)
@@ -788,6 +803,7 @@ class UpdateTest {
         var held = 0
         var screens = 0
         var corrected = 0
+        var picked = 0
         var rated = 0
         var doneScreens = 0
         var timed = 0
@@ -874,6 +890,18 @@ class UpdateTest {
                 rated++
                 assertEquals(where, event.rir, rirOf(after.workout.exercises[event.exercise], event.set))
                 assertEquals(where, step.workout.exercises[event.exercise].sets, after.workout.exercises[event.exercise].sets)
+            }
+            // A number picked on a logged set only corrects it, like the wheel: the rest runs on untouched.
+            if (msg is Msg.WorkoutScreen.PickReps && step.session is Session.Running) {
+                val before = step.workout.exercises.getOrNull(msg.exercise)
+                assertTrue(where, after.state.pickedReps)
+                if (before != null && before.sets.getOrNull(msg.set) != null) {
+                    assertEquals(where, step.model.rest, after.model.rest)
+                    assertTrue(where, after.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown })
+                } else if (before != null && before.targetReps != null && !before.timed && msg.set in before.sets.indices && msg.reps in 0..before.targetReps!!) {
+                    assertEquals(where, msg.reps, after.workout.exercises[msg.exercise].sets[msg.set])
+                    picked++
+                }
             }
             if (event is WorkoutEvent.CorrectReps && after.model != step.model) {
                 corrected++
@@ -1056,6 +1084,7 @@ class UpdateTest {
         assertTrue("only $held holds were logged by the timer", held >= 5)
         assertTrue("only $screens rest screens opened", screens >= 20)
         assertTrue("only $corrected sets were corrected", corrected >= 5)
+        assertTrue("only $picked open sets were logged by a picked number", picked >= 5)
         assertTrue("only $rated sets were rated", rated >= 20)
         assertTrue("only $doneScreens set done screens opened", doneScreens >= 5)
         assertTrue("only $timed timers started", timed >= 30)
@@ -1235,6 +1264,10 @@ class UpdateTest {
             { Msg.Workout(WorkoutEvent.Forget) },
             { Msg.WorkoutScreen.ToggleWarmup(warmupKey(exerciseId, set)) },
             { Msg.WorkoutScreen.CloseRepsEntry },
+            // Holding a set: a number picked (the rest screen's set, a logged one or any), or the reps question.
+            { Msg.WorkoutScreen.PickReps(corrected.first, corrected.second, random.nextInt(8) - 1) },
+            { Msg.WorkoutScreen.PickReps(exercise, set, random.nextInt(8) - 1) },
+            { Msg.Workout(WorkoutEvent.EnterReps(exercise, set)) },
             { Msg.WorkoutScreen.Settle(exerciseId, model.settling?.since ?: 0) },
             { Msg.WorkoutScreen.SettleNow },
             { Msg.WorkoutScreen.MoveBy(exerciseId, if (random.nextBoolean()) 1 else -1) },

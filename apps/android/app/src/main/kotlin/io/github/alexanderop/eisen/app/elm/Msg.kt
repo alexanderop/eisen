@@ -35,6 +35,9 @@ sealed interface Msg {
         /** The reps entry was closed without logging a count. */
         data object CloseRepsEntry : WorkoutScreen
 
+        /** A number picked on a set with a target, by holding the set: logs it, see [WorkoutEvent.LogReps]. */
+        data class PickReps(val exercise: Int, val set: Int, val reps: Int) : WorkoutScreen
+
         /**
          * [SETTLE_MS] after the tap at [since] on [id] ([Model.settling]): the exercise takes its place.
          * A later tap started a new wait, so a Settle of an older one changes nothing.

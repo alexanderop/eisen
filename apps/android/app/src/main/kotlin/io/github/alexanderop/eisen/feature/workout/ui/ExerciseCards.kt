@@ -67,6 +67,12 @@ import io.github.alexanderop.eisen.feature.workout.warmupSets
 import io.github.alexanderop.eisen.feature.workout.warmupStep
 import io.github.alexanderop.eisen.app.elm.warmupKey
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.Haptic
+import io.github.alexanderop.eisen.core.ui.Haptics
+import io.github.alexanderop.eisen.core.ui.RepsPick
+import io.github.alexanderop.eisen.core.ui.RepsPickerState
+import io.github.alexanderop.eisen.core.ui.SetHold
+import io.github.alexanderop.eisen.core.ui.pickableReps
 import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.ExerciseTile
 import io.github.alexanderop.eisen.core.ui.Icons
@@ -130,6 +136,10 @@ internal fun ExerciseCard(
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onTap: (setIndex: Int) -> Unit,
+    /** What holding a set does: the numbers to pick from, the reps question, or a tap. */
+    holds: SetHolds,
+    /** Shows how holding a set works, until the lifter has picked reps once. */
+    hint: Boolean,
     modifier: Modifier = Modifier,
     actions: List<CustomAccessibilityAction> = emptyList(),
 ) {
@@ -183,7 +193,10 @@ internal fun ExerciseCard(
                     )
                     Icon(Icons.ChevronRight, contentDescription = null, tint = EisenColors.Primary, modifier = Modifier.size(20.dp))
                 }
-                SetsGrid(log, lastSets, showRir, onTap)
+                SetsGrid(log, lastSets, showRir, onTap, holds)
+                if (hint) {
+                    Text(HOLD_HINT, color = EisenColors.MutedForeground, fontSize = 13.sp)
+                }
                 if (lastTime != null) {
                     Text("Last time, $lastTime", color = EisenColors.Foreground, fontSize = 13.sp)
                 }
@@ -225,9 +238,61 @@ internal fun setDescription(log: ExerciseLog, reps: Int?, rir: Int? = null): Str
     else -> "$reps reps"
 }
 
+/** The line under the sets that teaches the hold. It goes once the lifter has picked reps by holding a set. */
+internal const val HOLD_HINT = "Tap: all reps. Hold: pick the reps."
+
+/**
+ * What holding a set of an exercise does. A set with a target opens its numbers in [picker]; picking one
+ * sends [onPick] (set, reps). A max-reps set asks for its count ([onEnter]). A timed set has no numbers:
+ * holding it is a tap.
+ */
+internal class SetHolds(
+    val picker: RepsPickerState,
+    val haptics: Haptics,
+    val onPick: (set: Int, reps: Int) -> Unit,
+    val onEnter: (set: Int) -> Unit,
+)
+
+private fun holdOf(log: ExerciseLog, set: Int, holds: SetHolds, onTap: (Int) -> Unit): SetHold {
+    val target = log.targetReps
+    return when {
+        log.timed -> SetHold(label = null, action = null, start = { onTap(set); false })
+        target == null -> SetHold(
+            label = "Enter the reps",
+            action = SET_REPS,
+            start = {
+                holds.haptics.perform(Haptic.THRESHOLD)
+                holds.onEnter(set)
+                false
+            },
+        )
+        else -> SetHold(
+            label = "Pick the reps",
+            action = SET_REPS,
+            start = { anchor ->
+                val logged = log.sets.getOrNull(set)
+                holds.picker.open(
+                    RepsPick(pickableReps(target), logged, anchor) { reps ->
+                        // A logged set is only corrected, which the program does without a feel of its own.
+                        if (logged != null && reps != logged) holds.haptics.perform(Haptic.TOGGLE_ON)
+                        holds.onPick(set, reps)
+                    },
+                )
+                holds.haptics.perform(Haptic.THRESHOLD)
+                true
+            },
+            slide = { at -> if (holds.picker.slide(at)) holds.haptics.perform(Haptic.STEP) },
+            lift = { at, slid -> holds.picker.lift(at, slid) },
+        )
+    }
+}
+
+/** The custom action TalkBack offers on a set: what a long press does, without the gesture. */
+internal const val SET_REPS = "Set reps"
+
 /** Five sets to a row; an exercise with more sets wraps into a second row. */
 @Composable
-private fun SetsGrid(log: ExerciseLog, lastSets: List<Int?>, showRir: Boolean, onTap: (Int) -> Unit) {
+private fun SetsGrid(log: ExerciseLog, lastSets: List<Int?>, showRir: Boolean, onTap: (Int) -> Unit, holds: SetHolds) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         log.sets.indices.chunked(5).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -241,6 +306,7 @@ private fun SetsGrid(log: ExerciseLog, lastSets: List<Int?>, showRir: Boolean, o
                             onClick = { onTap(j) },
                             description = "${log.name} set ${j + 1}: ${setDescription(log, reps, rir)}",
                             badge = rir?.let(::rirText),
+                            hold = holdOf(log, j, holds, onTap),
                         )
                     }
                 }

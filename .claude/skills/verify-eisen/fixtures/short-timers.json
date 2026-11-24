@@ -285,5 +285,6 @@
             }
         }
     },
-    "wods": []
+    "wods": [],
+    "pickedReps": false
 }

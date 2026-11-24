@@ -27,8 +27,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -45,6 +48,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,12 +99,27 @@ import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.ClockBar
 import androidx.compose.material3.MaterialTheme
 import io.github.alexanderop.eisen.core.ui.pressShapes
+import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
+import io.github.alexanderop.eisen.core.ui.NumberRow
+import io.github.alexanderop.eisen.core.ui.pickableReps
 import io.github.alexanderop.eisen.core.ui.Wheel
 import io.github.alexanderop.eisen.core.ui.formatClock
 import io.github.alexanderop.eisen.core.ui.rememberHaptics
 import kotlin.math.floor
 import kotlin.math.roundToInt
+
+/** A number key of the rest screen: the whole of it takes the touch, its face is drawn [KEY_INSET] inside. */
+private val KEY = 48.dp
+private val KEY_INSET = 2.dp
+
+/** The narrowest the weight wheel gets beside the number keys, and the room between the two. */
+private val MIN_WEIGHT_BOX = 88.dp
+private val LIFT_GAP = 10.dp
+private val WHEEL_BOX_PADDING = 6.dp
+
+/** The number keys beside the weight wheel: [columns] by [rows], of which [shown] rows show at once, [width] with the box around them. */
+private class KeyGrid(val columns: Int, val rows: Int, val shown: Int, val width: Dp)
 
 /** The last seconds of a rest turn the bar amber, like the rest bar. */
 private const val SOON_SECONDS = 10
@@ -112,8 +132,9 @@ private const val MINIMISE_VELOCITY = 1_500f
 private val COMPACT_HEIGHT = 700.dp
 
 /**
- * The running [rest] over the whole workout screen, with huge digits, and two wheels to correct the set
- * that started it ([screen], of [log]): the weight of the exercise and the reps of that set. Above them
+ * The running [rest] over the whole workout screen, with huge digits, and what corrects the set that
+ * started it ([screen], of [log]): the weight wheel of the exercise and the reps of that set, as number
+ * keys for a set with a target and as a wheel for a max-reps set. Above them
  * the chips that rate the set's reps in reserve, when it can be rated. It shows the time at [now], the
  * model's clock, which ticks every second while a rest runs and the app shows. The cues, the alarms and
  * the end of the rest come from `update`. A swipe down, the chevron or the back gesture put it away to
@@ -343,7 +364,7 @@ private class RestParts(
         }
     }
 
-    /** "What did you lift?": the weight wheel, the reps wheel (or the time held) and what they make. */
+    /** "What did you lift?": the weight wheel, the reps (number keys, a wheel for a max-reps set, or the time held) and what they make. */
     @Composable
     fun Lift() {
         val unit = settings.unit
@@ -359,35 +380,45 @@ private class RestParts(
             verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
         ) {
             Text("What did you lift?", color = EisenColors.Foreground, fontSize = if (compact) 17.sp else 20.sp, fontWeight = FontWeight.ExtraBold)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val weights = remember(log.equipment, unit, settings.bar, log.weight) { weightChoices(log.equipment, unit, settings.bar, log.weight) }
-                WheelBox(if (bodyweight) "+${unit.label}" else unit.label, compact, Modifier.weight(1f)) {
-                    Wheel(
-                        labels = remember(weights) { weights.map { if (bodyweight && it == 0.0) "BW" else formatNumber(it) } },
-                        selected = weights.indexOf(log.weight).coerceAtLeast(0),
-                        onSettle = { dispatch(Msg.Workout(WorkoutEvent.SetWeight(screen.exercise, weights[it]))) },
-                        label = if (bodyweight) "Added weight" else "Weight",
-                        spoken = { spokenWeight(weights[it], bodyweight, unit) },
-                        rowHeight = rowHeight,
-                    )
-                }
-                if (log.timed) {
-                    WheelBox("held", compact, Modifier.weight(1f)) {
-                        Box(Modifier.fillMaxWidth().height(rowHeight * 3), contentAlignment = Alignment.Center) {
-                            Text(holdText(count), color = EisenColors.Foreground, fontSize = (rowHeight.value * 0.66f).sp, fontWeight = FontWeight.ExtraBold)
-                        }
-                    }
-                } else {
-                    val choices = repsChoices(log.targetReps, count)
-                    WheelBox("reps", compact, Modifier.weight(1f)) {
+            // A set with a target gets number keys instead of the reps wheel; they take the width they need.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val target = log.targetReps.takeIf { !log.timed }
+                val numbers = remember(target, count) { target?.let { pickableReps(maxOf(it, count)) } }
+                val keys = numbers?.let { keyGrid(it.size, maxWidth - LIFT_GAP) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LIFT_GAP)) {
+                    val weights = remember(log.equipment, unit, settings.bar, log.weight) { weightChoices(log.equipment, unit, settings.bar, log.weight) }
+                    WheelBox(if (bodyweight) "+${unit.label}" else unit.label, compact, Modifier.weight(1f)) {
                         Wheel(
-                            labels = remember(choices) { choices.map { it.toString() } },
-                            selected = count,
-                            onSettle = { dispatch(Msg.Workout(WorkoutEvent.CorrectReps(screen.exercise, screen.set, it))) },
-                            label = "Reps",
-                            spoken = { if (it == 1) "1 rep" else "$it reps" },
+                            labels = remember(weights) { weights.map { if (bodyweight && it == 0.0) "BW" else formatNumber(it) } },
+                            selected = weights.indexOf(log.weight).coerceAtLeast(0),
+                            onSettle = { dispatch(Msg.Workout(WorkoutEvent.SetWeight(screen.exercise, weights[it]))) },
+                            label = if (bodyweight) "Added weight" else "Weight",
+                            spoken = { spokenWeight(weights[it], bodyweight, unit) },
                             rowHeight = rowHeight,
                         )
+                    }
+                    if (log.timed) {
+                        WheelBox("held", compact, Modifier.weight(1f)) {
+                            Box(Modifier.fillMaxWidth().height(rowHeight * 3), contentAlignment = Alignment.Center) {
+                                Text(holdText(count), color = EisenColors.Foreground, fontSize = (rowHeight.value * 0.66f).sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    } else if (numbers != null && keys != null) {
+                        WheelBox("reps", compact, Modifier.width(keys.width)) {
+                            RepsKeys(numbers, count, keys)
+                        }
+                    } else {
+                        val choices = repsChoices(log.targetReps, count)
+                        WheelBox("reps", compact, Modifier.weight(1f)) {
+                            Wheel(
+                                labels = remember(choices) { choices.map { it.toString() } },
+                                selected = count,
+                                onSettle = { dispatch(Msg.Workout(WorkoutEvent.CorrectReps(screen.exercise, screen.set, it))) },
+                                label = "Reps",
+                                spoken = { if (it == 1) "1 rep" else "$it reps" },
+                                rowHeight = rowHeight,
+                            )
+                        }
                     }
                 }
             }
@@ -401,6 +432,55 @@ private class RestParts(
                 textAlign = TextAlign.Center,
             )
         }
+    }
+
+    /**
+     * How the number keys of a set with a target sit beside the weight wheel in [room]: never taller than
+     * the wheel (two rows of 48 dp on a short phone, three otherwise), as wide as half the room when they
+     * need no more, and the weight wheel keeps [MIN_WEIGHT_BOX]. Rows that still do not fit scroll.
+     */
+    private fun keyGrid(count: Int, room: Dp): KeyGrid {
+        val shown = maxOf(1, ((rowHeight * 3) / KEY).toInt())
+        val fit = maxOf(1, ((room - MIN_WEIGHT_BOX - WHEEL_BOX_PADDING * 2) / KEY).toInt())
+        val half = ((room / 2 - WHEEL_BOX_PADDING * 2) / KEY).toInt()
+        val columns = maxOf((count + shown - 1) / shown, half).coerceAtMost(minOf(fit, count)).coerceAtLeast(1)
+        val rows = (count + columns - 1) / columns
+        val even = (count + rows - 1) / rows
+        return KeyGrid(even, rows, minOf(rows, shown), KEY * even + WHEEL_BOX_PADDING * 2)
+    }
+
+    /**
+     * The counts of a set with a target as number keys, the logged one lime: one tap corrects the set.
+     * Rows that do not fit scroll, by whole rows, with the logged count in view.
+     */
+    @Composable
+    private fun RepsKeys(numbers: List<Int>, count: Int, grid: KeyGrid) {
+        val haptics = rememberHaptics()
+        val scroll = rememberScrollState()
+        val keyRow = with(LocalDensity.current) { KEY.roundToPx() }
+        LaunchedEffect(grid.columns) { scroll.scrollTo(minOf(numbers.indexOf(count).coerceAtLeast(0) / grid.columns, grid.rows - grid.shown) * keyRow) }
+        // A scroll comes to rest on a whole row, so no row of keys is left cut in half.
+        LaunchedEffect(scroll, keyRow) {
+            snapshotFlow { scroll.isScrollInProgress }.filter { !it }.collect {
+                val row = ((scroll.value + keyRow / 2) / keyRow * keyRow).coerceAtMost(scroll.maxValue)
+                if (row != scroll.value) scroll.animateScrollTo(row)
+            }
+        }
+        NumberRow(
+            numbers = numbers,
+            selected = count,
+            onPick = {
+                if (it != count) {
+                    haptics.perform(Haptic.TOGGLE_ON)
+                    dispatch(Msg.Workout(WorkoutEvent.CorrectReps(screen.exercise, screen.set, it)))
+                }
+            },
+            label = "Reps",
+            modifier = Modifier.height(KEY * grid.shown).verticalScroll(scroll),
+            columns = grid.columns,
+            gap = 0.dp,
+            inset = KEY_INSET,
+        )
     }
 
     /** "Up next" and the button that ends the rest. "Exercise done" and the button that closes the "set done" screen. */
@@ -494,7 +574,7 @@ private fun WheelBox(header: String, compact: Boolean, modifier: Modifier, conte
             .clip(RoundedCornerShape(14.dp))
             .background(EisenColors.Background)
             .border(1.dp, EisenColors.Border, RoundedCornerShape(14.dp))
-            .padding(horizontal = 6.dp, vertical = if (compact) 4.dp else 6.dp),
+            .padding(horizontal = WHEEL_BOX_PADDING, vertical = if (compact) 4.dp else 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(header, color = EisenColors.MutedForeground, fontSize = if (compact) 13.sp else 15.sp, fontWeight = FontWeight.Bold)

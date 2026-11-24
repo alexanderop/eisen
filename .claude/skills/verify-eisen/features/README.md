@@ -6,7 +6,7 @@ lists others.
 
 | File | Starts on | Takes (measured) | Feature |
 |---|---|---|---|
-| `workout.md` | `--fresh` | 0:55 | Start a workout, log sets, the rest timer, rating a set, finishing |
+| `workout.md` | `--fresh` (twice) | 1:35 | Start a workout, log sets, pick the reps by holding a set, the rest timer, rating a set, finishing |
 | `interval-timers.md` | `--state short-timers` | 5:20 | Tabata, EMOM, AMRAP, For Time: setup, saved timers, runs to `Completed`, screen off, a killed app, ending early |
 | `boxing.md` | `--state short-timers` | 5:25 | The boxing timer with the coach: setup, run, result with punches, time left in the round |
 | `wods.md` | `--state lifter` | 2:45 | The WODs page: own WODs, benchmarks, search, a run against the best, a first run |

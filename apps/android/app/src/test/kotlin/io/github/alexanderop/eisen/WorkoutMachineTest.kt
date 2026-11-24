@@ -23,6 +23,7 @@ import io.github.alexanderop.eisen.app.elm.WorkoutEvent.SetWorkingWeight
 import io.github.alexanderop.eisen.app.elm.WorkoutEvent.Start
 import io.github.alexanderop.eisen.app.elm.WorkoutEvent.TapSet
 import io.github.alexanderop.eisen.app.elm.WorkoutEvent.Undo
+import io.github.alexanderop.eisen.app.elm.WorkoutEvent
 import io.github.alexanderop.eisen.app.elm.active
 import io.github.alexanderop.eisen.app.elm.canDefer
 import io.github.alexanderop.eisen.app.elm.Cmd
@@ -210,6 +211,95 @@ class WorkoutMachineTest {
         assertEquals(listOf(Feel.TAP), cleared.feels)
         assertNull(cleared.model.rest)
         assertTrue(cleared.stopsRest())
+    }
+
+    // Picking the reps of a set with a target (holding the set): LogReps
+
+    @Test fun `a picked count on an open set at the target logs it like one tap`() {
+        val picked = started().send(LogReps(0, 0, 5))
+        val tapped = started().send(TapSet(0, 0))
+        assertEquals(tapped.workout, picked.workout)
+        assertEquals(rest(90, "All reps done."), picked.model.rest)
+        assertEquals(listOf(Feel.TAP), picked.feels)
+        assertEquals(tapped.cmds, picked.cmds)
+    }
+
+    @Test fun `a picked count below the target logs it in one step, warns and starts the longer rest`() {
+        val picked = started().send(LogReps(0, 0, 3))
+        val tappedDown = (1..3).fold(started()) { at, _ -> at.send(TapSet(0, 0)) }
+        assertEquals(tappedDown.workout, picked.workout)
+        assertEquals(3, picked.workout.exercises[0].sets[0])
+        assertEquals(listOf(Feel.WARNING), picked.feels)
+        assertEquals(rest(300, "Missed reps. Rest longer."), picked.model.rest)
+        assertEquals(tappedDown.model.rest, picked.model.rest)
+    }
+
+    @Test fun `a picked zero is a set with no reps, not a cleared one`() {
+        val picked = started().send(LogReps(0, 0, 0))
+        assertEquals(listOf(0, null, null, null, null), picked.workout.exercises[0].sets)
+        assertEquals(listOf(Feel.WARNING), picked.feels)
+        assertEquals(rest(300, "Missed reps. Rest longer."), picked.model.rest)
+    }
+
+    @Test fun `a picked count on the last open set of an exercise leaves no rest behind`() {
+        val four = (0 until 4).fold(started()) { at, set -> at.send(TapSet(0, set)) }
+        val missed = four.send(LogReps(0, 4, 3))
+        assertEquals(listOf(5, 5, 5, 5, 3), missed.workout.exercises[0].sets)
+        assertEquals(listOf(Feel.WARNING), missed.feels)
+        assertNull(missed.model.rest)
+        assertTrue(missed.stopsRest())
+        // The same as tapping it down to 3; with all reps it feels like a success.
+        assertEquals((1..3).fold(four) { at, _ -> at.send(TapSet(0, 4)) }.workout, missed.workout)
+        val full = four.send(LogReps(0, 4, 5))
+        assertEquals(listOf(Feel.SUCCESS), full.feels)
+        assertNull(full.model.rest)
+    }
+
+    @Test fun `a picked count on a logged set corrects it and keeps its running rest`() {
+        val resting = started().send(TapSet(0, 0))
+        val corrected = resting.send(LogReps(0, 0, 4), now = LATER + 20_000)
+        assertEquals(4, corrected.workout.exercises[0].sets[0])
+        // The rest runs on as the rest screen's wheel would leave it: no new rest, no alarm, no feel.
+        assertEquals(resting.model.rest, corrected.model.rest)
+        assertEquals(resting.model.restScreen, corrected.model.restScreen)
+        assertTrue(corrected.feels.isEmpty())
+        assertTrue(corrected.cmds.none { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown })
+        assertEquals(resting.send(WorkoutEvent.CorrectReps(0, 0, 4), now = LATER + 20_000).workout, corrected.workout)
+        // The count it already has changes nothing.
+        assertIgnored(corrected, LogReps(0, 0, 4))
+    }
+
+    @Test fun `a picked count outside 0 to the target, or on a timed set, is ignored`() {
+        val running = started()
+        assertIgnored(running, LogReps(0, 0, 6))
+        assertIgnored(running, LogReps(0, 0, -1))
+        val plank = running.send(AddExercise("plank"))
+        assertIgnored(plank, LogReps(4, 0, 30))
+    }
+
+    @Test fun `a finished workout takes no picked count`() {
+        val finished = started().send(TapSet(0, 0)).send(RequestFinish).send(Confirm)
+        assertEquals(Session.Idle, finished.session)
+        assertIgnored(finished, LogReps(0, 1, 4))
+        val asking = started().send(TapSet(0, 0)).send(RequestFinish)
+        assertIgnored(asking, LogReps(0, 1, 4))
+    }
+
+    @Test fun `holding a max-reps set asks for the count and never logs it by itself`() {
+        val last = started().workout.copy(id = "old", exercises = started().workout.exercises.map { if (it.id == "dips") it.copy(sets = listOf(12, 10, null)) else it })
+        val withHistory = started(freshState(WeightUnit.KG).copy(history = listOf(last)))
+        val asked = withHistory.send(WorkoutEvent.EnterReps(3, 0))
+        assertEquals(RepsQuestion(3, 0, 12), asked.model.repsQuestion)
+        assertEquals(withHistory.workout, asked.workout)
+        assertNull(asked.model.rest)
+        assertEquals(RepsQuestion(3, 2, 8), withHistory.send(WorkoutEvent.EnterReps(3, 2)).model.repsQuestion)
+        // A logged one starts at its count.
+        val logged = withHistory.send(LogReps(3, 1, 9))
+        assertEquals(RepsQuestion(3, 1, 9), logged.send(WorkoutEvent.EnterReps(3, 1)).model.repsQuestion)
+        // A set with a target or a timed one has its own hold.
+        assertIgnored(withHistory, WorkoutEvent.EnterReps(0, 0))
+        assertIgnored(withHistory.send(AddExercise("plank")), WorkoutEvent.EnterReps(4, 0))
+        assertIgnored(stepOf(), WorkoutEvent.EnterReps(3, 0))
     }
 
     // Editing the running workout

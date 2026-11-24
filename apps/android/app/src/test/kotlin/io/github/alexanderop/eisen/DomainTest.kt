@@ -231,6 +231,14 @@ class DomainTest {
         assertEquals(freshState(kg).settings, decodeState(v5)!!.settings)
     }
 
+    @Test fun `knows the hold was learnt, and a file from before it loads without it`() {
+        val learnt = freshState(kg).copy(pickedReps = true)
+        assertEquals(Loaded.Ok(learnt), loadState(encodeState(learnt)))
+        val before = encodeState(freshState(kg)).replace(",\"pickedReps\":false", "")
+        assertFalse(before.contains("pickedReps"))
+        assertEquals(Loaded.Ok(freshState(kg)), loadState(before))
+    }
+
     @Test fun `round-trips a current state and rejects junk`() {
         val fresh = freshState(kg)
         assertEquals(fresh, decodeState(encodeState(fresh)))

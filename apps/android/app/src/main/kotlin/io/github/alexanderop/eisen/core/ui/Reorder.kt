@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -27,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -35,6 +37,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -507,9 +510,31 @@ fun LazyItemScope.ReorderableItem(
     // The lifted item places itself; the list's animation would pull it away from the finger.
     val placement = if (state.isLifted(key)) null else spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold)
     Box(modifier.animateItem(placementSpec = placement).lifted(state, key, shape) { state.offsetOf(key) }) {
-        content(state.isDragging(key))
+        CompositionLocalProvider(LocalLongPressClaim provides remember { LongPressClaim() }) {
+            content(state.isDragging(key))
+        }
     }
 }
+
+/**
+ * Lets an element inside a reorderable item keep its own long press, such as holding a set to pick its
+ * reps: the element calls [claim] as the finger lands on it, and [longPressToReorder] leaves that touch
+ * alone, so one hold does not open the element and lift the whole item at once. [ReorderableItem]
+ * provides one per item as [LocalLongPressClaim].
+ */
+@Stable
+class LongPressClaim internal constructor() {
+    private var pointer: PointerId? = null
+
+    fun claim(id: PointerId) {
+        pointer = id
+    }
+
+    internal fun claimed(id: PointerId): Boolean = pointer == id
+}
+
+/** The [LongPressClaim] of the reorderable item around, null outside one. */
+val LocalLongPressClaim = staticCompositionLocalOf<LongPressClaim?> { null }
 
 /** One draggable item of a Column. Wrap it in `key(itemKey) { }` when the Column is built in a loop. */
 @Composable
@@ -572,10 +597,12 @@ private fun Modifier.lifted(state: ReorderState, key: Any, shape: Shape, offset:
 fun Modifier.longPressToReorder(state: ReorderState, key: Any, enabled: Boolean = true): Modifier = composed {
     val allowed by rememberUpdatedState(enabled)
     val holder = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val claim = LocalLongPressClaim.current
     onPlaced { holder[0] = it }.pointerInput(state, key) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
-            if (!allowed) return@awaitEachGesture
+            // A child with a long press of its own (holding a set) took this touch as it landed.
+            if (!allowed || claim?.claimed(down.id) == true) return@awaitEachGesture
             // Null when the finger lifted, or a scroll or swipe took the touch first.
             val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
             followDrag(state, key, press, holder)

@@ -80,7 +80,10 @@ import io.github.alexanderop.eisen.app.elm.order
 import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Icons
+import io.github.alexanderop.eisen.core.ui.RepsPicker
+import io.github.alexanderop.eisen.core.ui.RepsPickerState
 import io.github.alexanderop.eisen.core.ui.ReorderableItem
+import io.github.alexanderop.eisen.core.ui.rememberHaptics
 import io.github.alexanderop.eisen.core.ui.longPressToReorder
 import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberLazyReorderState
@@ -121,6 +124,8 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val listState = rememberLazyListState()
+    val picker = remember { RepsPickerState() }
+    val haptics = rememberHaptics()
 
     // The lifter looks at the phone between sets without touching it; it must not go dark.
     val view = LocalView.current
@@ -135,6 +140,10 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
     val ordered = order(run, settling)
     val doneCount = ordered.count { it.done }
     val openIds = ordered.filterNot { it.done }.map { it.log.id }
+    // Numbers that were opened over a set no longer sit over it once the cards move: they close.
+    LaunchedEffect(ordered.map { it.log.id }) { picker.close() }
+    // The hold is explained on the first open exercise it picks reps for, until the lifter has done it once.
+    val hintOn = if (model.state.pickedReps) null else ordered.firstOrNull { !it.done && !it.log.timed && it.log.targetReps != null }?.log?.id
     val quiet = followSettled(listState, settling, openIds.firstOrNull())
 
     /** Settles the exercise tapped last without the list following it: the lifter is placing cards. */
@@ -254,6 +263,13 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
                                             onToggle = { expanded = if (row.log.id in expanded) expanded - row.log.id else expanded + row.log.id },
                                             onEdit = { editing = row.index },
                                             onTap = { set -> send(WorkoutEvent.TapSet(row.index, set)) },
+                                            holds = SetHolds(
+                                                picker = picker,
+                                                haptics = haptics,
+                                                onPick = { set, reps -> dispatch(Msg.WorkoutScreen.PickReps(row.index, set, reps)) },
+                                                onEnter = { set -> send(WorkoutEvent.EnterReps(row.index, set)) },
+                                            ),
+                                            hint = row.log.id == hintOn,
                                             modifier = Modifier.longPressToReorder(reorder, row.log.id, enabled = !row.done && openIds.size > 1),
                                             actions = actionsFor(row, position),
                                         )
@@ -293,6 +309,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
         }
         RestScreenOverlay(if (restScreen != null && resting != null) Triple(restScreen, rest, resting) else null, model, dispatch)
         if (hold != null && holding != null) HoldTimerScreen(hold, holding, model.now, dispatch)
+        RepsPicker(picker)
     }
 
     if (picking) {
