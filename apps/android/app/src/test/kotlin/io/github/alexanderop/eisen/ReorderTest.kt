@@ -1,9 +1,9 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.Slot
-import io.github.alexanderop.eisen.domain.elm.Msg
-import io.github.alexanderop.eisen.domain.elm.moved
-import io.github.alexanderop.eisen.domain.elm.nextRoutine
+import io.github.alexanderop.eisen.feature.workout.Slot
+import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.moved
+import io.github.alexanderop.eisen.app.elm.nextRoutine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test

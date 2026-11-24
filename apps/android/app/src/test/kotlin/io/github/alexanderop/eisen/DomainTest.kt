@@ -1,6 +1,14 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.*
+import io.github.alexanderop.eisen.core.*
+import io.github.alexanderop.eisen.app.state.*
+import io.github.alexanderop.eisen.app.elm.*
+import io.github.alexanderop.eisen.feature.share.*
+import io.github.alexanderop.eisen.feature.progress.*
+import io.github.alexanderop.eisen.feature.timer.*
+import io.github.alexanderop.eisen.feature.timer.boxing.*
+import io.github.alexanderop.eisen.feature.timer.wod.*
+import io.github.alexanderop.eisen.feature.workout.*
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

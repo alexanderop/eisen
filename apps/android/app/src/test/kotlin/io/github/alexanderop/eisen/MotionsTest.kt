@@ -1,12 +1,12 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.CATALOG
-import io.github.alexanderop.eisen.domain.MOTIONS
-import io.github.alexanderop.eisen.domain.MOTION_BACKGROUND
-import io.github.alexanderop.eisen.domain.MOTION_FRAMES
-import io.github.alexanderop.eisen.domain.MOTION_FRAME_MS
-import io.github.alexanderop.eisen.domain.MOTION_STILL_FRAME
-import io.github.alexanderop.eisen.domain.motionOf
+import io.github.alexanderop.eisen.core.CATALOG
+import io.github.alexanderop.eisen.core.MOTIONS
+import io.github.alexanderop.eisen.core.MOTION_BACKGROUND
+import io.github.alexanderop.eisen.core.MOTION_FRAMES
+import io.github.alexanderop.eisen.core.MOTION_FRAME_MS
+import io.github.alexanderop.eisen.core.MOTION_STILL_FRAME
+import io.github.alexanderop.eisen.core.motionOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

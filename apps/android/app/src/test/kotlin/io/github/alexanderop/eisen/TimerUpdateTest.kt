@@ -1,54 +1,54 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.DEFAULT_TIMERS
-import io.github.alexanderop.eisen.domain.DEFAULT_TIMER_CALLS
-import io.github.alexanderop.eisen.domain.STATE_VERSION
-import io.github.alexanderop.eisen.domain.Session
-import io.github.alexanderop.eisen.domain.TimerConfig
-import io.github.alexanderop.eisen.domain.TimerMode
-import io.github.alexanderop.eisen.domain.TimerRun
-import io.github.alexanderop.eisen.domain.TimerSession
-import io.github.alexanderop.eisen.domain.WorkoutEvent
-import io.github.alexanderop.eisen.domain.calendarWeeks
-import io.github.alexanderop.eisen.domain.decodeState
-import io.github.alexanderop.eisen.domain.encodeState
-import io.github.alexanderop.eisen.domain.freshState
-import io.github.alexanderop.eisen.domain.timerCues
-import io.github.alexanderop.eisen.domain.elm.Cmd
-import io.github.alexanderop.eisen.domain.elm.Flags
-import io.github.alexanderop.eisen.domain.elm.HealthJob
-import io.github.alexanderop.eisen.domain.elm.HealthModel
-import io.github.alexanderop.eisen.domain.elm.HistoryView
-import io.github.alexanderop.eisen.domain.elm.Msg
-import io.github.alexanderop.eisen.domain.elm.Notifications
-import io.github.alexanderop.eisen.domain.elm.Sub
-import io.github.alexanderop.eisen.domain.elm.TIMER_END_VIBRATION
-import io.github.alexanderop.eisen.domain.elm.TIMER_REST_VIBRATION
-import io.github.alexanderop.eisen.domain.elm.TIMER_TAIL_MILLIS
-import io.github.alexanderop.eisen.domain.elm.TIMER_WORK_VIBRATION
-import io.github.alexanderop.eisen.domain.elm.Tab
-import io.github.alexanderop.eisen.domain.elm.TimerSetup
-import io.github.alexanderop.eisen.domain.elm.TimerSound
-import io.github.alexanderop.eisen.domain.elm.TimerState
-import io.github.alexanderop.eisen.domain.elm.TimerVibration
-import io.github.alexanderop.eisen.domain.elm.UiEvent
-import io.github.alexanderop.eisen.domain.elm.callsSummary
-import io.github.alexanderop.eisen.domain.elm.handlesBack
-import io.github.alexanderop.eisen.domain.elm.init
-import io.github.alexanderop.eisen.domain.elm.subscriptions
-import io.github.alexanderop.eisen.domain.elm.timerCapSeconds
-import io.github.alexanderop.eisen.domain.elm.timerNotice
-import io.github.alexanderop.eisen.domain.elm.timerRun
-import io.github.alexanderop.eisen.domain.elm.timerWheelSeconds
-import io.github.alexanderop.eisen.domain.TimerPreset
-import io.github.alexanderop.eisen.domain.timerView
-import io.github.alexanderop.eisen.domain.elm.TAP_GUARD_MILLIS
-import io.github.alexanderop.eisen.domain.elm.defaultPresetName
-import io.github.alexanderop.eisen.domain.elm.nextText
-import io.github.alexanderop.eisen.domain.elm.setupChanged
-import io.github.alexanderop.eisen.domain.elm.setupSaved
+import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMERS
+import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMER_CALLS
+import io.github.alexanderop.eisen.app.state.STATE_VERSION
+import io.github.alexanderop.eisen.app.elm.Session
+import io.github.alexanderop.eisen.feature.timer.TimerConfig
+import io.github.alexanderop.eisen.feature.timer.TimerMode
+import io.github.alexanderop.eisen.feature.timer.TimerRun
+import io.github.alexanderop.eisen.feature.timer.TimerSession
+import io.github.alexanderop.eisen.app.elm.WorkoutEvent
+import io.github.alexanderop.eisen.feature.progress.calendarWeeks
+import io.github.alexanderop.eisen.app.state.decodeState
+import io.github.alexanderop.eisen.app.state.encodeState
+import io.github.alexanderop.eisen.app.state.freshState
+import io.github.alexanderop.eisen.feature.timer.timerCues
+import io.github.alexanderop.eisen.app.elm.Cmd
+import io.github.alexanderop.eisen.app.elm.Flags
+import io.github.alexanderop.eisen.app.elm.HealthJob
+import io.github.alexanderop.eisen.app.elm.HealthModel
+import io.github.alexanderop.eisen.app.elm.HistoryView
+import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.Notifications
+import io.github.alexanderop.eisen.app.elm.Sub
+import io.github.alexanderop.eisen.app.elm.TIMER_END_VIBRATION
+import io.github.alexanderop.eisen.app.elm.TIMER_REST_VIBRATION
+import io.github.alexanderop.eisen.app.elm.TIMER_TAIL_MILLIS
+import io.github.alexanderop.eisen.app.elm.TIMER_WORK_VIBRATION
+import io.github.alexanderop.eisen.app.elm.Tab
+import io.github.alexanderop.eisen.app.elm.TimerSetup
+import io.github.alexanderop.eisen.app.elm.TimerSound
+import io.github.alexanderop.eisen.app.elm.TimerState
+import io.github.alexanderop.eisen.app.elm.TimerVibration
+import io.github.alexanderop.eisen.app.elm.UiEvent
+import io.github.alexanderop.eisen.app.elm.callsSummary
+import io.github.alexanderop.eisen.app.elm.handlesBack
+import io.github.alexanderop.eisen.app.elm.init
+import io.github.alexanderop.eisen.app.elm.subscriptions
+import io.github.alexanderop.eisen.app.elm.timerCapSeconds
+import io.github.alexanderop.eisen.app.elm.timerNotice
+import io.github.alexanderop.eisen.app.elm.timerRun
+import io.github.alexanderop.eisen.app.elm.timerWheelSeconds
+import io.github.alexanderop.eisen.feature.timer.TimerPreset
+import io.github.alexanderop.eisen.feature.timer.timerView
+import io.github.alexanderop.eisen.app.elm.TAP_GUARD_MILLIS
+import io.github.alexanderop.eisen.app.elm.defaultPresetName
+import io.github.alexanderop.eisen.app.elm.nextText
+import io.github.alexanderop.eisen.app.elm.setupChanged
+import io.github.alexanderop.eisen.app.elm.setupSaved
 import androidx.health.connect.client.records.ExerciseSessionRecord
-import io.github.alexanderop.eisen.health.timerSessionFields
+import io.github.alexanderop.eisen.feature.health.platform.timerSessionFields
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -134,7 +134,7 @@ class TimerUpdateTest {
         assertNull(tapped.model.rest)
     }
 
-    private fun started(state: io.github.alexanderop.eisen.domain.AppState): Step =
+    private fun started(state: io.github.alexanderop.eisen.app.state.AppState): Step =
         stepOf(state).send(Msg.Workout(WorkoutEvent.Start), now = STARTED_AT, id = "w1")
 
     @Test fun `pause silences the run and resume plays what is left, shifted by the pause`() {
@@ -239,7 +239,7 @@ class TimerUpdateTest {
         val tapped = amrap.send(Msg.Timer.Tap, now = STARTED_AT + 20_000).send(Msg.Timer.Tap, now = STARTED_AT + 40_000)
         assertEquals(2, tapped.timed.taps)
         assertTrue(Cmd.SaveTimer(tapped.timed) in tapped.cmds)
-        assertTrue(UiEvent.Haptic(io.github.alexanderop.eisen.domain.Feel.TAP) in tapped.uiEvents)
+        assertTrue(UiEvent.Haptic(io.github.alexanderop.eisen.app.elm.Feel.TAP) in tapped.uiEvents)
         val saved = tapped.send(Msg.Timer.SaveAndEnd, now = STARTED_AT + 70_000)
         assertEquals(2, saved.state.timerSessions.single().rounds)
         // Tabata counts its rounds itself.

@@ -11,7 +11,13 @@ import java.io.File
  * Time, ids and randomness come in through `Env` and seeds; everything else is a `Cmd`.
  */
 class RulesTest {
-    private val domain = File("src/main/kotlin/io/github/alexanderop/eisen/domain")
+    private val root = File("src/main/kotlin/io/github/alexanderop/eisen")
+
+    /** The pure packages: `core`, `feature` and `app` without their `ui`, `platform` and `runtime` parts (see `ArchitectureTest`). */
+    private val domain = root.walk().filter { file ->
+        val dirs = file.parentFile.relativeTo(root).invariantSeparatorsPath.split("/")
+        file.extension == "kt" && dirs.first() in setOf("core", "feature", "app") && dirs.none { it in setOf("ui", "platform", "runtime") }
+    }.toList()
 
     private val forbidden = listOf(
         Regex("!!") to "asserts a value is not null: say what happens when it is",
@@ -23,11 +29,11 @@ class RulesTest {
     )
 
     @Test fun `the domain stays pure`() {
-        val files = domain.walk().filter { it.extension == "kt" }.toList()
-        assertTrue("no domain files under ${domain.absolutePath}", files.size > 10)
+        val files = domain
+        assertTrue("no domain files under ${root.absolutePath}", files.size > 10)
         val broken = files.flatMap { file ->
             file.readLines().flatMapIndexed { index, line ->
-                forbidden.filter { (rule) -> rule.containsMatchIn(line) }.map { (_, why) -> "${file.relativeTo(domain)}:${index + 1} $why\n    ${line.trim()}" }
+                forbidden.filter { (rule) -> rule.containsMatchIn(line) }.map { (_, why) -> "${file.relativeTo(root)}:${index + 1} $why\n    ${line.trim()}" }
             }
         }
         assertEquals("The domain has to stay pure:\n${broken.joinToString("\n")}\n", 0, broken.size)

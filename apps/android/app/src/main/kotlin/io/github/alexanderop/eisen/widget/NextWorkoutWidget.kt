@@ -15,13 +15,15 @@ import android.widget.RemoteViews
 import androidx.core.os.BundleCompat
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.R
-import io.github.alexanderop.eisen.domain.elm.WidgetContent
-import io.github.alexanderop.eisen.runtime.Eisen
+import io.github.alexanderop.eisen.app.elm.WidgetContent
+import io.github.alexanderop.eisen.app.runtime.Eisen
+import io.github.alexanderop.eisen.feature.home.platform.HomeSurfaces
+import io.github.alexanderop.eisen.feature.home.platform.WorkoutLaunch
 
 /**
  * The "Next workout" home-screen widget. It shows what the home screen's "Next up" card shows,
  * with a button that starts that workout, or resumes the one that runs. It draws the
- * [WidgetContent] that `update` computed (see `domain/elm/HomeSurfaces.kt`): the button sends an
+ * [WidgetContent] that `update` computed (see `app/elm/HomeSurfaces.kt`): the button sends an
  * intent that `MainActivity` turns into `Msg.App.LaunchWorkout`.
  */
 class NextWorkoutWidget : AppWidgetProvider() {

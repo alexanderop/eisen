@@ -1,16 +1,16 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.Equipment
-import io.github.alexanderop.eisen.domain.TypedAffixes
-import io.github.alexanderop.eisen.domain.WeightUnit
-import io.github.alexanderop.eisen.domain.formatNumber
-import io.github.alexanderop.eisen.domain.formatWeight
-import io.github.alexanderop.eisen.domain.parseTypedNumber
-import io.github.alexanderop.eisen.domain.snapTo
-import io.github.alexanderop.eisen.domain.typedAffixes
-import io.github.alexanderop.eisen.domain.typedIncrementSnap
-import io.github.alexanderop.eisen.domain.typedValue
-import io.github.alexanderop.eisen.domain.typedWeightSnap
+import io.github.alexanderop.eisen.core.Equipment
+import io.github.alexanderop.eisen.core.TypedAffixes
+import io.github.alexanderop.eisen.core.WeightUnit
+import io.github.alexanderop.eisen.core.formatNumber
+import io.github.alexanderop.eisen.core.formatWeight
+import io.github.alexanderop.eisen.core.parseTypedNumber
+import io.github.alexanderop.eisen.core.snapTo
+import io.github.alexanderop.eisen.core.typedAffixes
+import io.github.alexanderop.eisen.core.typedIncrementSnap
+import io.github.alexanderop.eisen.core.typedValue
+import io.github.alexanderop.eisen.core.typedWeightSnap
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

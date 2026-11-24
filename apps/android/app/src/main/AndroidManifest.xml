@@ -24,7 +24,7 @@
     </queries>
 
     <application
-        android:name=".EisenApp"
+        android:name=".app.runtime.EisenApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -46,7 +46,7 @@
         </activity>
 
         <receiver
-            android:name=".rest.RestReceiver"
+            android:name=".feature.workout.platform.RestReceiver"
             android:exported="false" />
 
         <!-- The "Next workout" home-screen widget. -->
@@ -63,23 +63,23 @@
         </receiver>
 
         <service
-            android:name=".rest.RestService"
+            android:name=".feature.workout.platform.RestService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <!-- Plays an interval timer's voice and beeps and shows its notification. -->
         <service
-            android:name=".timer.TimerService"
+            android:name=".feature.timer.platform.TimerService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
         <receiver
-            android:name=".timer.TimerReceiver"
+            android:name=".feature.timer.platform.TimerReceiver"
             android:exported="false" />
 
         <!-- What Health Connect shows behind its "privacy policy" link. Android 13 and older open it by this action. -->
         <activity
-            android:name=".health.HealthRationaleActivity"
+            android:name=".feature.health.platform.HealthRationaleActivity"
             android:exported="true"
             android:screenOrientation="portrait">
             <intent-filter>
@@ -92,7 +92,7 @@
             android:name=".health.ViewPermissionUsageActivity"
             android:exported="true"
             android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
-            android:targetActivity=".health.HealthRationaleActivity">
+            android:targetActivity=".feature.health.platform.HealthRationaleActivity">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
                 <category android:name="android.intent.category.HEALTH_PERMISSIONS" />

@@ -1,14 +1,14 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.SuggestionKind
-import io.github.alexanderop.eisen.domain.WOD_LIBRARY
-import io.github.alexanderop.eisen.domain.WodSuggestion
-import io.github.alexanderop.eisen.domain.catalogExercise
-import io.github.alexanderop.eisen.domain.matchRank
-import io.github.alexanderop.eisen.domain.searchText
-import io.github.alexanderop.eisen.domain.searchWods
-import io.github.alexanderop.eisen.domain.suggestWods
-import io.github.alexanderop.eisen.domain.wod
+import io.github.alexanderop.eisen.feature.timer.wod.SuggestionKind
+import io.github.alexanderop.eisen.feature.timer.wod.WOD_LIBRARY
+import io.github.alexanderop.eisen.feature.timer.wod.WodSuggestion
+import io.github.alexanderop.eisen.core.catalogExercise
+import io.github.alexanderop.eisen.feature.timer.wod.matchRank
+import io.github.alexanderop.eisen.feature.timer.wod.searchText
+import io.github.alexanderop.eisen.feature.timer.wod.searchWods
+import io.github.alexanderop.eisen.feature.timer.wod.suggestWods
+import io.github.alexanderop.eisen.feature.timer.wod.wod
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame

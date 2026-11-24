@@ -8,33 +8,70 @@ place it changes, side effects as plain data (`Cmd`), and a small runtime that c
              │
              ▼
    update(msg, model, env) ──────────────► Cmds ──► runtime adapters ──► may send a Msg back
-   domain/elm/Update.kt                             (file, alarms, cues, Health Connect,
+   app/elm/Update.kt                                (file, alarms, cues, Health Connect,
    pure, no Android                                  widget, shortcuts, snackbars, UI events)
              │
              ▼
-          Model ──► view(model, dispatch)      MainActivity → screens in ui/
+          Model ──► view(model, dispatch)      MainActivity → screens in feature/*/ui/
              │
              └──► subscriptions(model): Set<Sub> ──► runtime starts/stops sources (the rest and hold clocks)
 ```
+
+## Packages
+
+Code is sorted by feature, under `io.github.alexanderop.eisen`:
+
+```
+core/               the pure kernel every feature uses: units, typed numbers, the exercise catalogue, motions
+core/ui/            the shared Compose kit: components, formats, haptics, motion tiles, reorder, theme, wheel
+feature/<name>/     a feature's pure code         workout, timer (+ boxing, wod), progress, share
+feature/<name>/ui/  its screens                   workout, timer, progress, share, history, home, settings, health
+feature/<name>/platform/  its Android side        workout (rest), timer, home (shortcuts), health
+app/elm/            the program: Model, Msg, Cmd, Sub, update, selectors, the workout machine
+app/state/          AppState, its JSON, migrations and loadState
+app/runtime/        Eisen (the runtime), storage, snackbars, EisenApp
+```
+
+`MainActivity` (root package) and `widget/NextWorkoutWidget` keep their old class names on purpose:
+Android stores them outside the app (the launcher icon and pinned shortcuts point at the activity, a
+placed widget at its provider), and a new name would drop the lifter's home-screen widget on update.
+
+A package segment `ui`, `platform` or `runtime` is Android code; everything else under `core`,
+`feature` and `app` is pure. `ArchitectureTest` checks on the compiled classes:
+
+1. `core` depends on nothing else of the app; `core.ui` only on `core`.
+2. Pure code uses no `ui`, `platform` or `runtime` package and nothing from `android..`, `androidx..`,
+   `java.io..`, `java.net..`.
+3. A feature's pure code uses `core`, its own feature and the features in the test's `featureEdges`
+   table, never `app`.
+4. A feature's `ui` uses its own feature, `core`, `core.ui`, `app.elm`, `app.state`, other features'
+   pure code through `featureEdges` and their `ui` through `uiEdges`. Never another feature's
+   `platform` or `runtime`.
+5. Only `app.elm` and `app.state` among the pure code know the features together.
+6. No cycles between features.
+
+Every table entry carries its reason, and a test fails when one is no longer used. Adding an edge is
+a decision: first ask whether the code belongs in `core` or in the program. `RulesTest` checks the
+source of every pure package as well: no `!!`, no `throw`, no clock, no dice, no Android or IO import.
 
 ## The four types
 
 | Type | File | What it is |
 | --- | --- | --- |
-| `Model` | `domain/elm/Model.kt` | Everything that decides behaviour: the saved `AppState` (its JSON and `STATE_VERSION` are shared with the PWA), the workout `Session`, the rest and its full screen, the hold timer, `lastChanges`, ticked warmups, the reps question, the settling exercise, navigation, Undo data, Health Connect, notifications, `dataNotice`, `visible` and `now`. `Flags` and `init` make the first one. |
-| `Msg` | `domain/elm/Msg.kt` | Everything that can happen, grouped: `Workout(event)`, `WorkoutScreen`, `Nav`, `Home`, `Routines`, `Exercises`, `History`, `Settings`, `Data`, `Hold`, `Rest`, `Health`, `App`. Named after what happened, not what to do. |
-| `Cmd` | `domain/elm/Cmd.kt` | A side effect as data: `Save`, the rest's alarms, notifications and cues, the hold timer's `Beep`, `After(millis, msg)`, `Health(job)`, `RefreshHomeSurfaces(widget, shortcuts)`, backups, and `Ui(event)` for what the screen does once (snackbar, haptic, permission dialog, share sheet). |
-| `Sub` | `domain/elm/Sub.kt` | A source that sends Msgs while the model asks for it. `RestClock`, a tick per second while a rest runs and the app shows, and `HoldClock`, a tick per second while the hold timer of a timed set is open. |
+| `Model` | `app/elm/Model.kt` | Everything that decides behaviour: the saved `AppState` (its JSON and `STATE_VERSION` are shared with the PWA), the workout `Session`, the rest and its full screen, the hold timer, `lastChanges`, ticked warmups, the reps question, the settling exercise, navigation, Undo data, Health Connect, notifications, `dataNotice`, `visible` and `now`. `Flags` and `init` make the first one. |
+| `Msg` | `app/elm/Msg.kt` | Everything that can happen, grouped: `Workout(event)`, `WorkoutScreen`, `Nav`, `Home`, `Routines`, `Exercises`, `History`, `Settings`, `Data`, `Hold`, `Rest`, `Health`, `App`. Named after what happened, not what to do. |
+| `Cmd` | `app/elm/Cmd.kt` | A side effect as data: `Save`, the rest's alarms, notifications and cues, the hold timer's `Beep`, `After(millis, msg)`, `Health(job)`, `RefreshHomeSurfaces(widget, shortcuts)`, backups, and `Ui(event)` for what the screen does once (snackbar, haptic, permission dialog, share sheet). |
+| `Sub` | `app/elm/Sub.kt` | A source that sends Msgs while the model asks for it. `RestClock`, a tick per second while a rest runs and the app shows, and `HoldClock`, a tick per second while the hold timer of a timed set is open. |
 
-The rest of `domain/elm/`:
+The rest of `app/elm/`:
 
-- `Update.kt`, `UpdateData.kt`: `update` and its sub-updates, plus `follow`, which adds what every
+- `Update.kt`, `UpdateData.kt`, `UpdateTimer.kt`, `UpdateWod.kt`: `update` and its sub-updates, plus `follow`, which adds what every
   change brings along: `Save` when the saved state changed, Health Connect following the history,
   `RefreshHomeSurfaces` when the widget or the shortcuts would look different.
 - `Selectors.kt`: what screens read besides fields (`nextRoutine`, `progressOf`, `showsWorkout`, ...).
 - `HomeSurfaces.kt`: `widgetContent(state)` and `shortcutsOf(state)`, what the widget and the launcher
   shortcuts show.
-- `domain/WorkoutMachine.kt`: the workout state machine. `update` delegates `Msg.Workout(event)` to it
+- `WorkoutMachine.kt`: the workout state machine. `update` delegates `Msg.Workout(event)` to it
   (Elm's nested update). Every state lists every event, so a new event does not compile until each state
   says what it does with it.
 
@@ -43,17 +80,18 @@ Cmd; one value is simpler here and keeps `update` pure, since a test passes its 
 
 ## The runtime and the adapters
 
-`runtime/Eisen.kt` is the only impure part of the logic. It holds the model as Compose state, runs
+`app/runtime/Eisen.kt` is the only impure part of the logic. It holds the model as Compose state, runs
 `update` on the main thread for each Msg passed to `dispatch`, carries out the Cmds, and starts or stops
 the `Sub`s that `subscriptions` asks for. The clock and `UUID` are read only here.
 
 | Where | Adapter |
 | --- | --- |
-| `runtime/Storage.kt` | the state file, Android preferences, backup files |
-| `runtime/Snackbars.kt` | the one snackbar queue |
-| `rest/` | alarms, the countdown service and notifications (`RestSystem`, `RestService`), cues and vibration (`Cues`), the alarm receiver |
-| `health/HealthSync.kt` | Health Connect |
-| `widget/` | the widget (`NextWorkoutWidget`), the launcher shortcuts, the debounce of both (`HomeSurfaces`) |
+| `app/runtime/Storage.kt` | the state file, Android preferences, backup files |
+| `app/runtime/Snackbars.kt` | the one snackbar queue |
+| `feature/workout/platform/` | alarms, the countdown service and notifications (`RestSystem`, `RestService`), cues and vibration (`Cues`), the alarm receiver |
+| `feature/timer/platform/` | the interval timer's service, notification, voice and beeps (`TimerSystem`, `TimerSounds`) |
+| `feature/health/platform/HealthSync.kt` | Health Connect |
+| `feature/home/platform/`, `widget/` | the launcher shortcuts and the debounce of widget and shortcuts (`HomeSurfaces`); the widget itself (`widget/NextWorkoutWidget`) |
 | `MainActivity` | the one-shot `UiEvent`s: haptics, permission dialogs, the share sheet |
 
 An adapter does what its Cmd says and nothing else. If it needs an `if` that decides behaviour (which
@@ -63,7 +101,7 @@ limit, comparing the shortcuts against what the launcher already has.
 
 Process entry points only translate an Android callback into a Msg: `MainActivity`, `EisenApp`,
 `RestReceiver`, `RestService`, `NextWorkoutWidget`, `HealthRationaleActivity`. They are the only places
-outside `runtime/` that touch `Eisen.model` or `Eisen.dispatch`.
+outside `app/runtime/` that touch `Eisen.model` or `Eisen.dispatch`.
 
 ## Views
 

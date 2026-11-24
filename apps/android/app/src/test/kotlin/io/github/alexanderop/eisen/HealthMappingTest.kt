@@ -1,14 +1,14 @@
 package io.github.alexanderop.eisen
 
 import androidx.health.connect.client.records.ExerciseSegment
-import io.github.alexanderop.eisen.domain.Equipment
-import io.github.alexanderop.eisen.domain.ExerciseLog
-import io.github.alexanderop.eisen.domain.WeightUnit
-import io.github.alexanderop.eisen.domain.Workout
-import io.github.alexanderop.eisen.health.SegmentFields
-import io.github.alexanderop.eisen.health.segmentTypeFor
-import io.github.alexanderop.eisen.health.sessionFields
-import io.github.alexanderop.eisen.health.workoutNotes
+import io.github.alexanderop.eisen.core.Equipment
+import io.github.alexanderop.eisen.feature.workout.ExerciseLog
+import io.github.alexanderop.eisen.core.WeightUnit
+import io.github.alexanderop.eisen.feature.workout.Workout
+import io.github.alexanderop.eisen.feature.health.platform.SegmentFields
+import io.github.alexanderop.eisen.feature.health.platform.segmentTypeFor
+import io.github.alexanderop.eisen.feature.health.platform.sessionFields
+import io.github.alexanderop.eisen.feature.health.platform.workoutNotes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

@@ -1,19 +1,19 @@
 package io.github.alexanderop.eisen
 
-import io.github.alexanderop.eisen.domain.AppState
-import io.github.alexanderop.eisen.domain.Env
-import io.github.alexanderop.eisen.domain.Feel
-import io.github.alexanderop.eisen.domain.Run
-import io.github.alexanderop.eisen.domain.Session
-import io.github.alexanderop.eisen.domain.WeightUnit
-import io.github.alexanderop.eisen.domain.Workout
-import io.github.alexanderop.eisen.domain.WorkoutEvent
-import io.github.alexanderop.eisen.domain.elm.Cmd
-import io.github.alexanderop.eisen.domain.elm.Model
-import io.github.alexanderop.eisen.domain.elm.Msg
-import io.github.alexanderop.eisen.domain.elm.UiEvent
-import io.github.alexanderop.eisen.domain.elm.update
-import io.github.alexanderop.eisen.domain.freshState
+import io.github.alexanderop.eisen.app.state.AppState
+import io.github.alexanderop.eisen.app.elm.Env
+import io.github.alexanderop.eisen.app.elm.Feel
+import io.github.alexanderop.eisen.app.elm.Run
+import io.github.alexanderop.eisen.app.elm.Session
+import io.github.alexanderop.eisen.core.WeightUnit
+import io.github.alexanderop.eisen.feature.workout.Workout
+import io.github.alexanderop.eisen.app.elm.WorkoutEvent
+import io.github.alexanderop.eisen.app.elm.Cmd
+import io.github.alexanderop.eisen.app.elm.Model
+import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.UiEvent
+import io.github.alexanderop.eisen.app.elm.update
+import io.github.alexanderop.eisen.app.state.freshState
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 
