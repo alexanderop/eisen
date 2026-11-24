@@ -7,6 +7,8 @@ on:
       - apps/android/**
       # The exercise pictures and spoken cues are packed into the APK.
       - apps/web/src/assets/**
+      # FixturesTest reads the prepared states of the verify skill.
+      - .claude/skills/verify-eisen/fixtures/**
       - .github/workflows/android.yml
   workflow_dispatch:
 

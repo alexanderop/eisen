@@ -1,0 +1,289 @@
+{
+    "version": 9,
+    "settings": {
+        "unit": "kg",
+        "bar": 20.0,
+        "restDone": 90,
+        "restMissed": 300,
+        "sound": true,
+        "haptics": true,
+        "restFullScreen": true,
+        "timerCalls": {
+            "minutes": 1,
+            "halfway": true,
+            "final": true,
+            "phases": true,
+            "beeps": true
+        },
+        "trackRir": true
+    },
+    "progress": {
+        "hackSquat": {
+            "weight": 80.0,
+            "fails": 0,
+            "increment": 5.0
+        },
+        "bench": {
+            "weight": 80.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "row": {
+            "weight": 60.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "ohp": {
+            "weight": 40.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "deadlift": {
+            "weight": 100.0,
+            "fails": 0,
+            "increment": 5.0
+        }
+    },
+    "routines": [
+        {
+            "id": "A",
+            "name": "Workout A",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "bench",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "row",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "dips",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        },
+        {
+            "id": "B",
+            "name": "Workout B",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "ohp",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "deadlift",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "pullups",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        }
+    ],
+    "nextRoutineId": "A",
+    "customExercises": [],
+    "active": null,
+    "history": [],
+    "timerPresets": [
+        {
+            "id": "3f82bb91-01eb-31a8-97ce-3e50e0a557cf",
+            "name": "Quick Tabata",
+            "config": {
+                "mode": "tabata",
+                "work": 10,
+                "rest": 5,
+                "rounds": 2
+            }
+        },
+        {
+            "id": "93dcd5db-5647-39be-9618-370168f932bf",
+            "name": "Quick EMOM",
+            "config": {
+                "mode": "emom",
+                "work": 10,
+                "rest": 0,
+                "rounds": 2
+            }
+        },
+        {
+            "id": "d548c73a-d1ac-39e8-a822-a2db3acc4184",
+            "name": "Quick AMRAP",
+            "config": {
+                "mode": "amrap",
+                "work": 30,
+                "rest": 0,
+                "rounds": 1
+            }
+        },
+        {
+            "id": "a12ce09d-1f1b-323e-893c-33883e3c2614",
+            "name": "Quick For Time",
+            "config": {
+                "mode": "forTime",
+                "work": 60,
+                "rest": 0,
+                "rounds": 1
+            }
+        },
+        {
+            "id": "44e150b7-f005-3334-8dff-8f5bda1a1b0e",
+            "name": "Quick boxing",
+            "config": {
+                "mode": "boxing",
+                "work": 30,
+                "rest": 10,
+                "rounds": 1,
+                "boxing": {
+                    "rounds": [
+                        {
+                            "theme": "jab",
+                            "every": 4,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        }
+                    ],
+                    "style": "names",
+                    "stance": "orthodox",
+                    "room": "normal",
+                    "own": []
+                }
+            }
+        },
+        {
+            "id": "dec5d451-87f3-377e-a78d-43ea10713917",
+            "name": "Boxing 3:00 calls",
+            "config": {
+                "mode": "boxing",
+                "work": 180,
+                "rest": 60,
+                "rounds": 1,
+                "boxing": {
+                    "rounds": [
+                        {
+                            "theme": "two",
+                            "every": 4,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        }
+                    ],
+                    "style": "names",
+                    "stance": "orthodox",
+                    "room": "normal",
+                    "own": []
+                }
+            }
+        }
+    ],
+    "timerSessions": [],
+    "timerConfigs": {
+        "tabata": {
+            "mode": "tabata",
+            "work": 20,
+            "rest": 10,
+            "rounds": 8
+        },
+        "emom": {
+            "mode": "emom",
+            "work": 60,
+            "rest": 0,
+            "rounds": 10
+        },
+        "amrap": {
+            "mode": "amrap",
+            "work": 600,
+            "rest": 0,
+            "rounds": 1
+        },
+        "forTime": {
+            "mode": "forTime",
+            "work": 1200,
+            "rest": 0,
+            "rounds": 1
+        },
+        "boxing": {
+            "mode": "boxing",
+            "work": 180,
+            "rest": 60,
+            "rounds": 6,
+            "boxing": {
+                "rounds": [
+                    {
+                        "theme": "jab",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "two",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "three",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "four",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "mix",
+                        "every": 6,
+                        "split": 30,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "freestyle",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    }
+                ],
+                "style": "names",
+                "stance": "orthodox",
+                "room": "normal",
+                "own": []
+            }
+        }
+    },
+    "wods": []
+}

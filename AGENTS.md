@@ -19,11 +19,35 @@
 ## Checks
 
 ```sh
-cd apps/android
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
-  ./gradlew testDebugUnitTest assembleDebug
+bin/check     # unit tests with the architecture and purity rules, then the debug build
 ```
 
-Run the app on the emulator before calling a change done; tests alone are not proof. The skill
-`.claude/skills/verify-eisen` does it: `bin/eisenctl launch --fresh`, a journey from its `features/`,
-evidence under `verify/android/`, `bin/eisenctl cleanup`. Test muted, always.
+- **Cheap checks first.** A Stop hook (`.claude/hooks/stop-check.sh`) runs `bin/check` when the
+  Android sources changed and refuses to end the turn on a failure.
+- **Three rounds, then a person.** If the checks still fail after three fixes, stop and tell the
+  owner which check fails, what you tried and what you think the cause is.
+- **A flaky test is a bug.** Do not retry it, sleep past it or skip it. Find the cause, or delete the
+  test and write down why.
+- **Run the app before calling a change done**; tests alone are not proof. The skill
+  `.claude/skills/verify-eisen` does it: `eisenctl launch --fresh`, a journey from its `features/`,
+  evidence under `verify/android/`, `eisenctl cleanup`. Test muted, always.
+- **Review** with `REVIEW.md`: a checklist whose items trigger on the diff. Read it from the last
+  commit, not from the working copy.
+- **A miss becomes a rule.** When a bug reaches the owner, add a test or a `REVIEW.md` item for it in
+  the fix.
+
+## Commits say how they were verified
+
+`.githooks` (switched on by the SessionStart hook, or `git config core.hooksPath .githooks`) adds a
+trailer to every commit that changes the app:
+
+```
+Verified: emulator, tests     # eisenctl ran these sources, and bin/check passed on them
+Verified: tests               # bin/check passed, nobody ran the app
+Verified: none                # neither
+```
+
+A stamp only counts for the exact sources it was made on: edit a file and it is gone. Unverified
+commits: `git log --grep='^Verified: none'`. The gate (`git config eisen.gate off|observe|enforce`,
+default `observe`) logs or blocks a `none` commit unless its message says why in a trailer
+`Unverified: <reason>`; the log is `.git/eisen/gate.log`.

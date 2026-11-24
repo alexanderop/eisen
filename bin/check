@@ -1,0 +1,21 @@
+#!/bin/bash
+# The cheap checks: unit tests (with the architecture and purity rules) and the debug build.
+# On success it stamps the sources as tested, which the commit hook writes into the commit.
+set -u
+exec < /dev/null
+cd "$(dirname "$0")/.." || exit 1
+. .githooks/lib.sh
+export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
+export ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
+before="$(eisen_source_hash)"
+if ! (cd apps/android && ./gradlew testDebugUnitTest assembleDebug --console=plain -q); then
+  # Gradle only says that tests failed. Which ones, and with what, is in its result files.
+  grep -h -A1 '<testcase' apps/android/app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null \
+    | grep -B1 '<failure' | grep -oE 'testcase name="[^"]+" classname="[^"]+"|<failure message="[^"]{0,200}' \
+    | sed -E 's/^testcase name="([^"]+)" classname="([^"]+)"/FAILED \2: \1/; s/^<failure message="/       /' | head -30
+  exit 1
+fi
+# A stamp is only worth something for the sources that were tested.
+[ "$before" = "$(eisen_source_hash)" ] || { echo "check: the sources changed while the checks ran, run it again" >&2; exit 1; }
+eisen_stamp tests
+echo "check: ok ($before)"

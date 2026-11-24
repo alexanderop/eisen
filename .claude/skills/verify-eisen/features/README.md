@@ -4,21 +4,23 @@ The maintained source for verifying what a lifter can do in the Android app. Rea
 file of the feature you changed. A proof that drives one entry point is incomplete when the file
 lists others.
 
-| File | Feature |
-|---|---|
-| `workout.md` | Start a workout, log sets, the rest timer, rating a set, finishing |
-| `interval-timers.md` | Tabata, EMOM, AMRAP, For Time: setup, run, end, result |
-| `boxing.md` | The boxing timer with the coach: setup, run, result with punches |
-| `wods.md` | The WODs page: benchmarks, search, a WOD run ticked off item by item |
-| `history-and-data.md` | The history log, and saving and restoring a backup |
+| File | Starts on | Takes (measured) | Feature |
+|---|---|---|---|
+| `workout.md` | `--fresh` | 0:55 | Start a workout, log sets, the rest timer, rating a set, finishing |
+| `interval-timers.md` | `--state short-timers` | 5:20 | Tabata, EMOM, AMRAP, For Time: setup, saved timers, runs to `Completed`, screen off, a killed app, ending early |
+| `boxing.md` | `--state short-timers` | 5:25 | The boxing timer with the coach: setup, run, result with punches, time left in the round |
+| `wods.md` | `--state lifter` | 2:45 | The WODs page: own WODs, benchmarks, search, a run against the best, a first run |
+| `history-and-data.md` | `--state lifter`, then the emulator's data | 0:45 | The history log, progress, the backup entry points, an update on old data |
 
-Not mapped yet: the Workouts tab (editing routines, the exercise picker), Progress charts, sharing
-a workout, the home-screen widget and shortcuts, Health Connect, the hold timer for timed exercises,
-own WODs (the builder), own boxing combinations and presets.
+Not mapped yet: the Workouts tab (editing routines, the exercise picker), sharing a workout, the
+home-screen widget and shortcuts, Health Connect, the hold timer for timed exercises, the WOD
+builder, own boxing combinations, saving a preset, the backup file pickers. The five files in a row
+take about 15 minutes.
 
 ## Baseline preconditions
 
-- `eisenctl launch --fresh` printed `ready:` and `eisenctl doctor` is all `ok`.
+- Each recipe starts with its own `eisenctl launch` (`--fresh` or `--state <fixture>`, see
+  `SKILL.md`) and ends with `eisenctl doctor && eisenctl cleanup`.
 - Fresh data means: workouts "Workout A" and "Workout B", kilograms, Hack Squat 80kg, Bench Press
   80kg, Barbell Row 60kg, Dips at bodyweight, an empty history, no saved timers, no own WODs.
 - The app opens on the Home tab. The five tabs are the texts `Home`, `Workouts`, `Timer`,
@@ -28,11 +30,15 @@ own WODs (the builder), own boxing combinations and presets.
 
 - Commands are literal; `eisenctl` stands for `.claude/skills/verify-eisen/bin/eisenctl` from the
   repo root. Chain with `&&`.
+- The commands are in `sh` blocks, in order, and run as written: every line succeeds or the recipe
+  is wrong (or the app is). A line that checks something (`has`, `jq -e`, `said`, `grep -q`) is the
+  proof; the prose around it says what the shots show.
 - A handle is the whole text or description. Where several nodes share one (the set circles of a
   workout all read `5`), the recipe gives the index.
-- Start each recipe from the baseline unless its preconditions say otherwise. A journey that needs
-  earlier data says which journey to run first.
-- Time is real. Recipes give the seconds to wait; do not shorten them.
+- A journey that needs earlier data starts on a fixture instead of running another journey first.
+- Time is real. Recipes give the seconds to wait; do not shorten them. Where a run must take time
+  (a lead-in, a tap guard of 0.8 s, a result that ignores taps for a second) the recipe sleeps or
+  waits for it and the file's Gotchas say why. No other sleeps.
 
 ## Proof and skip reporting
 

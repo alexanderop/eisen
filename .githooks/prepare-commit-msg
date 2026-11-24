@@ -1,0 +1,9 @@
+#!/bin/bash
+# Stamps every commit that changes the Android app with how its sources were verified.
+#   Verified: emulator, tests | tests | emulator | none
+# Find the unverified ones with: git log --grep='^Verified: none'
+set -u
+case "${2:-}" in merge|squash) exit 0;; esac
+. "$(git rev-parse --show-toplevel)/.githooks/lib.sh"
+git diff --cached --quiet -- apps/android apps/web/src/assets && exit 0
+git interpret-trailers --in-place --if-exists replace --trailer "Verified: $(eisen_verified)" "$1"

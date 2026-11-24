@@ -73,3 +73,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.archunit)
 }
+
+// FixturesTest reads the fixtures of the verify-eisen skill: an edit to one of them runs the tests again.
+tasks.withType<Test>().configureEach {
+    inputs.dir("../../../.claude/skills/verify-eisen/fixtures").withPropertyName("verifyFixtures").withPathSensitivity(PathSensitivity.RELATIVE)
+}

@@ -1,0 +1,1303 @@
+{
+    "version": 9,
+    "settings": {
+        "unit": "kg",
+        "bar": 20.0,
+        "restDone": 90,
+        "restMissed": 300,
+        "sound": true,
+        "haptics": true,
+        "restFullScreen": true,
+        "timerCalls": {
+            "minutes": 1,
+            "halfway": true,
+            "final": true,
+            "phases": true,
+            "beeps": true
+        },
+        "trackRir": true
+    },
+    "progress": {
+        "hackSquat": {
+            "weight": 145.0,
+            "fails": 0,
+            "increment": 5.0
+        },
+        "bench": {
+            "weight": 92.5,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "row": {
+            "weight": 75.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "ohp": {
+            "weight": 55.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "deadlift": {
+            "weight": 145.0,
+            "fails": 0,
+            "increment": 5.0
+        }
+    },
+    "routines": [
+        {
+            "id": "A",
+            "name": "Workout A",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "bench",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "row",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "dips",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        },
+        {
+            "id": "B",
+            "name": "Workout B",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "ohp",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "deadlift",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "pullups",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        }
+    ],
+    "nextRoutineId": "A",
+    "customExercises": [],
+    "active": null,
+    "history": [
+        {
+            "id": "0710b6af-c22f-3cdd-8141-58818a132a84",
+            "routineId": "B",
+            "name": "Workout B",
+            "unit": "kg",
+            "startedAt": 1795194000000,
+            "finishedAt": 1795196820000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 140.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "ohp",
+                    "name": "Overhead Press",
+                    "equipment": "barbell",
+                    "weight": 52.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "deadlift",
+                    "name": "Deadlift",
+                    "equipment": "barbell",
+                    "weight": 140.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        1
+                    ]
+                },
+                {
+                    "id": "pullups",
+                    "name": "Pull-ups",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        10,
+                        10,
+                        8
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "dfd8a76b-6c9f-3122-b415-bb22360c40fb",
+            "routineId": "A",
+            "name": "Workout A",
+            "unit": "kg",
+            "startedAt": 1795021200000,
+            "finishedAt": 1795024020000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 135.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        1
+                    ]
+                },
+                {
+                    "id": "bench",
+                    "name": "Bench Press",
+                    "equipment": "barbell",
+                    "weight": 90.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        2
+                    ]
+                },
+                {
+                    "id": "row",
+                    "name": "Barbell Row",
+                    "equipment": "barbell",
+                    "weight": 72.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "dips",
+                    "name": "Dips",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        13,
+                        12,
+                        10
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "58be063e-62eb-3777-a29a-01d34ea5f5c3",
+            "routineId": "B",
+            "name": "Workout B",
+            "unit": "kg",
+            "startedAt": 1794848400000,
+            "finishedAt": 1794851220000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 130.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "ohp",
+                    "name": "Overhead Press",
+                    "equipment": "barbell",
+                    "weight": 50.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        2
+                    ]
+                },
+                {
+                    "id": "deadlift",
+                    "name": "Deadlift",
+                    "equipment": "barbell",
+                    "weight": 125.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "pullups",
+                    "name": "Pull-ups",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        10,
+                        9,
+                        8
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "5327a16c-89cb-36fe-961c-335cddb26fc7",
+            "routineId": "A",
+            "name": "Workout A",
+            "unit": "kg",
+            "startedAt": 1794589200000,
+            "finishedAt": 1794592020000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 125.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "bench",
+                    "name": "Bench Press",
+                    "equipment": "barbell",
+                    "weight": 87.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "row",
+                    "name": "Barbell Row",
+                    "equipment": "barbell",
+                    "weight": 70.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        1
+                    ]
+                },
+                {
+                    "id": "dips",
+                    "name": "Dips",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        13,
+                        11,
+                        10
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "1e5a179f-f32b-3599-b003-fc4c91a7240b",
+            "routineId": "B",
+            "name": "Workout B",
+            "unit": "kg",
+            "startedAt": 1794416400000,
+            "finishedAt": 1794419220000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 120.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "ohp",
+                    "name": "Overhead Press",
+                    "equipment": "barbell",
+                    "weight": 47.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "deadlift",
+                    "name": "Deadlift",
+                    "equipment": "barbell",
+                    "weight": 120.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "pullups",
+                    "name": "Pull-ups",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        9,
+                        9,
+                        7
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "80631667-9731-343d-a2f9-ba122d93e5aa",
+            "routineId": "A",
+            "name": "Workout A",
+            "unit": "kg",
+            "startedAt": 1794243600000,
+            "finishedAt": 1794246420000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 115.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "bench",
+                    "name": "Bench Press",
+                    "equipment": "barbell",
+                    "weight": 85.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        1
+                    ]
+                },
+                {
+                    "id": "row",
+                    "name": "Barbell Row",
+                    "equipment": "barbell",
+                    "weight": 67.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "dips",
+                    "name": "Dips",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        12,
+                        11,
+                        9
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "90c3ecb2-2350-3c97-8e6d-f78edff1b7da",
+            "routineId": "B",
+            "name": "Workout B",
+            "unit": "kg",
+            "startedAt": 1793984400000,
+            "finishedAt": 1793987220000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 110.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "ohp",
+                    "name": "Overhead Press",
+                    "equipment": "barbell",
+                    "weight": 45.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "deadlift",
+                    "name": "Deadlift",
+                    "equipment": "barbell",
+                    "weight": 115.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        2
+                    ]
+                },
+                {
+                    "id": "pullups",
+                    "name": "Pull-ups",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        9,
+                        8,
+                        7
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "42f4e48f-2824-3c63-929c-c9ff44e86060",
+            "routineId": "A",
+            "name": "Workout A",
+            "unit": "kg",
+            "startedAt": 1793811600000,
+            "finishedAt": 1793814420000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 105.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        2
+                    ]
+                },
+                {
+                    "id": "bench",
+                    "name": "Bench Press",
+                    "equipment": "barbell",
+                    "weight": 85.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        4,
+                        3
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        0
+                    ]
+                },
+                {
+                    "id": "row",
+                    "name": "Barbell Row",
+                    "equipment": "barbell",
+                    "weight": 65.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "dips",
+                    "name": "Dips",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        12,
+                        10,
+                        9
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "29ba2686-86db-3872-8228-9c821b3ade0d",
+            "routineId": "B",
+            "name": "Workout B",
+            "unit": "kg",
+            "startedAt": 1793638800000,
+            "finishedAt": 1793641620000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 100.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "ohp",
+                    "name": "Overhead Press",
+                    "equipment": "barbell",
+                    "weight": 42.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        1
+                    ]
+                },
+                {
+                    "id": "deadlift",
+                    "name": "Deadlift",
+                    "equipment": "barbell",
+                    "weight": 110.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "pullups",
+                    "name": "Pull-ups",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        8,
+                        8,
+                        6
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "6033b40d-8653-3fa6-bb84-a8a91185be5d",
+            "routineId": "A",
+            "name": "Workout A",
+            "unit": "kg",
+            "startedAt": 1793379600000,
+            "finishedAt": 1793382420000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 95.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "bench",
+                    "name": "Bench Press",
+                    "equipment": "barbell",
+                    "weight": 82.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        1
+                    ]
+                },
+                {
+                    "id": "row",
+                    "name": "Barbell Row",
+                    "equipment": "barbell",
+                    "weight": 62.5,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        2
+                    ]
+                },
+                {
+                    "id": "dips",
+                    "name": "Dips",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        11,
+                        9,
+                        8
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "e01fae75-3438-3188-a6a7-a15a2823a5f9",
+            "routineId": "B",
+            "name": "Workout B",
+            "unit": "kg",
+            "startedAt": 1793206800000,
+            "finishedAt": 1793209620000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 90.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "ohp",
+                    "name": "Overhead Press",
+                    "equipment": "barbell",
+                    "weight": 40.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "deadlift",
+                    "name": "Deadlift",
+                    "equipment": "barbell",
+                    "weight": 100.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        3
+                    ]
+                },
+                {
+                    "id": "pullups",
+                    "name": "Pull-ups",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        8,
+                        7,
+                        6
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "d3a31a58-9ca9-3a64-a5ef-8c56648b6e1d",
+            "routineId": "A",
+            "name": "Workout A",
+            "unit": "kg",
+            "startedAt": 1793034000000,
+            "finishedAt": 1793036820000,
+            "exercises": [
+                {
+                    "id": "hackSquat",
+                    "name": "Hack Squat",
+                    "equipment": "machine",
+                    "weight": 80.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        3
+                    ]
+                },
+                {
+                    "id": "bench",
+                    "name": "Bench Press",
+                    "equipment": "barbell",
+                    "weight": 80.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ],
+                    "rir": [
+                        null,
+                        null,
+                        null,
+                        null,
+                        2
+                    ]
+                },
+                {
+                    "id": "row",
+                    "name": "Barbell Row",
+                    "equipment": "barbell",
+                    "weight": 60.0,
+                    "targetReps": 5,
+                    "sets": [
+                        5,
+                        5,
+                        5,
+                        5,
+                        5
+                    ]
+                },
+                {
+                    "id": "dips",
+                    "name": "Dips",
+                    "equipment": "bodyweight",
+                    "weight": 0.0,
+                    "targetReps": null,
+                    "sets": [
+                        10,
+                        9,
+                        8
+                    ]
+                }
+            ]
+        }
+    ],
+    "timerPresets": [],
+    "timerSessions": [
+        {
+            "id": "a9120a8a-9b5a-33f1-bafe-81caa7aa42e3",
+            "name": "Cindy",
+            "config": {
+                "mode": "amrap",
+                "work": 1200,
+                "rest": 0,
+                "rounds": 1
+            },
+            "startedAt": 1795338005000,
+            "finishedAt": 1795339215000,
+            "seconds": 1200,
+            "rounds": 14,
+            "completed": true,
+            "wodId": "wod-cindy",
+            "splits": [
+                82.0,
+                164.0,
+                246.0,
+                328.0,
+                410.0,
+                492.0,
+                574.0,
+                656.0,
+                738.0,
+                820.0,
+                902.0,
+                984.0,
+                1066.0,
+                1148.0
+            ]
+        },
+        {
+            "id": "ed7243f8-d511-3061-ba86-cff375ddfbc3",
+            "name": "AMRAP",
+            "config": {
+                "mode": "amrap",
+                "work": 600,
+                "rest": 0,
+                "rounds": 1
+            },
+            "startedAt": 1795251610000,
+            "finishedAt": 1795251922000,
+            "seconds": 302,
+            "rounds": 2,
+            "completed": false
+        },
+        {
+            "id": "60671252-284f-3e78-8b30-227aa5102561",
+            "name": "Garage burner",
+            "config": {
+                "mode": "amrap",
+                "work": 600,
+                "rest": 0,
+                "rounds": 1
+            },
+            "startedAt": 1794933305000,
+            "finishedAt": 1794933915000,
+            "seconds": 600,
+            "rounds": 7,
+            "completed": true,
+            "wodId": "24362487-b09b-30c4-a21b-6f7ccea9b6a1",
+            "splits": [
+                80.0,
+                150.0,
+                225.0,
+                300.0,
+                380.0,
+                455.0,
+                535.0
+            ]
+        },
+        {
+            "id": "f054915f-9139-38ab-9f79-6b1e6bdfe218",
+            "name": "EMOM",
+            "config": {
+                "mode": "emom",
+                "work": 60,
+                "rest": 0,
+                "rounds": 10
+            },
+            "startedAt": 1794646810000,
+            "finishedAt": 1794647420000,
+            "seconds": 600,
+            "rounds": 10,
+            "completed": true
+        },
+        {
+            "id": "64b732fb-d7fe-3181-9889-57faa770bed1",
+            "name": "Boxing",
+            "config": {
+                "mode": "boxing",
+                "work": 180,
+                "rest": 60,
+                "rounds": 6,
+                "boxing": {
+                    "rounds": [
+                        {
+                            "theme": "jab",
+                            "every": 4,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        },
+                        {
+                            "theme": "two",
+                            "every": 4,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        },
+                        {
+                            "theme": "three",
+                            "every": 6,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        },
+                        {
+                            "theme": "four",
+                            "every": 6,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        },
+                        {
+                            "theme": "mix",
+                            "every": 6,
+                            "split": 30,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        },
+                        {
+                            "theme": "freestyle",
+                            "every": 6,
+                            "split": 0,
+                            "pick": [],
+                            "cues": "off",
+                            "burnout": 0
+                        }
+                    ],
+                    "style": "names",
+                    "stance": "orthodox",
+                    "room": "normal",
+                    "own": []
+                }
+            },
+            "startedAt": 1794506410000,
+            "finishedAt": 1794507800000,
+            "seconds": 1380,
+            "rounds": 6,
+            "completed": true,
+            "punches": 441,
+            "combos": 130
+        },
+        {
+            "id": "9a286193-bf87-338b-9610-dda96efacd74",
+            "name": "Fran",
+            "config": {
+                "mode": "forTime",
+                "work": 600,
+                "rest": 0,
+                "rounds": 1
+            },
+            "startedAt": 1794132005000,
+            "finishedAt": 1794132477000,
+            "seconds": 462,
+            "rounds": 3,
+            "completed": true,
+            "wodId": "wod-fran",
+            "splits": [
+                95.0,
+                190.0,
+                265.0,
+                330.0,
+                400.0,
+                462.0
+            ]
+        },
+        {
+            "id": "67eb8b23-6983-3593-abc7-d0eac7bac147",
+            "name": "Tabata",
+            "config": {
+                "mode": "tabata",
+                "work": 20,
+                "rest": 10,
+                "rounds": 8
+            },
+            "startedAt": 1793437210000,
+            "finishedAt": 1793437450000,
+            "seconds": 230,
+            "rounds": 8,
+            "completed": true
+        }
+    ],
+    "timerConfigs": {
+        "tabata": {
+            "mode": "tabata",
+            "work": 20,
+            "rest": 10,
+            "rounds": 8
+        },
+        "emom": {
+            "mode": "emom",
+            "work": 60,
+            "rest": 0,
+            "rounds": 10
+        },
+        "amrap": {
+            "mode": "amrap",
+            "work": 600,
+            "rest": 0,
+            "rounds": 1
+        },
+        "forTime": {
+            "mode": "forTime",
+            "work": 1200,
+            "rest": 0,
+            "rounds": 1
+        },
+        "boxing": {
+            "mode": "boxing",
+            "work": 180,
+            "rest": 60,
+            "rounds": 6,
+            "boxing": {
+                "rounds": [
+                    {
+                        "theme": "jab",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "two",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "three",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "four",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "mix",
+                        "every": 6,
+                        "split": 30,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "freestyle",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    }
+                ],
+                "style": "names",
+                "stance": "orthodox",
+                "room": "normal",
+                "own": []
+            }
+        }
+    },
+    "wods": [
+        {
+            "id": "24362487-b09b-30c4-a21b-6f7ccea9b6a1",
+            "name": "Garage burner",
+            "timer": {
+                "mode": "amrap",
+                "work": 600,
+                "rest": 0,
+                "rounds": 1
+            },
+            "rounds": 1,
+            "scheme": [],
+            "items": [
+                {
+                    "exerciseId": "kettlebellSwing",
+                    "amount": 10,
+                    "unit": "reps",
+                    "load": 16.0
+                },
+                {
+                    "exerciseId": "pushups",
+                    "amount": 10,
+                    "unit": "reps",
+                    "load": 0.0
+                },
+                {
+                    "exerciseId": "airSquat",
+                    "amount": 10,
+                    "unit": "reps",
+                    "load": 0.0
+                }
+            ]
+        }
+    ]
+}

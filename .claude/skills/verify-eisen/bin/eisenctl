@@ -16,6 +16,7 @@ APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
 BASE="$ROOT/verify/android"
 STATE="$BASE/.state"
 FILES="eisen.json timer-run.json wod-draft.json"
+FIXTURES="$ROOT/.claude/skills/verify-eisen/fixtures"
 
 TAB="$(printf '\t')"
 die() { echo "eisenctl: $*" >&2; exit 1; }
@@ -29,12 +30,26 @@ nodes() {
   dump | tr '>' '>\n' | grep -oE '(text|content-desc)="[^"]+"[^>]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' \
     | sed -E 's/^(text|content-desc)="([^"]+)".*bounds="(.*)"$/\1=\2'"$TAB"'\3/'
 }
+fixtures() { /bin/ls "$FIXTURES" 2>/dev/null | sed -n 's/\.json$//p' | tr '\n' ' '; }
 file_of() { "$ADB" shell "run-as $PKG cat files/$1" 2>/dev/null; }
 
 case "${1:-}" in
   launch)
-    shift; fresh=0; build=1
-    for arg in "$@"; do case "$arg" in --fresh) fresh=1;; --no-build) build=0;; *) die "unknown option $arg";; esac; done
+    shift; fresh=0; build=1; fixture=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --fresh) fresh=1;;
+        --no-build) build=0;;
+        # A prepared eisen.json: fresh app data, then this file, then the app starts on it.
+        --state)
+          [ -n "${2:-}" ] || die "--state <name>, one of: $(fixtures)"
+          fixture="$FIXTURES/$2.json"; fresh=1; shift
+          [ -f "$fixture" ] || die "no fixture '$(basename "$fixture" .json)', there are: $(fixtures)"
+          ;;
+        *) die "unknown option $1";;
+      esac
+      shift
+    done
     mkdir -p "$STATE"
     [ -f "$STATE/run" ] && die "a run is open ($(cat "$STATE/run")): finish it with 'eisenctl cleanup' first"
     if [ -z "$(device)" ]; then
@@ -47,6 +62,8 @@ case "${1:-}" in
     booted || die "the emulator did not finish booting"
     if [ "$build" = 1 ]; then
       (cd "$ROOT/apps/android" && ./gradlew assembleDebug -q) || die "the debug build failed"
+      # The sources this APK was built from: cleanup stamps them as verified on the emulator.
+      (cd "$ROOT" && . .githooks/lib.sh && eisen_source_hash) > "$STATE/hash"
     fi
     [ -f "$APK" ] || die "no APK at $APK"
     run="$BASE/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$run"; echo "$run" > "$STATE/run"
@@ -58,13 +75,31 @@ case "${1:-}" in
     fi
     "$ADB" install -r "$APK" > "$run/install.log" 2>&1 || die "install failed, see $run/install.log"
     if [ "$fresh" = 1 ]; then "$ADB" shell pm clear $PKG > /dev/null; fi
+    if [ -n "$fixture" ]; then
+      # Moved by whole weeks so its newest entry is in the last seven days: "this week" and the
+      # last 12 weeks of Progress keep something to show, on the same weekdays, however old the file.
+      shifted="$run/00-fixture-$(basename "$fixture")"
+      jq -c --argjson now "$(date +%s)000" '
+        ([.. | objects | (.startedAt?, .finishedAt?) | numbers] | max // $now) as $newest
+        | ((($now - $newest) / 604800000 | floor) * 604800000) as $by
+        | walk(if type == "object" then with_entries(if (.key == "startedAt" or .key == "finishedAt") and (.value | type) == "number" then .value += $by else . end) else . end)
+      ' "$fixture" > "$shifted" || die "could not read $fixture"
+      "$ADB" shell "run-as $PKG mkdir -p files" && "$ADB" shell "run-as $PKG sh -c 'cat > files/eisen.json'" < "$shifted" \
+        || die "could not write $fixture into the app"
+    fi
     "$ADB" shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
     for scale in window_animation_scale transition_animation_scale animator_duration_scale; do "$ADB" shell settings put global $scale 0; done
     "$ADB" shell cmd audio set-volume 3 0 > /dev/null 2>&1
+    # A screen left off (by a journey that stopped half-way) shows uiautomator nothing.
+    "$ADB" shell input keyevent KEYCODE_WAKEUP
+    "$ADB" shell wm dismiss-keyguard
     "$ADB" logcat -c
     "$ADB" shell am start -n $PKG/.MainActivity > /dev/null
-    for _ in $(seq 30); do nodes | grep -q "^text=Settings$TAB" && break; sleep 1; done
-    nodes | grep -q "^text=Settings$TAB" || die "the app did not show its tabs within 30s, see 'eisenctl texts'"
+    # Ready is the app's first screen with its texts: the five tabs, or a workout or timer that runs.
+    shown() { dump | grep -qE "text=\"[^\"]+\"[^>]* package=\"$PKG\""; }
+    deadline=$(( $(date +%s) + 30 ))
+    until shown || [ "$(date +%s)" -ge "$deadline" ]; do :; done
+    shown || die "the app did not show its first screen within 30s, see 'eisenctl texts'"
     echo "ready: $run"
     ;;
   doctor)
@@ -83,16 +118,28 @@ case "${1:-}" in
     exit $ok
     ;;
   texts) nodes ;;
-  has) nodes | grep -qE "^(text|content-desc)=($2)$TAB" ;;
+  has)
+    # Several handles are checked on one dump: a dump takes about two seconds.
+    shift; [ $# -gt 0 ] || die "has <regex>..."
+    screen="$(nodes)"
+    for handle in "$@"; do echo "$screen" | grep -qE "^(text|content-desc)=($handle)$TAB" || { echo "eisenctl: '$handle' is not on screen" >&2; exit 1; }; done
+    ;;
   wait)
-    for _ in $(seq "${3:-15}"); do nodes | grep -qE "^(text|content-desc)=($2)$TAB" && exit 0; sleep 1; done
+    # By the clock: a dump takes about two seconds, so counting tries would wait three times as long.
+    deadline=$(( $(date +%s) + ${3:-15} ))
+    while :; do
+      nodes | grep -qE "^(text|content-desc)=($2)$TAB" && exit 0
+      [ "$(date +%s)" -lt "$deadline" ] || break
+    done
     die "'$2' did not appear within ${3:-15}s"
     ;;
-  tap)
+  tap|hold)
     line="$(nodes | grep -E "^(text|content-desc)=($2)$TAB" | sed -n "${3:-1}p")"
     [ -n "$line" ] || die "nothing on screen matches '$2' (see 'eisenctl texts')"
-    set -- $(echo "$line" | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]$' | grep -oE '[0-9]+')
-    "$ADB" shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+    action="$1"; set -- $(echo "$line" | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]$' | grep -oE '[0-9]+')
+    x=$(( ($1 + $3) / 2 )); y=$(( ($2 + $4) / 2 ))
+    # A hold is a swipe that does not move: a press of one second ("Hold to finish" fills in 0.7 s).
+    if [ "$action" = hold ]; then "$ADB" shell input swipe $x $y $x $y 1000; else "$ADB" shell input tap $x $y; fi
     sleep 0.6
     ;;
   type) "$ADB" shell input text "$(echo "$2" | sed 's/ /%s/g')" ;;
@@ -119,10 +166,24 @@ case "${1:-}" in
     "$ADB" logcat -d > "$run/logcat.txt"
     echo "$run/logcat.txt"
     ;;
+  said)
+    # The witness of what the muted coach said: every sound named must have its line in the log since launch.
+    run="$(run_dir)"; shift; [ $# -gt 0 ] || die "said <sound>..."
+    "$ADB" logcat -d > "$run/logcat.txt"
+    missing=""
+    for sound in "$@"; do grep -q "EisenTimer: said $sound\$" "$run/logcat.txt" || missing="$missing $sound"; done
+    [ -z "$missing" ] || die "not said since launch:$missing (see $run/logcat.txt)"
+    ;;
   adb) shift; "$ADB" "$@" ;;
   cleanup)
     [ -d "$STATE" ] || { echo "nothing to clean up"; exit 0; }
     if [ -n "$(device)" ]; then
+      # A run that built the APK, took at least one shot and saw no crash counts as an emulator
+      # run of those sources. The commit hook writes it into the commit ("Verified: emulator").
+      if [ -f "$STATE/hash" ] && [ -f "$STATE/run" ] && /bin/ls "$(cat "$STATE/run")"/*.png > /dev/null 2>&1 \
+        && ! "$ADB" logcat -d | grep -q "FATAL EXCEPTION"; then
+        (cd "$ROOT" && . .githooks/lib.sh && cp "$STATE/hash" "$(eisen_dir)/emulator")
+      fi
       "$ADB" shell am force-stop $PKG
       if [ -d "$STATE/backup" ]; then
         "$ADB" shell pm clear $PKG > /dev/null
@@ -141,16 +202,20 @@ case "${1:-}" in
     ;;
   *)
     cat <<USAGE
-eisenctl launch [--fresh] [--no-build]   build, install, start; --fresh starts from empty app data
+eisenctl launch [--fresh] [--no-build] [--state <name>]
+                                         build, install, start; --fresh starts from empty app data,
+                                         --state from fixtures/<name>.json (implies --fresh): $(fixtures)
 eisenctl doctor                          read-only: is this instance worth driving?
 eisenctl texts                           what is on screen: text=... and content-desc=... with bounds
-eisenctl has <regex>                     exit 0 when a text or description matches the whole regex
+eisenctl has <regex>...                  exit 0 when each regex matches a whole text or description
 eisenctl wait <regex> [seconds]          until it appears (default 15)
 eisenctl tap <regex> [n]                 tap the n-th match (default the first)
+eisenctl hold <regex> [n]                press it for a second ("Hold to finish")
 eisenctl type <text> | back | scroll down|up
 eisenctl shot <name>                     screenshot + the screen's texts into the run's evidence directory
 eisenctl state [name]                    the saved eisen.json into the evidence directory
 eisenctl log                             logcat since launch into the evidence directory
+eisenctl said <sound>...                 fails unless the log has "EisenTimer: said <sound>" for each
 eisenctl adb <args>                      plain adb
 eisenctl cleanup                         restore the emulator's app data, keep the evidence
 USAGE
