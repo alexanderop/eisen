@@ -181,11 +181,11 @@ describe('boxing setup', () => {
 })
 
 describe('boxing run', () => {
-  it('has a recording for every line of the coach, and none left over', () => {
+  // The Android app shares this directory and has lines this app does not know.
+  it('has a recording for every line of the coach', () => {
     const files = Object.keys(import.meta.glob('../assets/voice/timer/box-*.mp3'))
       .map((path) => path.slice(path.lastIndexOf('/') + 1, -'.mp3'.length))
-      .sort()
-    expect(files).toEqual(Object.keys(boxingRecordings()).sort())
+    expect(Object.keys(boxingRecordings()).filter((name) => !files.includes(name))).toEqual([])
   })
 
   it('gives a boxing run a seed, a new one every start, and none to other timers', () => {
