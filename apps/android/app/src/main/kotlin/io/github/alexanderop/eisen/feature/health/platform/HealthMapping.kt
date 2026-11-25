@@ -3,6 +3,7 @@ package io.github.alexanderop.eisen.feature.health.platform
 import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import io.github.alexanderop.eisen.core.Equipment
+import io.github.alexanderop.eisen.feature.timer.Activity
 import io.github.alexanderop.eisen.feature.timer.TimerMode
 import io.github.alexanderop.eisen.feature.timer.TimerOutcome
 import io.github.alexanderop.eisen.feature.timer.TimerSession
@@ -129,8 +130,8 @@ fun sessionFields(workout: Workout, zone: ZoneId): SessionFields? {
 }
 
 /**
- * The record for a finished interval timer: a HIIT session, or a boxing one, named like the timer, from
- * Start to the end, with what it was and what was done in the notes. Null when its end is not after its start.
+ * The record for a finished interval timer: of the type of its activity ([exerciseTypeOf]), else a HIIT session or a
+ * boxing one, named like the timer, from Start to the end, with the activity, what it was and what was done in the notes. Null when its end is not after its start.
  */
 fun timerSessionFields(session: TimerSession, zone: ZoneId): SessionFields? {
     if (session.finishedAt <= session.startedAt) return null
@@ -142,15 +143,35 @@ fun timerSessionFields(session: TimerSession, zone: ZoneId): SessionFields? {
         TimerOutcome.CAPPED -> ", time cap"
         TimerOutcome.STOPPED -> ", stopped early"
     }
+    val activity = session.activity
     return SessionFields(
         start = start,
         startOffset = zone.rules.getOffset(start),
         end = end,
         endOffset = zone.rules.getOffset(end),
         title = session.name,
-        notes = "${session.config.mode.title} ${timerSummary(session.config)}: ${sessionSummary(session)}$done",
+        notes = "${activity?.let { "${it.label}. " }.orEmpty()}${session.config.mode.title} ${timerSummary(session.config)}: ${sessionSummary(session)}$done",
         segments = emptyList(),
-        exerciseType = if (session.config.mode == TimerMode.BOXING) ExerciseSessionRecord.EXERCISE_TYPE_BOXING
-        else ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING,
+        exerciseType = when {
+            activity != null -> exerciseTypeOf(activity)
+            session.config.mode == TimerMode.BOXING -> ExerciseSessionRecord.EXERCISE_TYPE_BOXING
+            else -> ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING
+        },
     )
+}
+
+/**
+ * The Health Connect type of what a timer was done for. Every constant exists in connect-client 1.1.0
+ * (ExerciseSessionRecord.EXERCISE_TYPE_*). Health Connect has no jump rope and no battle rope: those stay
+ * interval training, the label is in the notes. An interval timer runs indoors, so rowing and the bike are
+ * the machines; running is plain running, a treadmill included.
+ */
+fun exerciseTypeOf(activity: Activity): Int = when (activity) {
+    Activity.BOXING -> ExerciseSessionRecord.EXERCISE_TYPE_BOXING
+    Activity.JUMP_ROPE -> ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING
+    Activity.BATTLE_ROPE -> ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING
+    Activity.CROSS_TRAINER -> ExerciseSessionRecord.EXERCISE_TYPE_ELLIPTICAL
+    Activity.ROWING -> ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE
+    Activity.BIKE -> ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY
+    Activity.RUNNING -> ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
 }

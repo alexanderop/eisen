@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.feature.timer.ui
 
+import io.github.alexanderop.eisen.core.ui.ChipChoice
+import io.github.alexanderop.eisen.feature.timer.ACTIVITIES
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -1004,87 +1006,107 @@ private fun TimerResultScreen(session: TimerSession, wod: Wod?, sessions: List<T
                     ) { Text("Not finished? Undo", fontWeight = FontWeight.Bold, fontSize = 17.sp) }
                 }
             }
-            Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                // A name as the lifter wrote it: "AMRAP 30s" is not "AMRAP 30S".
-                Text(
-                    session.name,
-                    color = EisenColors.Foreground,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                )
-                // The timer described once: "Tabata · 3 × 5s / 5s", a WOD by its format: "21-15-9 · For Time".
-                val summary = timerSummary(session.config)
-                Text(
-                    when {
-                        wod != null -> io.github.alexanderop.eisen.feature.timer.wod.wodFormat(wod).takeIf { it != session.name } ?: timerSummary(session.config)
-                        session.name == session.config.mode.title -> summary
-                        else -> "${session.config.mode.title} · $summary"
-                    },
-                    color = EisenColors.MutedForeground,
-                    fontSize = 15.sp,
-                )
-                Spacer(Modifier.height(16.dp))
-                if (tapped) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Adjust("−", "One round less", enabled = session.rounds > 0) { dispatch(Msg.Timer.CorrectRounds(-1)) }
+            // Centred while it fits; at a large font it scrolls, so the chips never push the buttons off the screen.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                Column(
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = this.maxHeight),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    // A name as the lifter wrote it: "AMRAP 30s" is not "AMRAP 30S".
+                    Text(
+                        session.name,
+                        color = EisenColors.Foreground,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                    )
+                    // The timer described once: "Tabata · 3 × 5s / 5s", a WOD by its format: "21-15-9 · For Time".
+                    val summary = timerSummary(session.config)
+                    Text(
+                        when {
+                            wod != null -> io.github.alexanderop.eisen.feature.timer.wod.wodFormat(wod).takeIf { it != session.name } ?: timerSummary(session.config)
+                            session.name == session.config.mode.title -> summary
+                            else -> "${session.config.mode.title} · $summary"
+                        },
+                        color = EisenColors.MutedForeground,
+                        fontSize = 15.sp,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    if (tapped) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Adjust("−", "One round less", enabled = session.rounds > 0) { dispatch(Msg.Timer.CorrectRounds(-1)) }
+                            Text(
+                                session.rounds.toString(),
+                                Modifier.widthIn(min = 96.dp).semantics { heading() },
+                                color = EisenColors.Foreground,
+                                fontSize = hero,
+                                lineHeight = hero,
+                                fontWeight = FontWeight.Black,
+                                textAlign = TextAlign.Center,
+                                style = TextStyle(fontFeatureSettings = "tnum"),
+                            )
+                            Adjust("+", "One round more", enabled = true) { dispatch(Msg.Timer.CorrectRounds(1)) }
+                        }
+                        Text(if (session.rounds == 1) "round" else "rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(formatClock(session.seconds), color = EisenColors.MutedForeground, fontSize = 26.sp, fontWeight = FontWeight.Bold, style = TextStyle(fontFeatureSettings = "tnum"))
+                    } else {
                         Text(
-                            session.rounds.toString(),
-                            Modifier.widthIn(min = 96.dp).semantics { heading() },
+                            formatClock(session.seconds),
+                            Modifier.semantics { heading() },
                             color = EisenColors.Foreground,
                             fontSize = hero,
                             lineHeight = hero,
                             fontWeight = FontWeight.Black,
-                            textAlign = TextAlign.Center,
+                            letterSpacing = (-0.03).em,
                             style = TextStyle(fontFeatureSettings = "tnum"),
                         )
-                        Adjust("+", "One round more", enabled = true) { dispatch(Msg.Timer.CorrectRounds(1)) }
-                    }
-                    Text(if (session.rounds == 1) "round" else "rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                    Spacer(Modifier.height(6.dp))
-                    Text(formatClock(session.seconds), color = EisenColors.MutedForeground, fontSize = 26.sp, fontWeight = FontWeight.Bold, style = TextStyle(fontFeatureSettings = "tnum"))
-                } else {
-                    Text(
-                        formatClock(session.seconds),
-                        Modifier.semantics { heading() },
-                        color = EisenColors.Foreground,
-                        fontSize = hero,
-                        lineHeight = hero,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = (-0.03).em,
-                        style = TextStyle(fontFeatureSettings = "tnum"),
-                    )
-                    when {
-                        !wodForTime -> Text(rounds, color = EisenColors.Foreground, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
-                        wod!!.rounds > 1 -> Text("${session.rounds} of ${wod.rounds} rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                    }
-                    if (combos != null) BoxingResultLines(session.config, combos, session.punches, io.github.alexanderop.eisen.feature.timer.boxing.punchesGap(session, sessions))
-                }
-                if (against != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        against.text,
-                        color = if (against.better) EisenColors.Primary else EisenColors.MutedForeground,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                // The best before this run, so a record shows what it beat.
-                if (best != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("Previous best ${bestText(best)}", color = EisenColors.MutedForeground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.background(accent.copy(alpha = 0.16f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(OUTCOME_LABELS.getValue(outcome), color = accent, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (record) {
-                        Box(Modifier.background(EisenColors.Primary, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            Text("New record", color = EisenColors.OnPrimary, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                        when {
+                            !wodForTime -> Text(rounds, color = EisenColors.Foreground, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
+                            wod!!.rounds > 1 -> Text("${session.rounds} of ${wod.rounds} rounds", color = EisenColors.Foreground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
                         }
+                        if (combos != null) BoxingResultLines(session.config, combos, session.punches, io.github.alexanderop.eisen.feature.timer.boxing.punchesGap(session, sessions))
+                    }
+                    if (against != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            against.text,
+                            color = if (against.better) EisenColors.Primary else EisenColors.MutedForeground,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    // The best before this run, so a record shows what it beat.
+                    if (best != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Previous best ${bestText(best)}", color = EisenColors.MutedForeground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(18.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.background(accent.copy(alpha = 0.16f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(OUTCOME_LABELS.getValue(outcome), color = accent, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (record) {
+                            Box(Modifier.background(EisenColors.Primary, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text("New record", color = EisenColors.OnPrimary, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    }
+                    // What it was for, saved with the run at once. A WOD is what it was.
+                    if (session.wodId == null) {
+                        Spacer(Modifier.height(20.dp))
+                        ChipChoice(
+                            "What was it?",
+                            ACTIVITIES,
+                            session.activity,
+                            { it.label },
+                            { dispatch(Msg.Timer.SetActivity(session.id, it)) },
+                            Modifier.widthIn(max = 520.dp),
+                            centered = true,
+                        )
                     }
                 }
             }

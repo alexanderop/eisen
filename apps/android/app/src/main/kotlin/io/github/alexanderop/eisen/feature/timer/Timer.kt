@@ -2,8 +2,19 @@ package io.github.alexanderop.eisen.feature.timer
 
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.nullable
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.math.abs
 import kotlin.math.roundToLong
 import io.github.alexanderop.eisen.core.REST_EXERCISE
@@ -414,7 +425,75 @@ data class TimerSession(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val punches: Int? = null,
     /** Boxing: the combinations the coach called up to where the run ended. Left out of the file for the other modes. */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val combos: Int? = null,
+    /** What the lifter did to the timer: jump rope, cross trainer, ... Left out of the file when not said. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @Serializable(with = ActivityOrNone::class) val activity: Activity? = null,
 )
+
+/**
+ * What a finished timer was. The name in the file is the [SerialName]; the label is what the lifter reads.
+ * Health Connect maps each one to an exercise type of its own (`feature/health/platform/HealthMapping.kt`).
+ */
+@Serializable
+enum class Activity(val label: String) {
+    @SerialName("boxing") BOXING("Boxing"),
+    @SerialName("jumpRope") JUMP_ROPE("Jump rope"),
+    @SerialName("battleRope") BATTLE_ROPE("Battle rope"),
+    @SerialName("crossTrainer") CROSS_TRAINER("Cross trainer"),
+    @SerialName("rowing") ROWING("Rowing"),
+    @SerialName("bike") BIKE("Bike"),
+    @SerialName("running") RUNNING("Running"),
+}
+
+/** The chips "What was it?" offers, in this order. */
+val ACTIVITIES: List<Activity> = listOf(
+    Activity.BOXING,
+    Activity.JUMP_ROPE,
+    Activity.BATTLE_ROPE,
+    Activity.CROSS_TRAINER,
+    Activity.ROWING,
+    Activity.BIKE,
+    Activity.RUNNING,
+)
+
+/** The name an activity has in the file. */
+private val ACTIVITY_NAMES: Map<String, Activity> = Activity.entries.associateBy { Activity.serializer().descriptor.getElementName(it.ordinal) }
+
+/**
+ * An activity in the file, or none. A name this build does not know (written by a newer one) is read as
+ * none, so one session never makes the whole file unreadable.
+ */
+object ActivityOrNone : KSerializer<Activity?> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("io.github.alexanderop.eisen.ActivityOrNone", PrimitiveKind.STRING).nullable
+
+    override fun serialize(encoder: Encoder, value: Activity?) {
+        val name = ACTIVITY_NAMES.entries.firstOrNull { it.value == value }?.key
+        if (encoder is JsonEncoder) encoder.encodeJsonElement(if (name == null) JsonNull else JsonPrimitive(name)) else encoder.encodeString(name.orEmpty())
+    }
+
+    override fun deserialize(decoder: Decoder): Activity? {
+        val element = if (decoder is JsonDecoder) decoder.decodeJsonElement() else JsonPrimitive(decoder.decodeString())
+        val name = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        return ACTIVITY_NAMES[name]
+    }
+}
+
+/**
+ * The activity where it adds to the name: "Jump rope" for a "Tabata", nothing for a "Boxing" run that
+ * was boxing. For the history row and the calendar.
+ */
+fun activityNote(session: TimerSession): String? =
+    session.activity?.label?.takeIf { !it.equals(session.name.trim(), ignoreCase = true) }
+
+/**
+ * What a run is filed with before the lifter says anything: boxing for the boxing timer, else what the
+ * newest earlier run of the same timer (same name and mode) was, so a "Tabata" used for jump rope stays
+ * jump rope until it is changed. None for a WOD: the WOD is what it was. [earlier] is newest first.
+ */
+fun presetActivity(session: TimerSession, earlier: List<TimerSession>): Activity? = when {
+    session.wodId != null -> null
+    session.config.mode == TimerMode.BOXING -> Activity.BOXING
+    else -> earlier.firstOrNull { it.id != session.id && it.wodId == null && it.name == session.name && it.config.mode == session.config.mode }?.activity
+}
 
 /** A timer that is running or paused. Timestamps, so it stays right while the app sleeps. */
 @OptIn(ExperimentalSerializationApi::class)

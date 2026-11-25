@@ -1,7 +1,7 @@
 # Layout at the extremes
 
 What a lifter needs on each main screen is on screen and big enough to hit, from the default font to the
-largest: the system font scale at 1.0, 1.3 and 2.0, on the emulator's 1080 × 2400 at 420 dpi. Bugs of this
+largest (and the chips "What was it?" never push the result of a timer off its screen): the system font scale at 1.0, 1.3 and 2.0, on the emulator's 1080 × 2400 at 420 dpi. Bugs of this
 kind only show on a phone set up that way (QA build 19: at 1.8 and 2.0 the rest screen lost its countdown
 and its −15s / +15s; at 1.5 the countdown was smaller than the text around it).
 
@@ -16,13 +16,14 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
 
 Android Settings › Display › Font size, or `eisenctl font <scale>` (put back by `cleanup`). The screens:
 Home, a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
-running, a boxing run, the WOD builder, History, Settings.
+running, a boxing run, the WOD builder, History, Settings, the result of an interval timer with its chips
+"What was it?", and the sheet with the same chips over History's log.
 
 ## Driving it with eisenctl
 
-Preconditions: `--state short-timers` (its quick timers). One recipe per font scale; each walks all nine
+Preconditions: `--state short-timers` (its quick timers). One recipe per font scale; each walks all eleven
 screens and checks each with `visible` (the handles on screen, not cut off, tapped on at least 48 dp) and
-`small` (no clickable node of the screen under 48 dp). About three minutes each.
+`small` (no clickable node of the screen under 48 dp). About four minutes each.
 
 **At font scale 1.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`).
 
@@ -48,6 +49,10 @@ eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisen
 eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" && eisenctl visible "Name your WOD" "For Time" "AMRAP" "EMOM" "Tabata" && eisenctl small && eisenctl shot 17-wod-builder
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 18-history
 eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 19-settings
+eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 20-timer-result
+sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Log" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl visible "What was it\?" "Boxing" "Running" "Done" "Close" && eisenctl small && eisenctl shot 20b-history-sheet
+eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -75,6 +80,10 @@ eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisen
 eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" && eisenctl visible "Name your WOD" "For Time" "AMRAP" "EMOM" "Tabata" && eisenctl small && eisenctl shot 27-wod-builder
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 28-history
 eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 29-settings
+eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 30-timer-result
+sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Log" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl visible "What was it\?" "Boxing" "Running" "Done" "Close" && eisenctl small && eisenctl shot 30b-history-sheet
+eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -102,6 +111,10 @@ eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisen
 eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" && eisenctl visible "Name your WOD" "For Time" "AMRAP" "EMOM" "Tabata" && eisenctl small && eisenctl shot 37-wod-builder
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 38-history
 eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 39-settings
+eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 40-timer-result
+sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Log" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl visible "What was it\?" "Boxing" "Running" "Done" "Close" && eisenctl small && eisenctl shot 40b-history-sheet
+eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -115,5 +128,8 @@ eisenctl doctor && eisenctl cleanup
   uiautomator reports them.
 - `font` changes a system setting; `cleanup` puts back the scale the run found. A run that stops half-way
   must still be cleaned up, or the emulator keeps the large font.
+- The result's middle scrolls when it does not fit (a narrow phone at 2.0: 320 dp, checked by hand with
+  `wm density 540`), so its name, time, outcome and the buttons below it stay; the chips may then sit below
+  the fold. On the emulator's 411 dp all of them show at every scale, which is what the recipes check.
 - Discarding the workout with a set logged asks first; the menu's `Discard workout` and the sheet's share a
   handle, and the menu is closed by the time the sheet shows, so both taps take the first match.

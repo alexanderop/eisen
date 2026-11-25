@@ -204,6 +204,12 @@ internal fun history(msg: Msg.History, model: Model): Next = when (msg) {
         if (deleted == null) model.only()
         else restoreWorkout(model.undo { it.copy(deletedWorkout = null) }, deleted.workout, deleted.index)
     }
+    is Msg.History.OpenActivity -> {
+        val sheet = ActivitySheet(msg.id)
+        // Only over the log, for a timer that is filed and not a WOD.
+        if (model.activitySheet == sheet || !activitySheetFits(model, sheet)) model.only() else model.overlay(OverlayEvent.PickActivity(sheet)).only()
+    }
+    Msg.History.CloseActivity -> model.overlay(OverlayEvent.ActivityClosed).only()
 }
 
 private fun restoreWorkout(model: Model, workout: io.github.alexanderop.eisen.feature.workout.Workout, index: Int): Next {

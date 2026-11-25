@@ -69,13 +69,12 @@ import io.github.alexanderop.eisen.core.ui.fmt
 import io.github.alexanderop.eisen.core.ui.fmtLoad
 import io.github.alexanderop.eisen.core.ui.formatDate
 import io.github.alexanderop.eisen.core.ui.formatShortDate
+import io.github.alexanderop.eisen.app.elm.trainingStats
 import io.github.alexanderop.eisen.core.ui.ButtonHeight
 import io.github.alexanderop.eisen.core.ui.EisenCard
 import io.github.alexanderop.eisen.core.ui.Eyebrow
 import io.github.alexanderop.eisen.core.ui.PillBadge
 import io.github.alexanderop.eisen.feature.share.ui.ShareWorkoutSheet
-
-private const val WEEK_MS = 7L * 24 * 60 * 60 * 1000
 
 /** One exercise of the workout on the card. [load] is "80kg", "BW" or "BW + 10kg". */
 private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val timed: Boolean, val load: String)
@@ -135,11 +134,13 @@ fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
             SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) })
         }
         NextCard(model, dispatch)
-        if (lastWorkout != null) {
+        // A finished interval timer counts like a workout.
+        val stats = trainingStats(model.state, model.now)
+        if (stats != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatCard(history.size.toString(), "workouts", Modifier.weight(1f))
-                StatCard(history.count { model.now - it.startedAt < WEEK_MS }.toString(), "last 7 days", Modifier.weight(1f))
-                StatCard(formatShortDate(lastWorkout.startedAt), "last workout", Modifier.weight(1f))
+                StatCard(stats.total.toString(), if (stats.total == 1) "workout" else "workouts", Modifier.weight(1f))
+                StatCard(stats.lastWeek.toString(), "last 7 days", Modifier.weight(1f))
+                StatCard(formatShortDate(stats.last), "last workout", Modifier.weight(1f))
             }
         }
     }

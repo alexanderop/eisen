@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.ActivitySheet
 import io.github.alexanderop.eisen.app.elm.HoldTimer
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.Overlay
@@ -16,7 +17,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * What lies over the workout screen (`app/elm/Overlay.kt`): one test per transition of [overlayAfter],
+ * What lies over the workout screen and the history's log (`app/elm/Overlay.kt`): one test per transition of [overlayAfter],
  * then the gaps the one value closed, through `update`. Workout A: hackSquat, bench, row, dips (max reps).
  */
 class OverlayTest {
@@ -25,7 +26,8 @@ class OverlayTest {
     private val done = RestScreen.SetDone(1, 4, "bench")
     private val hold = HoldTimer(4, 0, "plank", 60, startsAt = 1_000)
     private val question = RepsQuestion(3, 0, "dips", 8)
-    private val all: List<Overlay?> = listOf(null, shown, minimised, done, hold, question, question.copy(under = minimised))
+    private val sheet = ActivitySheet("t1")
+    private val all: List<Overlay?> = listOf(null, shown, minimised, done, hold, question, question.copy(under = minimised), sheet)
 
     private fun after(overlay: Overlay?, event: OverlayEvent) = overlayAfter(overlay, event)
 
@@ -42,6 +44,7 @@ class OverlayTest {
         // QA build 19: a question over the full screen dropped it, and the rest bar no longer opened anything.
         assertEquals(next.copy(under = minimised), after(shown, OverlayEvent.AskReps(next)))
         assertEquals(next, after(done, OverlayEvent.AskReps(next)))
+        assertEquals(next, after(sheet, OverlayEvent.AskReps(next)))
         assertEquals(next.copy(under = minimised), after(question.copy(under = minimised), OverlayEvent.AskReps(next)))
         assertEquals(hold, after(hold, OverlayEvent.AskReps(next)))
     }
@@ -50,7 +53,7 @@ class OverlayTest {
         for (event in listOf(OverlayEvent.Answered, OverlayEvent.CloseReps)) {
             assertNull(after(question, event))
             assertEquals(minimised, after(question.copy(under = minimised), event))
-            for (before in listOf(null, shown, minimised, done, hold)) assertEquals("$before $event", before, after(before, event))
+            for (before in listOf(null, shown, minimised, done, hold, sheet)) assertEquals("$before $event", before, after(before, event))
         }
     }
 
@@ -63,16 +66,23 @@ class OverlayTest {
     @Test fun `a full rest screen minimises to the bar, the set done screen goes, the bar opens again`() {
         assertEquals(minimised, after(shown, OverlayEvent.Minimise))
         assertNull(after(done, OverlayEvent.Minimise))
-        for (before in listOf(null, minimised, hold, question)) assertEquals("$before", before, after(before, OverlayEvent.Minimise))
+        for (before in listOf(null, minimised, hold, question, sheet)) assertEquals("$before", before, after(before, OverlayEvent.Minimise))
         assertEquals(shown, after(minimised, OverlayEvent.Open))
-        for (before in listOf(null, shown, done, hold, question)) assertEquals("$before", before, after(before, OverlayEvent.Open))
+        for (before in listOf(null, shown, done, hold, question, sheet)) assertEquals("$before", before, after(before, OverlayEvent.Open))
     }
 
     @Test fun `a rating closes the screen it was chosen on, and only that one`() {
         assertNull(after(done, OverlayEvent.Rated(done)))
         assertNull(after(shown, OverlayEvent.Rated(shown)))
         assertEquals(done, after(done, OverlayEvent.Rated(done.copy(set = 3))))
-        for (before in listOf(null, hold, question)) assertEquals("$before", before, after(before, OverlayEvent.Rated(done)))
+        for (before in listOf(null, hold, question, sheet)) assertEquals("$before", before, after(before, OverlayEvent.Rated(done)))
+    }
+
+    @Test fun `a tapped timer of the history opens its sheet over anything, and closing it closes only the sheet`() {
+        val other = ActivitySheet("t2")
+        for (before in all) assertEquals("$before", other, after(before, OverlayEvent.PickActivity(other)))
+        assertNull(after(sheet, OverlayEvent.ActivityClosed))
+        for (before in all - sheet) assertEquals("$before", before, after(before, OverlayEvent.ActivityClosed))
     }
 
     @Test fun `a reorder closes a hold timer only, an erase or a backup everything`() {

@@ -4,7 +4,8 @@ import io.github.alexanderop.eisen.feature.workout.canRate
 
 /*
  * What lies over the workout screen, as one value: the rest screen (full, put away to the rest bar, or the
- * "set done" screen), the hold timer of a timed set, or the reps question of a max-reps set. One at a
+ * "set done" screen), the hold timer of a timed set, or the reps question of a max-reps set; and over the
+ * history's log the sheet "What was it?" of a finished timer ([ActivitySheet]). One at a
  * time, so no state can hold two of them and no guard has to keep them apart. Every change goes through
  * [overlayAfter]; [fitting] follows a moved card by its exercise id, takes away one that no longer belongs
  * to the workout (a backup, an erase, a finished workout, a removed exercise, an ended rest), and puts the
@@ -88,8 +89,29 @@ data class RepsQuestion(
     val under: RestScreen.Minimised? = null,
 ) : Overlay
 
+/**
+ * The sheet "What was it?" over the history's log, for the finished timer [sessionId]. One thing over the
+ * screen like the others, so it never lies over a rest screen or a question. It is gone ([fitting]) once the
+ * log is not what shows (another tab, Progress, the workout, a running timer) or its timer left the history
+ * (an erase, a backup); a rest that runs is back in the bar then. Never kept past the end of the process.
+ *
+ *            OpenActivity(id)                  CloseActivity, Back, another tab, Progress,
+ *   ┌──────┐ ───────────────▶ ┌────────────┐   the workout or a timer on screen, the timer gone,
+ *   │ none │                  │ Sheet(id)  │ ─────────────────────────────────────────────────▶ none
+ *   └──────┘                  └────────────┘   (or the rest bar, when a rest runs)
+ *                               │      ▲
+ *                               └──────┘ SetActivity: the sheet stays, the chip lights
+ */
+data class ActivitySheet(val sessionId: String) : Overlay
+
 /** What happens to the overlay. */
 sealed interface OverlayEvent {
+    /** A finished timer in the history was tapped: its sheet opens. */
+    data class PickActivity(val sheet: ActivitySheet) : OverlayEvent
+
+    /** The sheet "What was it?" is put away. */
+    data object ActivityClosed : OverlayEvent
+
     /** A rest started for a set, or the last set of an exercise was logged: its screen, [screen]. */
     data class Rest(val screen: RestScreen) : OverlayEvent
 
@@ -134,7 +156,7 @@ fun overlayAfter(overlay: Overlay?, event: OverlayEvent): Overlay? = when (event
         // The question goes over the rest screen, which is back put away when the question goes.
         is RestScreen.Shown -> event.question.copy(under = RestScreen.Minimised(overlay.exercise, overlay.set, overlay.exerciseId))
         is RepsQuestion -> event.question.copy(under = overlay.under)
-        null, is RestScreen.SetDone -> event.question
+        null, is RestScreen.SetDone, is ActivitySheet -> event.question
     }
     OverlayEvent.Answered, OverlayEvent.CloseReps -> if (overlay is RepsQuestion) overlay.under else overlay
     is OverlayEvent.Hold -> event.timer
@@ -142,8 +164,11 @@ fun overlayAfter(overlay: Overlay?, event: OverlayEvent): Overlay? = when (event
     OverlayEvent.Minimise -> when (overlay) {
         is RestScreen.Shown -> RestScreen.Minimised(overlay.exercise, overlay.set, overlay.exerciseId)
         is RestScreen.SetDone -> null
-        null, is RestScreen.Minimised, is HoldTimer, is RepsQuestion -> overlay
+        null, is RestScreen.Minimised, is HoldTimer, is RepsQuestion, is ActivitySheet -> overlay
     }
+    // The log shows: a rest screen there is put away, and comes back to the bar when the sheet goes ([fitting]).
+    is OverlayEvent.PickActivity -> event.sheet
+    OverlayEvent.ActivityClosed -> if (overlay is ActivitySheet) null else overlay
     OverlayEvent.Open -> if (overlay is RestScreen.Minimised) RestScreen.Shown(overlay.exercise, overlay.set, overlay.exerciseId) else overlay
     is OverlayEvent.Rated -> if (overlay == event.screen) null else overlay
     OverlayEvent.Reordered -> if (overlay is HoldTimer) null else overlay
@@ -182,7 +207,16 @@ private fun fits(model: Model, overlay: Overlay?): Overlay? = when (overlay) {
     is HoldTimer -> overlay.takeIf { holdFits(model, it) } ?: restBar(model)
     is RestScreen -> followed(model, overlay).takeIf { restScreenFits(model, it) } ?: restBar(model)
     is RepsQuestion -> followed(model, overlay).takeIf { repsQuestionFits(model, it) } ?: fits(model, overlay.under)
+    is ActivitySheet -> overlay.takeIf { activitySheetFits(model, it) } ?: restBar(model)
 }
+
+/** The sheet's timer is in the history, not a WOD, and the log it lies over is what shows. */
+fun activitySheetFits(model: Model, sheet: ActivitySheet): Boolean =
+    model.nav.tab == Tab.HISTORY && model.nav.history == HistoryView.LOG && !showsWorkout(model) && model.timer == null &&
+        model.state.timerSessions.any { it.id == sheet.sessionId && it.wodId == null }
+
+/** The sheet "What was it?", when it is what lies over the screen. */
+val Model.activitySheet: ActivitySheet? get() = overlay as? ActivitySheet
 
 /** Where the exercise of [screen] is now: a card moved, put off or one before it removed. Unchanged when it is gone. */
 private fun followed(model: Model, screen: RestScreen): RestScreen {

@@ -48,6 +48,7 @@ import io.github.alexanderop.eisen.feature.timer.wod.roundsGap
 import io.github.alexanderop.eisen.feature.timer.wod.roundsGapText
 import io.github.alexanderop.eisen.feature.timer.splitTime
 import io.github.alexanderop.eisen.feature.timer.timerOutcome
+import io.github.alexanderop.eisen.feature.timer.presetActivity
 import io.github.alexanderop.eisen.feature.timer.wodSteps
 import io.github.alexanderop.eisen.feature.timer.wod.WodRest
 import io.github.alexanderop.eisen.feature.timer.wod.isRest
@@ -134,7 +135,9 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
         return ended and cmds
     }
     val result = model.timer as? TimerState.Finished
-    val answer = msg is Msg.Timer.CorrectRounds || msg == Msg.Timer.Again || msg == Msg.Timer.UndoFinish || msg == Msg.Timer.Done || msg == Msg.Timer.DontCount
+    // A chip of the result sits where the big button was: the thumb of the last tap does not choose one either.
+    val chip = msg is Msg.Timer.SetActivity && msg.id == result?.session?.id
+    val answer = msg is Msg.Timer.CorrectRounds || msg == Msg.Timer.Again || msg == Msg.Timer.UndoFinish || msg == Msg.Timer.Done || msg == Msg.Timer.DontCount || chip
     if (result != null && answer && env.now - result.at in 0 until RESULT_GUARD_MILLIS) return model.only()
     return when (msg) {
         is Msg.Timer.Open -> {
@@ -465,6 +468,16 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             model.withState { state -> state.copy(timerSessions = state.timerSessions.map { if (it.id == session.id) corrected else it }) }
                 .copy(timer = finished.copy(session = corrected)).only()
         }
+        is Msg.Timer.SetActivity -> {
+            val saved = model.state.timerSessions.firstOrNull { it.id == msg.id } ?: return model.only()
+            // A WOD is what it was: it takes no activity.
+            if (saved.wodId != null || saved.activity == msg.activity) return model.only()
+            val changed = saved.copy(activity = msg.activity)
+            // The result that shows it and the history entry are the same session.
+            val shown = result?.takeIf { it.session.id == msg.id }
+            model.withState { state -> state.copy(timerSessions = state.timerSessions.map { if (it.id == msg.id) changed else it }) }
+                .let { if (shown == null) it else it.copy(timer = shown.copy(session = changed)) }.only()
+        }
         Msg.Timer.Tick -> {
             val run = running?.run ?: return model.only()
             val ticked = model.copy(now = env.now)
@@ -735,7 +748,11 @@ private fun closeRun(model: Model, env: Env): Next =
  */
 private fun fileRun(model: Model, session: TimerSession, run: TimerRun, endedAt: Long, now: Long, undo: TimerRun? = null): Model {
     val totals = boxingTotalsOf(run, endedAt)
-    val counted = if (totals == null) session else session.copy(combos = totals.first, punches = totals.second)
+    val boxed = if (totals == null) session else session.copy(combos = totals.first, punches = totals.second)
+    // Filed with what it most likely was; one already filed keeps what the lifter said.
+    val sessions = model.state.timerSessions
+    val activity = sessions.firstOrNull { it.id == boxed.id }?.activity ?: presetActivity(boxed, sessions)
+    val counted = boxed.copy(activity = activity)
     return model.withState { state ->
         if (state.timerSessions.any { it.id == counted.id }) state else state.copy(timerSessions = listOf(counted) + state.timerSessions)
     }.copy(timer = TimerState.Finished(counted, run.wod, undo, at = now, combos = totals?.first), now = now)

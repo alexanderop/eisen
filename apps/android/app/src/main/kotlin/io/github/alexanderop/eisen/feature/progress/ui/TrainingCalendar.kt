@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.feature.progress.CalendarDay
 import io.github.alexanderop.eisen.core.holdText
+import io.github.alexanderop.eisen.feature.timer.activityNote
 import io.github.alexanderop.eisen.feature.workout.durationMinutes
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Haptic
@@ -63,12 +64,12 @@ private val CORNER = 5.dp
 private fun local(pattern: String, time: Long): String =
     DateTimeFormatter.ofPattern(pattern, Locale.getDefault()).format(Instant.ofEpochMilli(time).atZone(ZoneId.systemDefault()))
 
-/** One line per workout or timer of the day: "Workout A, 50 min", "Tabata, 4:00". */
+/** One line per workout or timer of the day: "Workout A, 50 min", "Tabata, 4:00", "Tabata (Jump rope), 4:00". */
 private fun entries(day: CalendarDay): List<String> =
     day.workouts.map { workout ->
         val minutes = durationMinutes(workout)
         if (minutes == null) workout.name else "${workout.name}, $minutes min"
-    } + day.timers.map { "${it.name}, ${holdText(it.seconds)}" }
+    } + day.timers.map { timer -> "${timer.name}${activityNote(timer)?.let { " ($it)" }.orEmpty()}, ${holdText(timer.seconds)}" }
 
 private fun describe(day: CalendarDay): String = entries(day).joinToString(", ")
 

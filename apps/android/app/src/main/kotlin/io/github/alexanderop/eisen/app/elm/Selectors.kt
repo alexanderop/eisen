@@ -286,3 +286,17 @@ fun matchRank(name: String, typed: String): Int? {
     if (needle !in text) return null
     return if (Regex("(^|[^\\p{L}\\p{N}])" + Regex.escape(needle)).containsMatchIn(text)) 0 else 1
 }
+
+private const val WEEK_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+/**
+ * What the home screen counts: [total] trainings, [lastWeek] of them in the seven days before now, and when
+ * the [last] one started. A finished interval timer is training like a workout. Null before the first one.
+ */
+data class TrainingStats(val total: Int, val lastWeek: Int, val last: Long)
+
+fun trainingStats(state: AppState, now: Long): TrainingStats? {
+    val times = state.history.map { it.startedAt } + state.timerSessions.map { it.startedAt }
+    val last = times.maxOrNull() ?: return null
+    return TrainingStats(times.size, times.count { now - it < WEEK_MILLIS }, last)
+}

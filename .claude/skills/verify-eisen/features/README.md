@@ -7,16 +7,16 @@ lists others.
 | File | Starts on | Takes (measured) | Feature |
 |---|---|---|---|
 | `workout.md` | `--fresh` (three times, the last with `--animations`) | 4:40 | Start a workout, log sets, pick the reps by holding a set, the rest timer, rating a set, finishing; a double tap, the rest after a kill and a force-stop |
-| `interval-timers.md` | `--state short-timers` | 5:20 | Tabata, EMOM, AMRAP, For Time: setup, saved timers, runs to `Completed`, screen off, a killed app, ending early |
+| `interval-timers.md` | `--state short-timers` | 7:19 | Tabata, EMOM, AMRAP, For Time: setup, saved timers, runs to `Completed`, screen off, a killed app, ending early, "What was it?" on the result and in History |
 | `boxing.md` | `--state short-timers` | 5:25 | The boxing timer with the coach: setup, run, result with punches, time left in the round |
 | `wods.md` | `--state lifter` | 2:45 | The WODs page: own WODs, benchmarks, search, a run against the best, a first run |
 | `history-and-data.md` | `--state lifter`, then the emulator's data | 0:45 | The history log, progress, the backup entry points, an update on old data |
-| `layout.md` | `--state short-timers` (three times) | 10:15 | Nine main screens at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
+| `layout.md` | `--state short-timers` (three times) | 13:54 | Eleven main screens (a timer's result with its chips and the history's sheet among them) at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
 
 Not mapped yet: the Workouts tab (editing routines, the exercise picker), sharing a workout, the
 home-screen widget and shortcuts, Health Connect, the hold timer for timed exercises, the WOD
 builder's every field, own boxing combinations, saving a preset, the backup file pickers. The six files in
-a row take about 30 minutes (measured with `journey`: 29:20).
+a row take about 35 minutes (measured with `journey`: 29:20, plus 1:59 and 3:39 for "What was it?").
 
 ## Running a file
 

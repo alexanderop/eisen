@@ -2,7 +2,9 @@
 
 Four timers on the Timer tab: Tabata (work and rest in rounds), EMOM, AMRAP and For Time. The
 lifter sets them with wheels or starts a saved one, hears beeps and a voice, and gets a result that
-is filed in the history. A run survives the screen going off and the app being killed.
+is filed in the history, where it counts as training like a workout. The result asks "What was it?"
+(jump rope, cross trainer, ...), which the history shows and can change. A run survives the screen
+going off and the app being killed.
 
 ## Sub-features
 
@@ -12,6 +14,10 @@ is filed in the history. A run survives the screen going off and the app being k
 - `timer-result` shows the result of a run that ran to its end (`Completed`) and files a session.
 - `timer-taps` counts AMRAP rounds with a tap; `Finish` completes a For Time.
 - `timer-end` ends a run early from the header, saving or discarding it.
+- `timer-activity` "What was it?": chips on the result (not for a WOD) set what the run was, saved at
+  once; a tap on the lit chip clears it. A boxing run is filed as `Boxing`, any other as what the last
+  run of the same timer (name and mode) was. The history row then starts with it (`Jump rope · ...`),
+  a tap on the row opens a sheet with the same chips, and the Progress calendar's day names it.
 - `timer-background` keeps running in a foreground service with a notification, with the screen off,
   and after the process was killed.
 
@@ -20,6 +26,7 @@ is filed in the history. A run survives the screen going off and the app being k
 - Timer tab, page `Timers` (the tab opens on `WODs` after fresh data): a card per mode.
 - A saved timer under `Saved timers`: the row opens its setup, the play button starts it.
 - `Again` on a result.
+- "What was it?" on a result; a tap on a finished timer in History › Log for its sheet.
 
 ## Driving it with eisenctl
 
@@ -135,12 +142,41 @@ eisenctl tap "History" && eisenctl wait "Log" && eisenctl has "Stopped early" &&
 eisenctl doctor && eisenctl cleanup
 ```
 
+**What was it?** (`timer-activity`). The result of `Quick Tabata` shows `What was it?` and the chips
+`Boxing`, `Jump rope`, `Battle rope`, `Cross trainer`, `Rowing`, `Bike`, `Running`, none lit: the
+session has no `activity`. `Jump rope` saves `"activity": "jumpRope"` at once. In History the row
+reads `Jump rope · <day> · 2 rounds · 25s`, and the lit day of the Progress calendar says
+`Quick Tabata (Jump rope), 25s`. A tap on the row opens the sheet (`Quick Tabata`, `What was it?`, the
+chips, `Done`): `Battle rope` changes it, `Battle rope` again clears it (the key leaves the file), and
+Back closes the sheet onto the log, whose row no longer names an activity.
+
+```sh
+eisenctl launch --state short-timers
+eisenctl tap "Timer" && eisenctl tap "Timers" && eisenctl scroll down
+eisenctl tap "Start Quick Tabata" && eisenctl wait "GET READY"
+eisenctl wait "Completed" 45 && eisenctl has "What was it\?" "Boxing" "Jump rope" "Battle rope" "Cross trainer" "Rowing" "Bike" "Running" && eisenctl shot 31-result-chips
+jq -e '.timerSessions[0] | .name == "Quick Tabata" and (has("activity") | not)' "$(eisenctl state 32-filed-without)"
+sleep 1 && eisenctl tap "Jump rope" && eisenctl shot 33-jump-rope
+jq -e '.timerSessions[0] | .name == "Quick Tabata" and .activity == "jumpRope"' "$(eisenctl state 34-jump-rope)"
+eisenctl tap "Done" && eisenctl wait "Saved timers"
+eisenctl tap "History" && eisenctl wait "Log" && eisenctl has "Jump rope · .* · 2 rounds · 25s" && eisenctl shot 35-history-row
+eisenctl tap "Progress" && eisenctl wait "Consistency" && eisenctl tap ".*: Quick Tabata \(Jump rope\), 25s" && eisenctl wait "Quick Tabata \(Jump rope\), 25s" && eisenctl shot 36-calendar-day
+eisenctl tap "Log" && eisenctl wait "Jump rope · .*" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl has "Done" "Running" && eisenctl shot 37-sheet
+eisenctl tap "Battle rope" && eisenctl shot 38-battle-rope
+jq -e '.timerSessions[0].activity == "battleRope"' "$(eisenctl state 39-battle-rope)"
+eisenctl tap "Battle rope" && eisenctl shot 40-cleared
+jq -e '.timerSessions[0] | has("activity") | not' "$(eisenctl state 41-cleared)"
+eisenctl back && eisenctl wait "Log" && eisenctl has "[A-Z][a-z]{2}, .* · 2 rounds · 25s" && eisenctl shot 42-log-after
+! eisenctl texts | grep -q "What was it?"
+eisenctl doctor && eisenctl cleanup
+```
+
 ## Gotchas
 
 - Starting a timer makes its numbers the ones its mode card opens with: after `Quick Tabata` the
   Tabata card reads `2 × 10s / 5s`. Take the setup shot before.
 - The end sheet ignores taps for 0.6 seconds after it opens: `wait "Save and end"` before tapping.
-- The result ignores taps for one second after it shows. A `tap "Done"` that follows a `state` and a
+- The result ignores taps for one second after it shows, its chips too. A `tap "Done"` that follows a `state` and a
   `log` is late enough; one right after the result shows needs `sleep 1` first, as `Again` does.
 - `uiautomator` sees nothing while the screen is off: `wait` and `texts` only work after
   `KEYCODE_WAKEUP`. The emulator has no lock screen, so waking shows the app.

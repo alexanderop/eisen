@@ -71,6 +71,11 @@ import io.github.alexanderop.eisen.feature.timer.TimerSession
 import io.github.alexanderop.eisen.app.elm.wasWodRecord
 import io.github.alexanderop.eisen.feature.workout.Workout
 import io.github.alexanderop.eisen.feature.timer.sessionSummary
+import io.github.alexanderop.eisen.feature.timer.sessionLine
+import io.github.alexanderop.eisen.feature.timer.activityNote
+import io.github.alexanderop.eisen.feature.timer.ACTIVITIES
+import io.github.alexanderop.eisen.app.elm.activitySheet
+import io.github.alexanderop.eisen.core.ui.ChipChoice
 import io.github.alexanderop.eisen.feature.timer.OUTCOME_LABELS
 import io.github.alexanderop.eisen.feature.timer.TimerOutcome
 import io.github.alexanderop.eisen.feature.timer.timerOutcome
@@ -245,10 +250,18 @@ private fun HistoryLog(model: Model, dispatch: (Msg) -> Unit) {
                             haptics.perform(Haptic.TAP)
                         }
                     }, modifier = Modifier.animateItem()) {
-                        TimerRow(session, item.record)
+                        // A WOD is what it was: only a plain timer opens "What was it?".
+                        TimerRow(session, item.record, onOpen = if (session.wodId == null) ({ dispatch(Msg.History.OpenActivity(session.id)) }) else null)
                     }
                 }
             }
+        }
+    }
+
+    // The sheet lives in the model's overlay: Back closes it, and it goes when its timer does.
+    model.activitySheet?.let { sheet ->
+        timers.firstOrNull { it.id == sheet.sessionId }?.let { session ->
+            ActivitySheet(session, dispatch)
         }
     }
 
@@ -340,36 +353,79 @@ private fun EisenCard(content: @Composable ColumnScope.() -> Unit) {
 
 private val StopwatchIcon = pathIcon("Stopwatch", "M10 2h4", "M12 14l3-3", "M4 14a8 8 0 1 0 16 0a8 8 0 1 0-16 0")
 
-/** A finished interval timer: compact, no detail screen. */
+/**
+ * A finished interval timer: compact, no detail screen. What it was for comes first in the line under the
+ * name ("Jump rope · Wed, Nov 25 · 2 rounds · 25s"). [onOpen]: a tap opens "What was it?"; null for a WOD.
+ */
 @Composable
-private fun TimerRow(session: TimerSession, record: Boolean) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = EisenColors.Card, contentColor = EisenColors.Foreground),
-        border = BorderStroke(1.dp, EisenColors.Border),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(EisenColors.Muted), contentAlignment = Alignment.Center) {
-                Icon(StopwatchIcon, contentDescription = null, tint = EisenColors.Primary, modifier = Modifier.size(22.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(session.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() })
-                    if (record) {
-                        Spacer(Modifier.width(6.dp))
-                        Badge(containerColor = EisenColors.Primary, contentColor = EisenColors.OnPrimary) {
-                            Text("Record", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
-                        }
+private fun TimerRow(session: TimerSession, record: Boolean, onOpen: (() -> Unit)?) {
+    val colors = CardDefaults.cardColors(containerColor = EisenColors.Card, contentColor = EisenColors.Foreground)
+    val border = BorderStroke(1.dp, EisenColors.Border)
+    if (onOpen == null) {
+        Card(Modifier.fillMaxWidth(), shape = CardShape, colors = colors, border = border) { TimerRowContent(session, record) }
+    } else {
+        Card(
+            onClick = onOpen,
+            modifier = Modifier.fillMaxWidth(),
+            shape = CardShape,
+            colors = colors,
+            border = border,
+        ) { TimerRowContent(session, record) }
+    }
+}
+
+@Composable
+private fun TimerRowContent(session: TimerSession, record: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(EisenColors.Muted), contentAlignment = Alignment.Center) {
+            Icon(StopwatchIcon, contentDescription = null, tint = EisenColors.Primary, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(session.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).semantics { heading() })
+                if (record) {
+                    Spacer(Modifier.width(6.dp))
+                    Badge(containerColor = EisenColors.Primary, contentColor = EisenColors.OnPrimary) {
+                        Text("Record", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
                     }
                 }
-                Text("${formatDate(session.startedAt)} · ${io.github.alexanderop.eisen.feature.timer.sessionLine(session)}", fontSize = 13.sp, color = EisenColors.MutedForeground)
             }
-            val outcome = timerOutcome(session)
-            if (outcome != TimerOutcome.COMPLETED) {
-                Spacer(Modifier.width(8.dp))
-                Text(OUTCOME_LABELS.getValue(outcome), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EisenColors.Warn)
+            val line = listOfNotNull(activityNote(session), formatDate(session.startedAt), sessionLine(session)).joinToString(" · ")
+            Text(line, fontSize = 13.sp, color = EisenColors.MutedForeground)
+        }
+        val outcome = timerOutcome(session)
+        if (outcome != TimerOutcome.COMPLETED) {
+            Spacer(Modifier.width(8.dp))
+            Text(OUTCOME_LABELS.getValue(outcome), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = EisenColors.Warn)
+        }
+    }
+}
+
+/** "What was it?" for a finished timer of the log: the chips set, change or clear it at once. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ActivitySheet(session: TimerSession, dispatch: (Msg) -> Unit) {
+    val sheetState = rememberFullSheetState()
+    val scope = rememberCoroutineScope()
+    fun close() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion { dispatch(Msg.History.CloseActivity) }
+    }
+    ModalBottomSheet(onDismissRequest = { dispatch(Msg.History.CloseActivity) }, sheetState = sheetState) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(session.name, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.semantics { heading() })
+                Text("${formatDate(session.startedAt)} · ${sessionLine(session)}", fontSize = 13.sp, color = EisenColors.MutedForeground)
+            }
+            IconButton(onClick = { close() }) { Icon(Icons.Close, contentDescription = "Close") }
+        }
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            ChipChoice("What was it?", ACTIVITIES, session.activity, { it.label }, { dispatch(Msg.Timer.SetActivity(session.id, it)) })
+            Button(onClick = { close() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                Text("Done", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
     }

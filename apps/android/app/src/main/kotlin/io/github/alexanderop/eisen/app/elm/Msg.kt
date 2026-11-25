@@ -8,6 +8,7 @@ import io.github.alexanderop.eisen.feature.timer.boxing.BoxingStyle
 import io.github.alexanderop.eisen.core.Equipment
 import io.github.alexanderop.eisen.feature.workout.ExerciseLog
 import io.github.alexanderop.eisen.feature.workout.Slot
+import io.github.alexanderop.eisen.feature.timer.Activity
 import io.github.alexanderop.eisen.feature.timer.TimerCalls
 import io.github.alexanderop.eisen.feature.timer.TimerConfig
 import io.github.alexanderop.eisen.feature.timer.TimerMode
@@ -138,6 +139,12 @@ sealed interface Msg {
 
         /** The Undo of the last [Delete] with `offerUndo`. */
         data object UndoDelete : History
+
+        /** A tap on a finished timer: the sheet "What was it?" opens over the log, see [ActivitySheet]. Not for a WOD. */
+        data class OpenActivity(val id: String) : History
+
+        /** The sheet is put away: its close button, a swipe down, a tap beside it or Back. */
+        data object CloseActivity : History
     }
 
     sealed interface Settings : Msg {
@@ -367,6 +374,12 @@ sealed interface Msg {
 
         /** The last cues of run [id] had time to play. Lets the timer's service go if no other run started. */
         data class Release(val id: String) : Timer
+
+        /**
+         * A chip of "What was it?", on the result or in the history's sheet: the finished timer [id] was
+         * [activity], or nothing said (the lit chip tapped again). A WOD and an id that is not filed change nothing.
+         */
+        data class SetActivity(val id: String, val activity: Activity?) : Timer
 
         /** A swipe on a finished timer in the history: gone at once, with Undo. */
         data class DeleteSession(val id: String) : Timer

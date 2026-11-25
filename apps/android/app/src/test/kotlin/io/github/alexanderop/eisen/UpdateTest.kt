@@ -1,5 +1,8 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.feature.timer.Activity
+import io.github.alexanderop.eisen.app.elm.activitySheet
+import io.github.alexanderop.eisen.app.elm.activitySheetFits
 import io.github.alexanderop.eisen.app.elm.draft
 import io.github.alexanderop.eisen.app.elm.restScreen
 import io.github.alexanderop.eisen.app.elm.repsQuestion
@@ -908,6 +911,8 @@ class UpdateTest {
         var boxingRuns = 0
         var boxingEdits = 0
         var ownSaved = 0
+        var activitiesSet = 0
+        var sheets = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -1185,6 +1190,23 @@ class UpdateTest {
                 if (msg is Msg.Timer.SaveOwn && plan.own != step.model.timerSetup?.config?.boxing?.own) ownSaved++
             }
             if (msg == Msg.Wods.Save && after.state != step.state) wodsSaved++
+            // What a finished timer was: a WOD never has one, the result says the same as the history, and a chip
+            // changes the activity of the one session it names and nothing else of the history.
+            assertTrue(where, after.state.timerSessions.none { it.wodId != null && it.activity != null })
+            (after.model.timer as? TimerState.Finished)?.session?.let { shownSession ->
+                after.state.timerSessions.firstOrNull { it.id == shownSession.id }?.let { assertEquals(where, it.activity, shownSession.activity) }
+            }
+            // (A run that ran out before the Msg is filed first, whatever the Msg: only without one is the chip all that happened.)
+            if (msg is Msg.Timer.SetActivity && step.model.timerRun == null && after.state != step.state) {
+                activitiesSet++
+                assertEquals(where, step.state.copy(timerSessions = after.state.timerSessions.map { if (it.id == msg.id) it.copy(activity = null) else it }), step.state.copy(timerSessions = step.state.timerSessions.map { if (it.id == msg.id) it.copy(activity = null) else it }))
+                assertEquals(where, msg.activity, after.state.timerSessions.first { it.id == msg.id }.activity)
+            }
+            // The sheet "What was it?" only lies over the log, for a plain timer that is filed.
+            after.model.activitySheet?.let { sheet ->
+                assertTrue(where, activitySheetFits(after.model, sheet))
+                if (step.model.activitySheet == null) sheets++
+            }
             // A run carries a WOD exactly when it was started from one, and leaves the setups of the modes alone.
             if (run != null && run.id != step.model.timerRun?.id) {
                 val expected = when {
@@ -1214,6 +1236,9 @@ class UpdateTest {
         }
         for (seed in 1L..320L) {
             val random = java.util.Random(seed)
+            // The chips of "What was it?" come from a dice of their own, slipped in between the walk's Msgs, so
+            // the walk itself stays the one it was and reaches what it reached before.
+            val side = java.util.Random(seed * 7_919)
             var walk = Walk(stepOf(withHolds))
             var now = STARTED_AT
             val trail = mutableListOf<Sent>()
@@ -1221,7 +1246,7 @@ class UpdateTest {
                 // Now and then the same Msg again right after it, as a bouncing thumb or a double tap sends it.
                 val again = trail.isNotEmpty() && random.nextInt(5) == 0
                 now += if (again) 30L + random.nextInt(700) else random.nextInt(120_000).toLong()
-                val sent = Sent(if (again) trail.last().msg else randomMsg(walk.step.model, random), now, "r$seed-$turn")
+                val sent = Sent(if (again) trail.last().msg else activityMsg(walk.step.model, side) ?: randomMsg(walk.step.model, random), now, "r$seed-$turn")
                 trail += sent
                 walk = runCatching { check(walk, sent) }.getOrElse { failure ->
                     // The walk is cut down to the Msgs the failure needs, so the report is a handful of lines and not three hundred.
@@ -1252,6 +1277,8 @@ class UpdateTest {
         assertTrue("only $boxingEdits boxing plans were edited", boxingEdits >= 50)
         assertTrue("only $ownSaved own combinations were saved", ownSaved >= 20)
         assertTrue("only $bounced taps came within the guard after the tap that logged their set", bounced >= 20)
+        assertTrue("only $activitiesSet activities were set", activitiesSet >= 100)
+        assertTrue("only $sheets sheets opened in the history", sheets >= 5)
     }
 
     /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
@@ -1261,6 +1288,27 @@ class UpdateTest {
     private data class Walk(val step: Step, val opened: Map<Pair<String, Int>, Long> = emptyMap())
 
     private fun wasRunningRun(step: Step) = (step.model.timer as? TimerState.Running)?.run
+
+    /**
+     * Now and then a Msg of "What was it?": a chip on the result, the history's sheet opened, closed or a chip in it,
+     * for a timer that is filed or one that is gone. Null most of the time: the walk's own Msg comes then.
+     */
+    private fun activityMsg(model: Model, side: java.util.Random): Msg? {
+        val timers = model.state.timerSessions
+        val any = timers.getOrNull(side.nextInt(timers.size + 1))?.id ?: "gone"
+        val activity = (Activity.entries + null)[side.nextInt(Activity.entries.size + 1)]
+        val shown = (model.timer as? TimerState.Finished)?.session
+        return when {
+            shown != null && side.nextInt(3) == 0 -> Msg.Timer.SetActivity(if (side.nextInt(5) == 0) any else shown.id, activity)
+            model.nav.tab == Tab.HISTORY && side.nextInt(3) == 0 -> when (side.nextInt(4)) {
+                0, 1 -> Msg.History.OpenActivity(any)
+                2 -> Msg.History.CloseActivity
+                else -> Msg.Timer.SetActivity(any, activity)
+            }
+            side.nextInt(40) == 0 -> Msg.Timer.SetActivity(any, activity)
+            else -> null
+        }
+    }
 
     /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */
     private fun randomMsg(model: Model, random: java.util.Random): Msg {
@@ -1510,6 +1558,7 @@ class UpdateTest {
             { Msg.Timer.Start },
             { Msg.Timer.DeleteSession(state.timerSessions.getOrNull(index(state.timerSessions.size))?.id ?: "gone") },
             { Msg.Timer.UndoDeleteSession },
+            // What a finished timer was: from the history's sheet, for a timer that is there or not.
             { Msg.Timer.Tick },
             { Msg.Nav.ShowHistory(pick(HistoryView.entries)) },
             { Msg.Nav.ShowTimerPage(pick(TimerPage.entries)) },

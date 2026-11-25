@@ -36,7 +36,7 @@ data class Model(
      * [overlay]: it is kept in the preferences, drives the alarms and outlives its screen.
      */
     val rest: RestState? = null,
-    /** What lies over the workout screen: the rest screen, the hold timer or the reps question. See [Overlay]. */
+    /** What lies over the workout screen (the rest screen, the hold timer or the reps question) or the history's log (the sheet "What was it?"). See [Overlay]. */
     val overlay: Overlay? = null,
     /** What the last finished workout changed. Shown once on the home screen. */
     val lastChanges: List<Change>? = null,

@@ -308,12 +308,13 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
         Msg.Nav.CloseRoutine -> nav.copy(routine = null)
         // The interval timer over everything asks before it ends, its result goes back to the Timer tab.
         // A hold timer closes first, without logging, and the rest screen goes down to the bar. Then the
-        // workout (it keeps running), then the routine editor, a boxing round's sheet or the timer's setup, then any tab goes home.
+        // history's sheet "What was it?", the workout (it keeps running), then the routine editor, a boxing round's sheet or the timer's setup, then any tab goes home.
         Msg.Nav.Back -> when {
             model.timer is TimerState.Running -> return timer(if ((model.timer as TimerState.Running).ending) Msg.Timer.KeepGoing else Msg.Timer.End, model, env)
             model.timer is TimerState.Finished -> return timer(Msg.Timer.Done, model, env)
             model.hold != null -> return model.overlay(OverlayEvent.HoldClosed).only()
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
+            model.activitySheet != null -> return history(Msg.History.CloseActivity, model)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
             nav.tab == Tab.TIMER && model.timerSetup?.sheet != null -> return timer(Msg.Timer.CloseRound, model, env)
