@@ -112,6 +112,9 @@ const val MAX_TIMER_SECONDS = 3600
 const val MAX_TIMER_REST_SECONDS = 600
 const val MAX_TIMER_ROUNDS = 60
 
+/** The most rounds an AMRAP or For Time counts by tap, and its result can be corrected to. */
+const val MAX_COUNTED_ROUNDS = 999
+
 /** An open For Time stops itself here, and the voice counts minutes up to it. */
 const val MAX_OPEN_TIMER_SECONDS = 3600
 

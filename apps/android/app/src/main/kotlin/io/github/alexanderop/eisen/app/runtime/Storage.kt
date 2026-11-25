@@ -134,11 +134,19 @@ internal object Prefs {
         val prefs = context.getSharedPreferences(REST, Context.MODE_PRIVATE)
         val endsAt = prefs.getLong("endsAt", 0)
         if (endsAt <= 0) return null
-        return RestState(prefs.getLong("startedAt", 0), endsAt, prefs.getString("note", "") ?: "")
+        // The set that started it: added after build 19, so a rest kept by that build has neither.
+        val set = prefs.getInt("set", -1).takeIf { it >= 0 }
+        val exercise = prefs.getString("exercise", null)?.takeIf { set != null }
+        return RestState(prefs.getLong("startedAt", 0), endsAt, prefs.getString("note", "") ?: "", exercise, set.takeIf { exercise != null })
     }
 
     fun saveRest(context: Context, rest: RestState?) = context.getSharedPreferences(REST, Context.MODE_PRIVATE).edit {
-        if (rest == null) clear() else putLong("startedAt", rest.startedAt).putLong("endsAt", rest.endsAt).putString("note", rest.note)
+        if (rest == null) {
+            clear()
+        } else {
+            putLong("startedAt", rest.startedAt).putLong("endsAt", rest.endsAt).putString("note", rest.note)
+            if (rest.exerciseId != null && rest.set != null) putString("exercise", rest.exerciseId).putInt("set", rest.set) else remove("exercise").remove("set")
+        }
     }
 
     fun healthEnabled(context: Context): Boolean =

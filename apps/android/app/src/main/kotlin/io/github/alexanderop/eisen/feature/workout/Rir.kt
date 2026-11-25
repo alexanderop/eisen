@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.feature.workout
 
+import io.github.alexanderop.eisen.core.counted
+
 /*
  * Reps in reserve (RIR): after a set the lifter says how many more reps were left in it, with one tap
  * on the rest screen. Never required. Estimates are good close to failure and poor far from it, so
@@ -27,6 +29,9 @@ fun withRir(log: ExerciseLog, set: Int, rir: Int?): ExerciseLog {
 
 /** Only a logged set with a target count of reps: a max-reps set goes to failure anyway, and a hold has no reps. */
 fun canRate(log: ExerciseLog, set: Int): Boolean = !log.timed && log.targetReps != null && log.sets.getOrNull(set) != null
+
+/** How TalkBack says a rating chip: "0 reps in reserve", "1 rep in reserve", "4 or more reps in reserve". */
+fun rirDescription(rir: Int): String = if (rir >= MAX_RIR) "$MAX_RIR or more reps in reserve" else "${counted(rir, "rep")} in reserve"
 
 /** "0" to "3", and "4+". */
 fun rirText(rir: Int): String = if (rir >= MAX_RIR) "$MAX_RIR+" else rir.toString()

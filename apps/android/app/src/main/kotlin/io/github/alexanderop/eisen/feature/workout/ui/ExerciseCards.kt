@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.workout.ui
 
+import io.github.alexanderop.eisen.core.counted
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -234,8 +235,8 @@ private fun setButtonText(log: ExerciseLog, reps: Int?, last: Int?): String = wh
 internal fun setDescription(log: ExerciseLog, reps: Int?, rir: Int? = null): String = when {
     reps == null -> "not logged"
     log.timed -> "held ${setText(reps, true)}"
-    rir != null -> "$reps reps, ${if (rir >= MAX_RIR) "$MAX_RIR or more" else rir} in reserve"
-    else -> "$reps reps"
+    rir != null -> "${counted(reps, "rep")}, ${if (rir >= MAX_RIR) "$MAX_RIR or more" else rir} in reserve"
+    else -> counted(reps, "rep")
 }
 
 /** The line under the sets that teaches the hold. It goes once the lifter has picked reps by holding a set. */

@@ -86,8 +86,12 @@ internal inline fun Model.timerSetup(change: (TimerSetup) -> TimerSetup): Model 
 /** The hold timer changed in place, while it is open: it is the same timer, so no transition of the [Overlay]. */
 internal inline fun Model.hold(change: (HoldTimer) -> HoldTimer): Model = (overlay as? HoldTimer)?.let { copy(overlay = change(it)) } ?: this
 
-/** A running rest. Based on timestamps, so it stays right when the app is closed. */
-data class RestState(val startedAt: Long, val endsAt: Long, val note: String)
+/**
+ * A running rest. Based on timestamps, so it stays right when the app is closed. [exerciseId] and [set]
+ * name the set that started it, so its screen can be opened again after the cards moved or the process
+ * ended; null for a rest kept by a build that did not save them.
+ */
+data class RestState(val startedAt: Long, val endsAt: Long, val note: String, val exerciseId: String? = null, val set: Int? = null)
 
 /**
  * The exercise [id] was tapped at [since]. It counts as open in `order` even when that tap finished it,
@@ -455,8 +459,13 @@ fun init(flags: Flags): Pair<Model, List<Cmd>> {
             cmds += stopRestCmds()
             timed
         }
-        // After the process died during a rest: the alarms are still set, the rest goes on.
-        timed.session.active != null -> timed.copy(rest = saved)
+        // After the process died during a rest it goes on. A force-stop took its alarms and the countdown
+        // with it, a kill took the countdown: both are put back. Setting them again when they survived
+        // changes nothing, the same alarms and the same notification are replaced.
+        timed.session.active != null -> {
+            cmds += restoreRestCmds(saved, flags.now, flags.notifications.granted)
+            timed.copy(rest = saved)
+        }
         // The workout is gone (finished or discarded elsewhere): its rest is stale.
         else -> {
             cmds += stopRestCmds()
@@ -467,5 +476,18 @@ fun init(flags: Flags): Pair<Model, List<Cmd>> {
     if (flags.healthEnabled) cmds += Cmd.Health(HealthJob.CheckPermission(PermissionCheck.STARTUP))
     // After an install the shortcuts are published, after an update the widgets redrawn.
     cmds += refreshHomeSurfaces(state)
-    return restored to cmds + more
+    // The screen of a running rest comes back put away to the rest bar, so a tap on the bar opens it.
+    return restored.copy(overlay = fitting(restored, restored.overlay)) to cmds + more
+}
+
+/**
+ * What a rest kept from before the process ended needs again: its alarms and its countdown while it runs,
+ * its "over" notification once it is over (its alarm may have been taken by a force-stop).
+ */
+internal fun restoreRestCmds(rest: RestState, now: Long, notificationsGranted: Boolean): List<Cmd> = if (now < rest.endsAt) {
+    val tenAt = rest.endsAt - WARN_SECONDS * 1000L
+    val warns = rest.endsAt - rest.startedAt >= WARN_MIN_REST_SECONDS * 1000L && tenAt > now
+    listOf(Cmd.ScheduleRestAlarms(tenAt = tenAt.takeIf { warns }, overAt = rest.endsAt), Cmd.ShowRestCountdown(restCountdown(rest, now)))
+} else {
+    listOfNotNull(Cmd.HideRestCountdown, Cmd.ShowRestOver(restOver(rest)).takeIf { notificationsGranted })
 }

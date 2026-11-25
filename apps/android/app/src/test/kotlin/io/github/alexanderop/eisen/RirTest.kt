@@ -24,6 +24,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import io.github.alexanderop.eisen.feature.workout.rirDescription
+import io.github.alexanderop.eisen.feature.workout.MAX_RIR
 import org.junit.Test
 
 /**
@@ -151,7 +153,7 @@ class RirTest {
     /** Set 1 of the bench press logged at [LATER]: a rest of 90 seconds with its screen. */
     private fun resting(state: AppState = freshState(kg)): Step = started(state).send(WorkoutEvent.TapSet(1, 0))
 
-    private val benchRest = RestState(LATER, LATER + 90_000, "All reps done.")
+    private val benchRest = RestState(LATER, LATER + 90_000, "All reps done.", "bench", 0)
 
     /** Four sets of the bench press logged, the fifth is the last one. */
     private fun beforeLast(state: AppState = freshState(kg)): Step = (0..3).fold(started(state)) { at, set -> at.send(WorkoutEvent.TapSet(1, set)) }
@@ -190,13 +192,18 @@ class RirTest {
         assertIgnored(stepOf(), WorkoutEvent.RateSet(1, 0, 2))
     }
 
+    /** QA build 19: TalkBack said "1 reps in reserve". */
+    @Test fun `the chips are said with the right plural`() {
+        assertEquals(listOf("0 reps in reserve", "1 rep in reserve", "2 reps in reserve", "3 reps in reserve", "4 or more reps in reserve"), (0..MAX_RIR).map(::rirDescription))
+    }
+
     @Test fun `a tap on a rated set keeps the rating until it clears the set`() {
         val rated = resting().send(WorkoutEvent.RateSet(1, 0, 2))
-        val four = rated.send(WorkoutEvent.TapSet(1, 0))
+        val four = rated.send(WorkoutEvent.TapSet(1, 0), now = LATER + 1_000)
         assertEquals(4, four.workout.exercises[1].sets[0])
         assertEquals(listOf<Int?>(2), four.workout.exercises[1].rir)
         assertEquals(listOf<Int?>(2), rated.send(WorkoutEvent.CorrectReps(1, 0, 3)).workout.exercises[1].rir)
-        val cleared = (0..4).fold(four) { at, _ -> at.send(WorkoutEvent.TapSet(1, 0)) }
+        val cleared = (0..4).fold(four) { at, tap -> at.send(WorkoutEvent.TapSet(1, 0), now = LATER + 2_000 + tap * 1_000L) }
         assertNull(cleared.workout.exercises[1].sets[0])
         assertEquals(emptyList<Int?>(), cleared.workout.exercises[1].rir)
     }
@@ -262,7 +269,8 @@ class RirTest {
     @Test fun `the set done screen goes with its exercise, the workout and the workout screen`() {
         val last = beforeLast().send(WorkoutEvent.TapSet(1, 4))
         assertNull(last.send(WorkoutEvent.RemoveExercise(1)).model.restScreen)
-        assertNull(last.send(WorkoutEvent.RemoveExercise(0)).model.restScreen)
+        // It follows its exercise when one before it goes.
+        assertEquals(setDone.copy(exercise = 0), last.send(WorkoutEvent.RemoveExercise(0)).model.restScreen)
         assertEquals(setDone, last.send(WorkoutEvent.RemoveExercise(2)).model.restScreen)
         assertNull(last.send(WorkoutEvent.RequestDiscard).send(WorkoutEvent.Confirm).model.restScreen)
         assertNull(last.send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm).model.restScreen)

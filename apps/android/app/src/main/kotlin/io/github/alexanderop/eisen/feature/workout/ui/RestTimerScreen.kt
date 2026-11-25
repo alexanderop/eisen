@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.feature.workout.ui
 
+import io.github.alexanderop.eisen.core.counted
+import io.github.alexanderop.eisen.feature.workout.rirDescription
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
@@ -199,20 +201,37 @@ internal fun RestTimerScreen(
                     parts.Header()
                     if (rest != null) parts.Clock(rest, Modifier.weight(1f)) else parts.DoneMark(Modifier.weight(1f))
                 }
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-                    if (rates) parts.Reserve()
-                    parts.Lift()
-                    parts.Next()
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    // A large font makes these taller than the screen: they scroll, the button stays.
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
+                        if (rates) parts.Reserve()
+                        parts.Lift()
+                        parts.UpNext()
+                    }
+                    parts.NextButton()
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
                 parts.Header()
-                if (rest != null) parts.Clock(rest, Modifier.weight(1f)) else parts.DoneMark(Modifier.weight(1f))
-                Spacer(Modifier.height(if (parts.compact) 8.dp else 12.dp))
-                if (rates) parts.Reserve()
-                parts.Lift()
-                parts.Next()
+                // The countdown is why the screen exists: it keeps room for digits several times the body text
+                // (QA build 19: at font scale 1.8 and 2.0 it and its −15s / +15s were pushed off the screen). What
+                // is below it scrolls when it needs more than is left; "Next set" stays at the bottom.
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                    val font = LocalDensity.current.fontScale
+                    val clock = if (rest != null) clockRoom(font, parts.compact, parts.tight) else 96.dp
+                    val below = (maxHeight - clock - parts.buttonRoom).coerceAtLeast(0.dp)
+                    Column(Modifier.fillMaxSize()) {
+                        if (rest != null) parts.Clock(rest, Modifier.weight(1f)) else parts.DoneMark(Modifier.weight(1f))
+                        Column(Modifier.heightIn(max = below).verticalScroll(rememberScrollState())) {
+                            Spacer(Modifier.height(if (parts.compact) 8.dp else 12.dp))
+                            if (rates) parts.Reserve()
+                            parts.Lift()
+                            parts.UpNext()
+                        }
+                        parts.NextButton()
+                    }
+                }
             }
         }
     }
@@ -362,7 +381,7 @@ private class RestParts(
                                 haptics.toggle(!selected)
                                 dispatch(Msg.Workout(WorkoutEvent.RateSet(screen.exercise, screen.set, if (selected) null else rir)))
                             }
-                            .semantics { contentDescription = if (rir == MAX_RIR) "$MAX_RIR or more reps in reserve" else "$rir reps in reserve" },
+                            .semantics { contentDescription = rirDescription(rir) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -396,7 +415,8 @@ private class RestParts(
             // A set with a target gets number keys instead of the reps wheel; they take the width they need.
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val target = log.targetReps.takeIf { !log.timed }
-                val numbers = remember(target, count) { target?.let { pickableReps(maxOf(it, count)) } }
+                // A count above the target (only a damaged file has one) is one more key, not a key per number up to it.
+                val numbers = remember(target, count) { target?.let { listOfNotNull(count.takeIf { c -> c > it }) + pickableReps(it) } }
                 val keys = numbers?.let { keyGrid(it.size, maxWidth - LIFT_GAP) }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LIFT_GAP)) {
                     val weights = remember(log.equipment, unit, settings.bar, log.weight) { weightChoices(log.equipment, unit, settings.bar, log.weight) }
@@ -425,10 +445,10 @@ private class RestParts(
                         WheelBox("reps", compact, Modifier.weight(1f)) {
                             Wheel(
                                 labels = remember(choices) { choices.map { it.toString() } },
-                                selected = count,
-                                onSettle = { dispatch(Msg.Workout(WorkoutEvent.CorrectReps(screen.exercise, screen.set, it))) },
+                                selected = choices.indexOf(count).coerceAtLeast(0),
+                                onSettle = { dispatch(Msg.Workout(WorkoutEvent.CorrectReps(screen.exercise, screen.set, choices[it]))) },
                                 label = "Reps",
-                                spoken = { if (it == 1) "1 rep" else "$it reps" },
+                                spoken = { counted(choices[it], "rep") },
                                 rowHeight = rowHeight,
                             )
                         }
@@ -496,31 +516,51 @@ private class RestParts(
         )
     }
 
-    /** "Up next" and the button that ends the rest. "Exercise done" and the button that closes the "set done" screen. */
+    private val gap = if (compact) 6.dp else 10.dp
+    private val buttonHeight = if (compact) 50.dp else 60.dp
+
+    /** What the button at the bottom takes, with the room above it. */
+    val buttonRoom: Dp = buttonHeight + gap
+
+    /** "Up next", or "Exercise done" on the "set done" screen. */
     @Composable
-    fun Next() {
+    fun UpNext() {
         val next = log.sets.indexOfFirst { it == null }
-        val gap = if (compact) 6.dp else 10.dp
-        Column(Modifier.fillMaxWidth().padding(top = gap), verticalArrangement = Arrangement.spacedBy(gap)) {
-            if (rest == null || (next != -1 && !tight)) {
-                Text(
-                    if (rest == null) "Exercise done" else "Up next: set ${next + 1} of ${log.sets.size}",
-                    Modifier.fillMaxWidth(),
-                    color = EisenColors.MutedForeground,
-                    fontSize = if (compact) 13.sp else 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
-                )
-            }
-            Button(
-                onClick = { dispatch(if (rest == null) Msg.Rest.Minimise else Msg.Rest.Dismiss) },
-                modifier = Modifier.fillMaxWidth().height(if (compact) 50.dp else 60.dp),
-                shapes = pressShapes(16.dp),
-            ) {
-                Text(if (rest == null) "Done" else "Next set", fontSize = if (compact) 18.sp else 20.sp, fontWeight = FontWeight.ExtraBold)
-            }
+        if (rest == null || (next != -1 && !tight)) {
+            Text(
+                if (rest == null) "Exercise done" else "Up next: set ${next + 1} of ${log.sets.size}",
+                Modifier.fillMaxWidth().padding(top = gap),
+                color = EisenColors.MutedForeground,
+                fontSize = if (compact) 13.sp else 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
         }
     }
+
+    /** The button that ends the rest, or closes the "set done" screen. */
+    @Composable
+    fun NextButton() {
+        Button(
+            onClick = { dispatch(if (rest == null) Msg.Rest.Minimise else Msg.Rest.Dismiss) },
+            modifier = Modifier.fillMaxWidth().padding(top = gap).height(buttonHeight),
+            shapes = pressShapes(16.dp),
+        ) {
+            Text(if (rest == null) "Done" else "Next set", fontSize = if (compact) 18.sp else 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * The least room the clock keeps at font scale [font]: the line over the digits, digits about six times as
+ * tall as the 15 sp text around them, the bar and the row of −15s / +15s, which grow with the font.
+ */
+private fun clockRoom(font: Float, compact: Boolean, tight: Boolean): Dp {
+    val line = (if (compact) 17 else 20) * 1.4f * font
+    val digits = 15 * 1.3f * 6 * font
+    val buttons = maxOf(if (compact) 36f else 40f, 15 * 1.4f * font + 12)
+    val bar = 8 + 6 + if (compact) 4 else 12
+    return (if (tight) 0f else line).dp + digits.dp + buttons.dp + bar.dp
 }
 
 private fun spokenWeight(weight: Double, bodyweight: Boolean, unit: WeightUnit): String {
@@ -600,7 +640,7 @@ private fun SmallButton(text: String, description: String, height: Dp, enabled: 
     FilledTonalButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.height(height).widthIn(min = 64.dp).semantics { contentDescription = description },
+        modifier = Modifier.heightIn(min = height).widthIn(min = 64.dp).semantics { contentDescription = description },
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
         contentPadding = PaddingValues(horizontal = 12.dp),

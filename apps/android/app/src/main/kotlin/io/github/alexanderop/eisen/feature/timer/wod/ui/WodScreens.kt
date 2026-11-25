@@ -1,5 +1,8 @@
 package io.github.alexanderop.eisen.feature.timer.wod.ui
 
+import io.github.alexanderop.eisen.app.elm.schemeNote
+import io.github.alexanderop.eisen.app.elm.schemeChip
+import io.github.alexanderop.eisen.core.counted
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -127,7 +130,6 @@ import io.github.alexanderop.eisen.app.elm.Builder
 import io.github.alexanderop.eisen.app.elm.WodDraft
 import io.github.alexanderop.eisen.app.elm.SchemeChoice
 import io.github.alexanderop.eisen.app.elm.customText
-import io.github.alexanderop.eisen.app.elm.schemeChoice
 import io.github.alexanderop.eisen.app.elm.pending
 import io.github.alexanderop.eisen.app.elm.WodFilter
 import io.github.alexanderop.eisen.app.elm.benchmarks
@@ -829,8 +831,9 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
                 TimerMode.FOR_TIME -> {
                     val schemed = wod.scheme.isNotEmpty()
                     // The lit chip is what Save saves; the field shows while custom reps are typed.
-                    val choice = schemeChoice(wod.scheme)
+                    val choice = schemeChip(draft)
                     val customText = customText(draft)
+                    val note = schemeNote(draft)
                     if (schemed) ValueRow("Scheme", wod.scheme.joinToString("-"), enabled = false) {}
                     else ValueRow("Rounds", wod.rounds.toString()) { number = Number.ROUNDS }
                     Text("Reps per round", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground, modifier = Modifier.padding(bottom = 0.dp))
@@ -851,6 +854,9 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
                             onValueChange = { dispatch(Msg.Wods.TypeScheme(it)) },
                             label = { Text("Reps per round") },
                             placeholder = { Text("30-20-10") },
+                            // What Save saves, when it is not what the field holds: the two always agree on screen.
+                            supportingText = note?.let { { Text(it) } },
+                            isError = note != null,
                             singleLine = true,
                             shape = MaterialTheme.shapes.small,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
@@ -910,7 +916,7 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
     }
 
     when (number) {
-        Number.ROUNDS -> WheelSheet("Rounds", (1..MAX_WOD_ROUNDS).toList(), wod.rounds, { it.toString() }, { "$it rounds" }, onClose = { number = null }) {
+        Number.ROUNDS -> WheelSheet("Rounds", (1..MAX_WOD_ROUNDS).toList(), wod.rounds, { it.toString() }, { counted(it, "round") }, onClose = { number = null }) {
             dispatch(Msg.Wods.SetRounds(it))
         }
         Number.CAP -> WheelSheet("Time cap", timerCapSeconds(wod.timer.work), wod.timer.work, { if (it == 0) "Off" else holdText(it) }, { spokenSeconds(it, "Off") }, onClose = { number = null }) { v ->
@@ -928,7 +934,7 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
         Number.REST -> WheelSheet("Rest", timerWheelSeconds(5, 300, wod.timer.rest), wod.timer.rest, ::holdText, { spokenSeconds(it, null) }, onClose = { number = null }) { v ->
             timer { it.copy(rest = v) }
         }
-        Number.INTERVALS -> WheelSheet("Rounds", (1..MAX_TIMER_ROUNDS).toList(), wod.timer.rounds, { it.toString() }, { "$it rounds" }, onClose = { number = null }) { v ->
+        Number.INTERVALS -> WheelSheet("Rounds", (1..MAX_TIMER_ROUNDS).toList(), wod.timer.rounds, { it.toString() }, { counted(it, "round") }, onClose = { number = null }) { v ->
             timer { it.copy(rounds = v) }
         }
         null -> Unit

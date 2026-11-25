@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.core.ui
 
+import io.github.alexanderop.eisen.core.MAX_WEIGHT
 import android.graphics.BitmapFactory
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -300,6 +301,7 @@ fun AddedWeightStepper(
         label = label,
         modifier = modifier,
         min = 0.0,
+        max = MAX_WEIGHT,
         format = { fmtAdded(it, unit) },
         snap = typedWeightSnap(Equipment.BODYWEIGHT, unit),
         large = large,

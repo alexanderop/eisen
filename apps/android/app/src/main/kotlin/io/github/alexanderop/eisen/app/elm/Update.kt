@@ -132,13 +132,20 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
     if (next.settling != null && next.session.active == null) next = next.copy(settling = null)
 
     val cmds = mutableListOf<Cmd>()
+    // The rest goes with the exercise that started it: there is no set left whose screen it could open.
+    val restOf = next.rest?.exerciseId
+    if (event is WorkoutEvent.RemoveExercise && restOf != null && next.session.active?.exercises?.none { it.id == restOf } == true) {
+        val (stopped, more) = stopRest(next)
+        next = stopped
+        cmds += more
+    }
     for (effect in result.effects) {
         when (effect) {
             // The interval timer covers the workout: no rest starts under it.
             is Effect.StartRest -> if (next.timer !is TimerState.Running) {
-                val (rested, more) = startRest(next, effect.seconds, effect.note, env)
+                val id = next.session.active?.exercises?.getOrNull(effect.exercise)?.id
+                val (rested, more) = startRest(next, effect.seconds, effect.note, env, id, effect.set)
                 // Every rest opens its screen, also after one that was minimised.
-                val id = rested.session.active?.exercises?.getOrNull(effect.exercise)?.id
                 val screen = id?.let {
                     if (rested.state.settings.restFullScreen) RestScreen.Shown(effect.exercise, effect.set, it) else RestScreen.Minimised(effect.exercise, effect.set, it)
                 }
@@ -416,8 +423,8 @@ private const val TEN_LATE_MILLIS = 2_000L
 /** Three strong pulses: felt in a pocket, different from any tap. */
 val REST_OVER_VIBRATION: List<Long> = listOf(0, 300, 120, 300, 120, 300)
 
-private fun startRest(model: Model, seconds: Int, note: String, env: Env): Next {
-    val rest = RestState(env.now, env.now + seconds * 1000L, note)
+private fun startRest(model: Model, seconds: Int, note: String, env: Env, exerciseId: String?, set: Int): Next {
+    val rest = RestState(env.now, env.now + seconds * 1000L, note, exerciseId, set.takeIf { exerciseId != null })
     val (started, cmds) = beginRest(model, rest, warn = seconds >= WARN_MIN_REST_SECONDS, env)
     // The first rest asks to allow notifications, so the next ones count down on the lock screen.
     // The rest starts whatever the answer is.

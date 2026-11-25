@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.app.elm
 
+import io.github.alexanderop.eisen.feature.timer.wod.MAX_SCHEME_LENGTH
+import io.github.alexanderop.eisen.feature.timer.wod.MAX_SCHEME_REPS
 import io.github.alexanderop.eisen.feature.timer.WOD_MODES
 import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMERS
 import io.github.alexanderop.eisen.core.Equipment
@@ -261,6 +263,25 @@ fun schemeChoice(scheme: List<Int>): SchemeChoice = when (scheme) {
     emptyList<Int>() -> SchemeChoice.Same
     in SCHEMES -> SchemeChoice.Preset(scheme)
     else -> SchemeChoice.Custom(scheme)
+}
+
+/**
+ * The chip that is lit. While the custom field is open it is "Custom": the lifter is typing a scheme, and
+ * [schemeNote] says under the field what Save saves while that is not what the field holds.
+ */
+fun schemeChip(draft: WodDraft): SchemeChoice = if (draft.typed != null) SchemeChoice.Custom(draft.wod.scheme) else schemeChoice(draft.wod.scheme)
+
+/**
+ * What the custom field says under it when the numbers in it are not the scheme Save saves (QA build 19:
+ * "21-0-15-0-9" showed while 21-15-9 was saved, "0-0-99999" saved 999). Null while they agree.
+ */
+fun schemeNote(draft: WodDraft): String? {
+    val typed = draft.typed ?: return null
+    val numbers = typed.split(Regex("[^0-9]+")).filter { it.isNotEmpty() }.map { it.trimStart('0').ifEmpty { "0" } }
+    val saved = draft.wod.scheme
+    if (numbers == saved.map { it.toString() }) return null
+    val limits = "1 to $MAX_SCHEME_REPS reps a round, $MAX_SCHEME_LENGTH rounds at most"
+    return if (saved.isEmpty()) "Saves the same reps each round: $limits" else "Saves ${saved.joinToString("-")}: $limits"
 }
 
 /** The text of the custom field, null while it is closed: as typed, or a custom scheme as the WOD has it. */

@@ -32,6 +32,7 @@ import io.github.alexanderop.eisen.app.elm.Cmd
 import io.github.alexanderop.eisen.app.elm.DISCARD_SNACKBAR
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.RepsQuestion
+import io.github.alexanderop.eisen.app.elm.RestScreen
 import io.github.alexanderop.eisen.app.elm.RestState
 import io.github.alexanderop.eisen.app.elm.SETTLE_MS
 import io.github.alexanderop.eisen.app.elm.UiEvent
@@ -64,7 +65,7 @@ class WorkoutMachineTest {
         if (log.targetReps != null) at.full(index) else log.sets.indices.fold(at) { inner, set -> inner.send(LogReps(index, set, 10)) }
     }
 
-    private fun rest(seconds: Int, note: String, at: Long = LATER) = RestState(at, at + seconds * 1000L, note)
+    private fun rest(seconds: Int, note: String, at: Long = LATER, exercise: String = "hackSquat", set: Int = 0) = RestState(at, at + seconds * 1000L, note, exercise, set)
 
     private val stopRest = listOf(Cmd.SaveRest(null), Cmd.CancelRestAlarms, Cmd.HideRestCountdown, Cmd.HideRestOver)
 
@@ -123,17 +124,34 @@ class WorkoutMachineTest {
     }
 
     @Test fun `a missed rep warns and starts the longer rest`() {
-        val result = started().send(TapSet(0, 0)).send(TapSet(0, 0))
+        val result = started().send(TapSet(0, 0)).send(TapSet(0, 0), now = LATER + 1_000)
         assertEquals(4, result.workout.exercises[0].sets[0])
         assertEquals(listOf(Feel.WARNING), result.feels)
-        assertEquals(rest(300, "Missed reps. Rest longer."), result.model.rest)
+        assertEquals(rest(300, "Missed reps. Rest longer.", at = LATER + 1_000), result.model.rest)
+    }
+
+    /** QA build 19: a double tap 70 to 220 ms apart saved 4 instead of 5, with the rest for missed reps. */
+    @Test fun `a second tap on the same set right after the first is a bounce and does not count it down`() {
+        val once = started().send(TapSet(0, 0))
+        for (gap in listOf(70L, 150L, 220L, 499L)) {
+            val bounced = once.send(TapSet(0, 0), now = LATER + gap)
+            assertEquals("a second tap after $gap ms", 5, bounced.workout.exercises[0].sets[0])
+            assertEquals(rest(90, "All reps done."), bounced.model.rest)
+            assertTrue(bounced.cmds.isEmpty())
+        }
+        // Tapped again on purpose, a moment later: one rep missed, as always.
+        val missed = once.send(TapSet(0, 0), now = LATER + 500)
+        assertEquals(4, missed.workout.exercises[0].sets[0])
+        assertEquals(listOf(Feel.WARNING), missed.feels)
+        // The guard is per set: the next set right after it counts.
+        assertEquals(5, once.send(TapSet(0, 1), now = LATER + 100).workout.exercises[0].sets[1])
     }
 
     @Test fun `tapping cycles target down to 0 and clearing stops the rest`() {
         var at = started()
         val seen = mutableListOf<Int?>()
-        repeat(7) {
-            at = at.send(TapSet(0, 0))
+        repeat(7) { tap ->
+            at = at.send(TapSet(0, 0), now = LATER + tap * 1_000L)
             seen += at.workout.exercises[0].sets[0]
         }
         assertEquals(listOf(5, 4, 3, 2, 1, 0, null), seen)
@@ -144,7 +162,7 @@ class WorkoutMachineTest {
 
     @Test fun `the last set of an exercise feels like a success and leaves no rest behind`() {
         val four = (0 until 4).fold(started()) { at, set -> at.send(TapSet(0, set)) }
-        assertEquals(rest(90, "All reps done."), four.model.rest)
+        assertEquals(rest(90, "All reps done.", set = 3), four.model.rest)
         val result = four.send(TapSet(0, 4))
         assertEquals(listOf(Feel.SUCCESS), result.feels)
         assertNull(result.model.rest)
@@ -155,7 +173,7 @@ class WorkoutMachineTest {
 
     @Test fun `a last set with missed reps leaves no rest behind either`() {
         val done = (0 until 5).fold(started()) { at, set -> at.send(TapSet(0, set)) }
-        val missed = done.send(TapSet(0, 4))
+        val missed = done.send(TapSet(0, 4), now = LATER + 1_000)
         assertEquals(4, missed.workout.exercises[0].sets[4])
         assertEquals(listOf(Feel.WARNING), missed.feels)
         assertNull(missed.model.rest)
@@ -163,7 +181,7 @@ class WorkoutMachineTest {
 
     @Test fun `the last max-reps set of an exercise leaves no rest behind`() {
         val two = started().send(LogReps(3, 0, 12)).send(LogReps(3, 1, 10))
-        assertEquals(rest(90, "Max set logged."), two.model.rest)
+        assertEquals(rest(90, "Max set logged.", exercise = "dips", set = 1), two.model.rest)
         val last = two.send(LogReps(3, 2, 8))
         assertEquals(listOf(Feel.TAP), last.feels)
         assertNull(last.model.rest)
@@ -172,9 +190,9 @@ class WorkoutMachineTest {
 
     @Test fun `the set that completes the workout stops the rest`() {
         // Everything logged, then the last hack squat set tapped round to empty again.
-        val almost = (1..6).fold(started().everything()) { at, _ -> at.send(TapSet(0, 4)) }
+        val almost = (1..6).fold(started().everything()) { at, tap -> at.send(TapSet(0, 4), now = LATER + tap * 1_000L) }
         assertNull(almost.workout.exercises[0].sets[4])
-        val result = almost.send(TapSet(0, 4))
+        val result = almost.send(TapSet(0, 4), now = LATER + 7_000)
         assertEquals(Stage.COMPLETE, stageOf(result.workout))
         assertEquals(listOf(Feel.SUCCESS), result.feels)
         assertNull(result.model.rest)
@@ -195,9 +213,10 @@ class WorkoutMachineTest {
         val logged = withHistory.send(TapSet(3, 1))
         assertEquals(10, logged.workout.exercises[3].sets[1])
         assertNull(logged.model.repsQuestion)
-        assertEquals(rest(90, "Max set logged."), logged.model.rest)
+        assertEquals(rest(90, "Max set logged.", exercise = "dips", set = 1), logged.model.rest)
 
-        assertEquals(RepsQuestion(3, 1, "dips", 10), logged.send(TapSet(3, 1)).model.repsQuestion)
+        // A tap a moment later asks to change it (one right after the first is a bounce). The rest screen waits under the question.
+        assertEquals(RepsQuestion(3, 1, "dips", 10, under = RestScreen.Minimised(3, 1, "dips")), logged.send(TapSet(3, 1), now = LATER + 1_000).model.repsQuestion)
         assertEquals(RepsQuestion(3, 2, "dips", 8), withHistory.send(TapSet(3, 2)).model.repsQuestion)
     }
 
@@ -207,7 +226,7 @@ class WorkoutMachineTest {
         // The count is in: the question is answered.
         assertNull(logged.model.repsQuestion)
         assertEquals(listOf(Feel.TAP), logged.feels)
-        assertEquals(rest(90, "Max set logged."), logged.model.rest)
+        assertEquals(rest(90, "Max set logged.", exercise = "dips"), logged.model.rest)
         val cleared = logged.send(LogReps(3, 0, null))
         assertNull(cleared.workout.exercises[3].sets[0])
         assertEquals(listOf(Feel.TAP), cleared.feels)
@@ -228,7 +247,7 @@ class WorkoutMachineTest {
 
     @Test fun `a picked count below the target logs it in one step, warns and starts the longer rest`() {
         val picked = started().send(LogReps(0, 0, 3))
-        val tappedDown = (1..3).fold(started()) { at, _ -> at.send(TapSet(0, 0)) }
+        val tappedDown = (1..3).fold(started()) { at, tap -> at.send(TapSet(0, 0), now = LATER - (3 - tap) * 1_000L) }
         assertEquals(tappedDown.workout, picked.workout)
         assertEquals(3, picked.workout.exercises[0].sets[0])
         assertEquals(listOf(Feel.WARNING), picked.feels)
@@ -251,7 +270,7 @@ class WorkoutMachineTest {
         assertNull(missed.model.rest)
         assertTrue(missed.stopsRest())
         // The same as tapping it down to 3; with all reps it feels like a success.
-        assertEquals((1..3).fold(four) { at, _ -> at.send(TapSet(0, 4)) }.workout, missed.workout)
+        assertEquals((1..3).fold(four) { at, tap -> at.send(TapSet(0, 4), now = LATER + tap * 1_000L) }.workout, missed.workout)
         val full = four.send(LogReps(0, 4, 5))
         assertEquals(listOf(Feel.SUCCESS), full.feels)
         assertNull(full.model.rest)
@@ -297,7 +316,7 @@ class WorkoutMachineTest {
         assertEquals(RepsQuestion(3, 2, "dips", 8), withHistory.send(WorkoutEvent.EnterReps(3, 2)).model.repsQuestion)
         // A logged one starts at its count.
         val logged = withHistory.send(LogReps(3, 1, 9))
-        assertEquals(RepsQuestion(3, 1, "dips", 9), logged.send(WorkoutEvent.EnterReps(3, 1)).model.repsQuestion)
+        assertEquals(RepsQuestion(3, 1, "dips", 9, under = RestScreen.Minimised(3, 1, "dips")), logged.send(WorkoutEvent.EnterReps(3, 1)).model.repsQuestion)
         // A set with a target or a timed one has its own hold.
         assertIgnored(withHistory, WorkoutEvent.EnterReps(0, 0))
         assertIgnored(withHistory.send(AddExercise("plank")), WorkoutEvent.EnterReps(4, 0))

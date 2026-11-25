@@ -7,6 +7,8 @@ import io.github.alexanderop.eisen.app.elm.WodDraft
 import io.github.alexanderop.eisen.app.elm.customText
 import io.github.alexanderop.eisen.app.elm.draft
 import io.github.alexanderop.eisen.app.elm.schemeChoice
+import io.github.alexanderop.eisen.app.elm.schemeChip
+import io.github.alexanderop.eisen.app.elm.schemeNote
 import io.github.alexanderop.eisen.feature.timer.TimerMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -45,6 +47,33 @@ class WodSchemeTest {
         assertEquals(SchemeChoice.Custom(listOf(30, 20)), typed.choice)
         // Already open: the chip again changes nothing.
         assertIgnored(typed, Msg.Wods.ChooseCustom)
+    }
+
+    /** QA build 19: right after Custom with an empty field no chip was lit. */
+    @Test fun `while the custom field is open its chip is lit, also before anything is typed`() {
+        val custom = builder.send(Msg.Wods.ChooseCustom)
+        assertEquals(SchemeChoice.Custom(emptyList()), schemeChip(custom.draft))
+        assertEquals(SchemeChoice.Custom(listOf(21, 15, 9)), schemeChip(custom.send(Msg.Wods.TypeScheme("21-15-9")).draft))
+        // Closed, the chip is the scheme's again.
+        assertEquals(SchemeChoice.Same, schemeChip(custom.send(Msg.Wods.SetScheme(emptyList())).draft))
+        assertEquals(SchemeChoice.Same, schemeChip(builder.draft))
+    }
+
+    /** QA build 19: "21-0-15-0-9" showed while 21-15-9 was saved, and "0-0-99999" saved 999. */
+    @Test fun `what is typed and what Save saves agree on screen`() {
+        val custom = builder.send(Msg.Wods.ChooseCustom)
+        fun noteFor(text: String) = schemeNote(custom.send(Msg.Wods.TypeScheme(text)).draft)
+        assertNull(noteFor(""))
+        assertNull(noteFor("21-15-9"))
+        assertNull(noteFor("30 20 10"))
+        assertNull(noteFor("30-20-"))
+        assertEquals("Saves 21-15-9: 1 to 999 reps a round, 12 rounds at most", noteFor("21-0-15-0-9"))
+        assertEquals("Saves 999: 1 to 999 reps a round, 12 rounds at most", noteFor("0-0-99999"))
+        assertEquals("Saves the same reps each round: 1 to 999 reps a round, 12 rounds at most", noteFor("0-0"))
+        assertNull(noteFor("007"))
+        assertEquals(listOf(999), custom.send(Msg.Wods.TypeScheme("0-0-99999")).draft.wod.scheme)
+        // No field, no note.
+        assertNull(schemeNote(builder.draft))
     }
 
     @Test fun `the field is cut to 48 characters`() {

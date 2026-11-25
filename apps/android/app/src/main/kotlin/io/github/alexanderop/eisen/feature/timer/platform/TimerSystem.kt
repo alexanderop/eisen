@@ -220,7 +220,8 @@ class TimerService : Service() {
         // Always, also when the run ended meanwhile: a service asked for as foreground has to become one.
         ServiceCompat.startForeground(this, TimerSystem.ID, TimerSystem.notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         if (TimerSystem.notice == null) stopSelfResult(startId)
-        return START_NOT_STICKY
+        // Sticky, like `RestService`: a run the process died in comes back with its sounds (`Eisen.init`).
+        return START_STICKY
     }
 
     override fun onDestroy() {

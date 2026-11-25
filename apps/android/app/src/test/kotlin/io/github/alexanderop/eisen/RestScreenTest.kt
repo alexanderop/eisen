@@ -28,7 +28,7 @@ class RestScreenTest {
     /** Set 1 of the bench press logged at [LATER]: a rest of 90 seconds. */
     private fun resting(): Step = started().send(WorkoutEvent.TapSet(1, 0))
 
-    private val benchRest = RestState(LATER, LATER + 90_000, "All reps done.")
+    private val benchRest = RestState(LATER, LATER + 90_000, "All reps done.", "bench", 0)
 
     private val restCmds = setOf(Cmd.SaveRest::class, Cmd.ScheduleRestAlarms::class, Cmd.CancelRestAlarms::class, Cmd.ShowRestCountdown::class, Cmd.HideRestCountdown::class)
 
@@ -194,13 +194,21 @@ class RestScreenTest {
         assertIgnored(started(), Msg.Rest.Lengthen)
     }
 
-    @Test fun `the screen closes when its set or its workout is gone, the rest follows today's rules`() {
+    @Test fun `the screen follows its exercise when cards move, and closes with its exercise or its workout`() {
         val step = resting()
-        // Its exercise removed, or another one taking its place.
-        assertNull(step.send(WorkoutEvent.RemoveExercise(1)).model.restScreen)
-        assertNull(step.send(WorkoutEvent.RemoveExercise(0)).model.restScreen)
-        assertNull(step.send(WorkoutEvent.Defer(0)).model.restScreen)
+        // QA build 19: after "Do later" or a removed exercise before it, the rest bar no longer opened the screen.
+        // It names its exercise by id and goes where the card goes.
+        assertEquals(RestScreen.Shown(0, 0, "bench"), step.send(WorkoutEvent.RemoveExercise(0)).model.restScreen)
+        assertEquals(RestScreen.Shown(0, 0, "bench"), step.send(WorkoutEvent.Defer(0)).model.restScreen)
+        assertEquals(RestScreen.Shown(3, 0, "bench"), step.send(WorkoutEvent.Defer(1)).model.restScreen)
         assertNotNull(step.send(WorkoutEvent.RemoveExercise(0)).model.rest)
+        val bar = step.send(Msg.Rest.Minimise).send(WorkoutEvent.Defer(0))
+        assertEquals(RestScreen.Shown(0, 0, "bench"), bar.send(Msg.Rest.Open).model.restScreen)
+        // Its exercise removed: the rest goes with it, there is no set left to open it for.
+        val removed = step.send(WorkoutEvent.RemoveExercise(1))
+        assertNull(removed.model.restScreen)
+        assertNull(removed.model.rest)
+        assertTrue(removed.cmds.containsAll(listOf(Cmd.SaveRest(null), Cmd.CancelRestAlarms, Cmd.HideRestCountdown)))
         // A change behind it leaves it where it is.
         assertEquals(RestScreen.Shown(1, 0, "bench"), step.send(WorkoutEvent.RemoveExercise(2)).model.restScreen)
         assertEquals(RestScreen.Shown(1, 0, "bench"), step.send(WorkoutEvent.Defer(2)).model.restScreen)
@@ -244,8 +252,12 @@ class RestScreenTest {
     }
 
     @Test fun `the reps wheel runs to the target, or to 100 for a max-reps set`() {
-        assertEquals(0..5, repsChoices(5, 4))
-        assertEquals(0..100, repsChoices(null, 8))
-        assertEquals(0..120, repsChoices(null, 120))
+        assertEquals((0..5).toList(), repsChoices(5, 4))
+        assertEquals((0..100).toList(), repsChoices(null, 8))
+        // A count above it, from a saved file, is one more choice at the end, not a row per number up to it
+        // (QA build 19: 9999999 reps built a wheel of ten million labels and the app ran out of memory).
+        assertEquals((0..100).toList() + 120, repsChoices(null, 120))
+        assertEquals(102, repsChoices(null, 9_999_999).size)
+        assertEquals(102, repsChoices(null, Int.MAX_VALUE).size)
     }
 }

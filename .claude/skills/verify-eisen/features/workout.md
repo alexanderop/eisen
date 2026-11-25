@@ -28,7 +28,7 @@ workout are saved to `eisen.json` as they happen.
 ## Driving it with eisenctl
 
 Preconditions: none. The recipe starts on fresh data (`launch --fresh`): Home offers `Workout A`.
-The whole file takes about a minute.
+The whole file takes about four minutes (three runs).
 
 ```sh
 eisenctl launch --fresh
@@ -105,11 +105,49 @@ jq -e '.active.exercises[0].sets == [4, 4, null, null, null]' "$(eisenctl state 
 eisenctl doctor && eisenctl cleanup
 ```
 
+**With animations on, as on a phone** (`workout-log`, `workout-rest`, `workout-pick`, its own run with
+`launch --animations`; about two and a half minutes). Taps that land while a screen still moves are what
+scripted runs with the animations off miss. A double tap on set 1 (two taps 150 ms apart, a bouncing thumb)
+logs 5, not 4: the second tap is a bounce. Its rest, cut to about 20 seconds with `−15s`, runs out while the
+app is killed in the background: Android starts the countdown service again, the end is felt (`buzzed`: a
+vibration played and none was dropped as background) and shown (`Rest is over`). Held, set 2 takes 3 reps
+and the rest screen's keys correct it to 4. The rest bar opens its screen, also after `Do later` moved the
+exercise and after a force-stop, which takes the rest's alarm and countdown with it: the app puts them back.
+
+```sh
+eisenctl launch --fresh --animations
+eisenctl tap "Start workout" && eisenctl wait "Finish"
+eisenctl doubletap "5" 1 150 && eisenctl wait "Set 1 of 5 done" && eisenctl has "All reps done\." "of 1:30" && eisenctl shot 21-double-tap
+jq -e '.active.exercises[0].sets == [5, null, null, null, null]' "$(eisenctl state 22-double-tap)"
+eisenctl tap "Rest 15 seconds less" && eisenctl tap "Rest 15 seconds less" && eisenctl tap "Rest 15 seconds less" && eisenctl tap "Rest 15 seconds less"
+eisenctl adb shell input keyevent KEYCODE_HOME && sleep 1 && pid="$(eisenctl adb shell pidof io.github.alexanderop.eisen | tr -d '\r')" && eisenctl adb shell "run-as io.github.alexanderop.eisen kill -9 $pid"
+sleep 45 && eisenctl adb shell dumpsys notification --noredact | grep -q "android.title=String (Rest is over)" && eisenctl buzzed
+eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Finish" && eisenctl shot 23-after-the-end
+eisenctl hold "5" 2 && eisenctl tap "3 reps" && eisenctl wait "Set 2 of 5 done" && eisenctl has "Missed reps\. Rest longer\."
+eisenctl tap "4 reps" && eisenctl has "80kg × 4" && eisenctl shot 24-picked-corrected
+jq -e '.active.exercises[0].sets == [5, 4, null, null, null]' "$(eisenctl state 25-picked-corrected)"
+eisenctl tap "Minimise rest timer" && eisenctl wait "Finish" && eisenctl tap "Missed reps\. Rest longer\." && eisenctl wait "Set 2 of 5 done" && eisenctl shot 26-bar-opens
+eisenctl tap "Minimise rest timer" && eisenctl wait "Finish" && eisenctl tap "5×5 80kg" 1 && eisenctl wait "Do later" && eisenctl tap "Do later"
+eisenctl wait "Finish" && eisenctl tap "Missed reps\. Rest longer\." && eisenctl wait "Set 2 of 5 done" && eisenctl has "Hack Squat" && eisenctl shot 27-bar-opens-after-do-later
+eisenctl tap "Minimise rest timer" && eisenctl wait "Finish" && eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null
+eisenctl wait "Missed reps\. Rest longer\." && eisenctl adb shell dumpsys alarm | sed -n "/pending alarms/,/Pending user blocked/p" | grep -q "io.github.alexanderop.eisen.rest.OVER"
+eisenctl adb shell dumpsys notification --noredact | grep -q "android.title=String (Rest)"
+eisenctl tap "Missed reps\. Rest longer\." && eisenctl wait "Set 2 of 5 done" && eisenctl shot 28-bar-opens-after-restart
+eisenctl doctor && eisenctl cleanup
+```
+
 ## Gotchas
 
 - All open set circles of an exercise read the target (`5`), so `tap "5" 1` is the first set of the
   first exercise only on a fresh workout. After a set is logged the indices shift: read `texts`.
-- Tapping a logged set again changes its reps instead of logging the next one.
+- Tapping a logged set again changes its reps instead of logging the next one, but only half a second
+  (`SET_TAP_GUARD_MILLIS`) after the tap before on it: a second tap sooner is a bounce and counts nothing.
+- `doubletap` taps twice from one dump, 150 ms apart by default; a `tap` takes a dump of its own first.
+- The short rest of the last recipe: four taps of `−15s` take the 1:30 down to about 0:20 (each tap takes
+  a dump, so the clock runs meanwhile). The recipe waits 45 seconds for its end, with the app killed:
+  Android restarts the sticky countdown service a few seconds after the kill, and the alarm sends the end.
+  `buzzed` is the only witness of the vibration on a muted emulator; `said` does not apply, the rest's cue
+  is not a timer sound.
 - `eisenctl hold` presses for a second and lifts without moving: the numbers stay open for a tap.
   A slide needs a press that stays down; `eisenctl` has no command for it, so the recipe sends
   `input motionevent DOWN`, a few `MOVE`s and `UP` through `eisenctl adb shell`, at the centres of

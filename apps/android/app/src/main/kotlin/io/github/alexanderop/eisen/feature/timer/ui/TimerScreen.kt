@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.timer.ui
 
+import io.github.alexanderop.eisen.core.counted
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -503,7 +504,7 @@ internal fun SecondsWheel(
 
 @Composable
 internal fun RoundsWheel(value: Int, row: Dp, modifier: Modifier, max: Int = MAX_TIMER_ROUNDS, onChange: (Int) -> Unit) {
-    val choices = remember(max) { (1..max).toList() }
+    val choices = remember(max) { (1..max.coerceAtMost(MAX_TIMER_ROUNDS)).toList() }
     WheelBox("Rounds", modifier) {
         Wheel(
             labels = remember { choices.map { it.toString() } },
@@ -518,9 +519,9 @@ internal fun RoundsWheel(value: Int, row: Dp, modifier: Modifier, max: Int = MAX
 
 internal fun spokenSeconds(seconds: Int, off: String?): String = when {
     seconds == 0 && off != null -> off
-    seconds < 60 -> "$seconds seconds"
-    seconds % 60 == 0 -> if (seconds == 60) "1 minute" else "${seconds / 60} minutes"
-    else -> "${seconds / 60} minutes ${seconds % 60} seconds"
+    seconds < 60 -> counted(seconds, "second")
+    seconds % 60 == 0 -> counted(seconds / 60, "minute")
+    else -> "${counted(seconds / 60, "minute")} ${counted(seconds % 60, "second")}"
 }
 
 @Composable

@@ -8,6 +8,8 @@ import io.github.alexanderop.eisen.feature.workout.Change
 import io.github.alexanderop.eisen.feature.workout.ExerciseLog
 import io.github.alexanderop.eisen.feature.workout.ExerciseProgress
 import io.github.alexanderop.eisen.feature.workout.MAX_HELD_SECONDS
+import io.github.alexanderop.eisen.feature.workout.MAX_LOGGED_REPS
+import io.github.alexanderop.eisen.core.MAX_WEIGHT
 import io.github.alexanderop.eisen.feature.workout.MAX_RIR
 import io.github.alexanderop.eisen.feature.workout.Outcome
 import io.github.alexanderop.eisen.feature.workout.Progress
@@ -77,7 +79,18 @@ data class Run(
      * lifter's order and the most recent one no longer rises to the top. Finished ones still sink.
      */
     val arranged: Boolean = false,
+    /** The last tap on a set, so a second one right after it (a bounce of a sweaty thumb) does not count it down. */
+    val lastTap: SetTap? = null,
 )
+
+/** A tap on set [set] of the exercise [exerciseId] at [at], the model's clock. */
+data class SetTap(val exerciseId: String, val set: Int, val at: Long)
+
+/**
+ * A second tap on the same set within this time is the thumb bouncing, not a missed rep: it is ignored.
+ * Taps further apart count a logged set down, as always. The interval timer's "+1 round" has its own guard.
+ */
+const val SET_TAP_GUARD_MILLIS = 500L
 
 /** The run with its workout changed. */
 internal inline fun Run.workout(change: (Workout) -> Workout): Run = copy(workout = change(workout))
@@ -277,7 +290,7 @@ private fun idle(state: AppState, event: WorkoutEvent, env: Env): Transition? = 
 private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): Transition? {
     val workout = run.workout
     return when (event) {
-        is WorkoutEvent.TapSet -> tapSet(run, state, event)
+        is WorkoutEvent.TapSet -> tapSet(run, state, event, env)
         is WorkoutEvent.LogReps -> logReps(run, state, event)
         is WorkoutEvent.EnterReps -> enterReps(run, state, event)
         is WorkoutEvent.LogHold -> logHold(run, state, event)
@@ -285,7 +298,7 @@ private fun running(run: Run, state: AppState, event: WorkoutEvent, env: Env): T
         is WorkoutEvent.RateSet -> rateSet(run, state, event)
         is WorkoutEvent.SetWeight -> {
             val log = workout.exercises.getOrNull(event.exercise) ?: return null
-            val weight = event.weight.coerceAtLeast(0.0)
+            val weight = event.weight.coerceIn(0.0, MAX_WEIGHT)
             Transition(
                 Session.Running(run.copy(workout = workout.editLog(event.exercise) { it.copy(weight = weight) })),
                 state.editProgress(log.id) { it.copy(weight = weight) },
@@ -378,12 +391,22 @@ private fun start(state: AppState, env: Env): Transition? {
     return Transition(Session.Running(Run(workout, baseline = ready.progress)), ready, listOf(Effect.Started(workout)))
 }
 
-private fun tapSet(run: Run, state: AppState, event: WorkoutEvent.TapSet): Transition? {
+private fun tapSet(run: Run, state: AppState, event: WorkoutEvent.TapSet, env: Env): Transition? {
     val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
     if (event.set !in log.sets.indices) return null
-    if (log.timed) return tapHold(run, state, event)
-    val target = log.targetReps ?: return tapMaxSet(run, state, event, log)
-    return logCount(run, state, event.exercise, event.set, nextReps(log.sets[event.set], target), target)
+    val last = run.lastTap
+    // A logged set tapped again right after the tap before on it: a bounce, not a missed rep.
+    if (log.sets[event.set] != null && last != null && last.exerciseId == log.id && last.set == event.set && env.now - last.at in 0 until SET_TAP_GUARD_MILLIS) return null
+    val target = log.targetReps
+    val tapped = when {
+        log.timed -> tapHold(run, state, event)
+        target == null -> tapMaxSet(run, state, event, log)
+        else -> logCount(run, state, event.exercise, event.set, nextReps(log.sets[event.set], target), target)
+    } ?: return null
+    // Only a tap that changed the set is remembered: one that opened a question or the hold timer changed nothing to bounce on.
+    val after = tapped.session as? Session.Running ?: return tapped
+    if (after.run.workout == run.workout) return tapped
+    return tapped.copy(session = Session.Running(after.run.copy(lastTap = SetTap(log.id, event.set, env.now))))
 }
 
 /**
@@ -412,9 +435,9 @@ private fun logCount(run: Run, state: AppState, exercise: Int, set: Int, reps: I
  */
 private fun tapMaxSet(run: Run, state: AppState, event: WorkoutEvent.TapSet, log: ExerciseLog): Transition? {
     val logged = log.sets[event.set]
-    val last = lastReps(state.history, log.id, event.set)
+    val last = lastReps(state.history, log.id, event.set)?.coerceAtMost(MAX_LOGGED_REPS)
     if (logged == null && last != null) return logReps(run, state, WorkoutEvent.LogReps(event.exercise, event.set, last))
-    return Transition(Session.Running(run), state, listOf(Effect.AskReps(event.exercise, event.set, logged ?: FIRST_MAX_REPS)))
+    return Transition(Session.Running(run), state, listOf(Effect.AskReps(event.exercise, event.set, (logged ?: FIRST_MAX_REPS).coerceAtMost(MAX_LOGGED_REPS))))
 }
 
 /**
@@ -451,6 +474,10 @@ private fun logReps(run: Run, state: AppState, event: WorkoutEvent.LogReps): Tra
         return logCount(run, state, event.exercise, event.set, event.reps, target)
     }
     if (target != null) return logCount(run, state, event.exercise, event.set, null, target)
+    // A max-reps set holds 0 to MAX_LOGGED_REPS: what is above it was never counted.
+    if (event.reps != null && event.reps !in 0..MAX_LOGGED_REPS) return null
+    // A logged one is corrected like a set with a target: its rest runs on (the same count twice changes nothing).
+    if (event.reps != null && log.sets[event.set] != null) return correctReps(run, state, WorkoutEvent.CorrectReps(event.exercise, event.set, event.reps))
     val workout = run.workout.editLog(event.exercise) { withReps(it, event.set, event.reps) }
     val rest = if (event.reps == null || lastSetLogged(workout, event.exercise)) Effect.StopRest
     else Effect.StartRest(state.settings.restDone, "Max set logged.", event.exercise, event.set)
@@ -461,7 +488,7 @@ private fun logReps(run: Run, state: AppState, event: WorkoutEvent.LogReps): Tra
 private fun enterReps(run: Run, state: AppState, event: WorkoutEvent.EnterReps): Transition? {
     val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
     if (event.set !in log.sets.indices || log.timed || log.targetReps != null) return null
-    val start = log.sets[event.set] ?: lastReps(state.history, log.id, event.set) ?: FIRST_MAX_REPS
+    val start = (log.sets[event.set] ?: lastReps(state.history, log.id, event.set) ?: FIRST_MAX_REPS).coerceAtMost(MAX_LOGGED_REPS)
     return Transition(Session.Running(run), state, listOf(Effect.AskReps(event.exercise, event.set, start)))
 }
 
@@ -547,7 +574,7 @@ private fun discard(run: Run, state: AppState): Transition {
 }
 
 private fun setWorkingWeight(session: Session, state: AppState, event: WorkoutEvent.SetWorkingWeight): Transition {
-    val weight = event.weight.coerceAtLeast(0.0)
+    val weight = event.weight.coerceIn(0.0, MAX_WEIGHT)
     val next = state.editProgress(event.id) { it.copy(weight = weight, fails = 0) }
     fun follow(run: Run) = run.workout { workout ->
         workout.copy(exercises = workout.exercises.map { if (it.id == event.id) it.copy(weight = weight) else it })

@@ -3,6 +3,7 @@ package io.github.alexanderop.eisen.app.elm
 import io.github.alexanderop.eisen.app.state.AppState
 import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMERS
 import io.github.alexanderop.eisen.feature.timer.MAX_OPEN_TIMER_SECONDS
+import io.github.alexanderop.eisen.feature.timer.MAX_COUNTED_ROUNDS
 import io.github.alexanderop.eisen.feature.timer.MINUTE_CALLS
 import io.github.alexanderop.eisen.feature.timer.TIMER_LEAD_IN_SECONDS
 import io.github.alexanderop.eisen.feature.timer.TimerCalls
@@ -458,7 +459,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val session = finished.session
             // Erased or replaced by a backup meanwhile: there is no history entry left to correct.
             if (!countsRoundsByTap(session.config.mode) || model.state.timerSessions.none { it.id == session.id }) return model.only()
-            val corrected = session.copy(rounds = maxOf(0, session.rounds + msg.by))
+            val corrected = session.copy(rounds = (session.rounds.toLong() + msg.by).coerceIn(0, MAX_COUNTED_ROUNDS.toLong()).toInt())
             if (corrected == session) return model.only()
             // The result and the history entry are the same session.
             model.withState { state -> state.copy(timerSessions = state.timerSessions.map { if (it.id == session.id) corrected else it }) }

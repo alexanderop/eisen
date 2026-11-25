@@ -1,5 +1,11 @@
 package io.github.alexanderop.eisen.app.elm
 
+import io.github.alexanderop.eisen.core.counted
+import io.github.alexanderop.eisen.feature.workout.MAX_BAR
+import io.github.alexanderop.eisen.feature.workout.MAX_INCREMENT
+import io.github.alexanderop.eisen.feature.workout.MAX_REST_SECONDS
+import io.github.alexanderop.eisen.feature.workout.logWithin
+import io.github.alexanderop.eisen.feature.workout.slotWithin
 import io.github.alexanderop.eisen.app.state.AppState
 import io.github.alexanderop.eisen.core.Equipment
 import io.github.alexanderop.eisen.app.state.Loaded
@@ -79,7 +85,7 @@ internal fun routines(msg: Msg.Routines, model: Model, env: Env): Next = when (m
         state.editRoutine(msg.routineId) { routine ->
             // Only the same exercise: a stale index from a card that moved must not overwrite its neighbour.
             if (routine.slots.getOrNull(msg.index)?.exerciseId == msg.slot.exerciseId) {
-                routine.copy(slots = routine.slots.replaced(msg.index, msg.slot))
+                routine.copy(slots = routine.slots.replaced(msg.index, slotWithin(msg.slot, state.findExercise(msg.slot.exerciseId)?.timed == true)))
             } else {
                 routine
             }
@@ -134,7 +140,7 @@ private fun insertSlot(model: Model, msg: Msg.Routines.InsertSlot): Next {
     return model.withState { state ->
         state.ensureProgress(msg.slot.exerciseId).editRoutine(msg.routineId) { routine ->
             if (routine.slots.any { it.exerciseId == msg.slot.exerciseId }) return@editRoutine routine
-            routine.copy(slots = routine.slots.toMutableList().apply { add(msg.index.coerceIn(0, size), msg.slot) })
+            routine.copy(slots = routine.slots.toMutableList().apply { add(msg.index.coerceIn(0, size), slotWithin(msg.slot, state.findExercise(msg.slot.exerciseId)?.timed == true)) })
         }
     }.only()
 }
@@ -173,7 +179,7 @@ internal fun exercises(msg: Msg.Exercises, model: Model, env: Env): Next = when 
 
 internal fun history(msg: Msg.History, model: Model): Next = when (msg) {
     is Msg.History.Edit -> model.withState { state ->
-        state.copy(history = state.history.map { if (it.id == msg.id) it.copy(exercises = msg.exercises) else it })
+        state.copy(history = state.history.map { if (it.id == msg.id) it.copy(exercises = msg.exercises.map(::logWithin)) else it })
     }.only()
     is Msg.History.Delete -> {
         val index = model.state.history.indexOfFirst { it.id == msg.id }
@@ -214,9 +220,9 @@ internal fun settings(msg: Msg.Settings, model: Model): Next {
         model.withState { it.settings(change) }
     return when (msg) {
         is Msg.Settings.SetUnit -> setUnit(model, msg)
-        is Msg.Settings.SetBar -> edit { it.copy(bar = msg.bar) }.only()
-        is Msg.Settings.SetRestDone -> edit { it.copy(restDone = msg.seconds) }.only()
-        is Msg.Settings.SetRestMissed -> edit { it.copy(restMissed = msg.seconds) }.only()
+        is Msg.Settings.SetBar -> edit { it.copy(bar = msg.bar.coerceIn(0.0, MAX_BAR)) }.only()
+        is Msg.Settings.SetRestDone -> edit { it.copy(restDone = msg.seconds.coerceIn(0, MAX_REST_SECONDS)) }.only()
+        is Msg.Settings.SetRestMissed -> edit { it.copy(restMissed = msg.seconds.coerceIn(0, MAX_REST_SECONDS)) }.only()
         is Msg.Settings.SetSound -> {
             val next = edit { it.copy(sound = msg.on) }
             // The lifter hears what switching it on does.
@@ -225,7 +231,7 @@ internal fun settings(msg: Msg.Settings, model: Model): Next {
         is Msg.Settings.SetHaptics -> edit { it.copy(haptics = msg.on) }.only()
         is Msg.Settings.SetRestFullScreen -> edit { it.copy(restFullScreen = msg.on) }.only()
         is Msg.Settings.SetTrackRir -> edit { it.copy(trackRir = msg.on) }.only()
-        is Msg.Settings.SetIncrement -> model.withState { state -> state.editProgress(msg.id) { it.copy(increment = msg.increment) } }.only()
+        is Msg.Settings.SetIncrement -> model.withState { state -> state.editProgress(msg.id) { it.copy(increment = msg.increment.coerceIn(0.0, MAX_INCREMENT)) } }.only()
     }
 }
 
@@ -329,8 +335,7 @@ internal fun health(msg: Msg.Health, model: Model): Next {
             val notice = when {
                 count == null -> "Could not reach Health Connect."
                 !health.enabled -> "Health Connect no longer allows Eisen to write workouts."
-                count == 1 -> "1 workout synced."
-                else -> "$count workouts synced."
+                else -> "${counted(count, "workout")} synced."
             }
             model.health { it.copy(syncing = false, notice = notice) }.only()
         }

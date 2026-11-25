@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.timer.boxing
 
+import io.github.alexanderop.eisen.core.counted
 import io.github.alexanderop.eisen.feature.timer.TimerConfig
 import io.github.alexanderop.eisen.core.holdText
 import io.github.alexanderop.eisen.feature.timer.timerSeconds
@@ -90,7 +91,7 @@ fun remindersText(theme: BoxingTheme): String = when (theme) {
 fun burnoutText(round: BoxingRound, work: Int): String = when {
     round.burnout > 0 && burnoutOf(round, work) == 0 -> "Needs a round of at least ${holdText(round.burnout * 2).let { if (it.endsWith("s")) "0:${it.dropLast(1)}" else it }}"
     round.burnout == 0 -> "The end of the round: short combinations back to back"
-    else -> "The last ${round.burnout} seconds: short combinations back to back"
+    else -> "The last ${counted(round.burnout, "second")}: short combinations back to back"
 }
 
 /** "About 480 punches", under the combinations of a boxing result. */

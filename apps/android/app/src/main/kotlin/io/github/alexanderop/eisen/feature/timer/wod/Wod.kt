@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.timer.wod
 
+import io.github.alexanderop.eisen.core.counted
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -292,7 +293,7 @@ fun wodFormat(workout: Wod): String {
         timer.mode == TimerMode.EMOM -> "EMOM ${timer.rounds} × ${holdText(timer.work)}"
         timer.mode == TimerMode.TABATA -> "Tabata ${timer.rounds} × ${holdText(timer.work)} / ${holdText(timer.rest)}"
         workout.scheme.isNotEmpty() -> "${workout.scheme.joinToString("-")} · For Time"
-        workout.rounds > 1 -> "${workout.rounds} rounds · For Time"
+        workout.rounds > 1 -> "${counted(workout.rounds, "round")} · For Time"
         else -> "For Time"
     }
 }

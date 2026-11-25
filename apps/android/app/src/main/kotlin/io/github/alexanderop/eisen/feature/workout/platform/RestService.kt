@@ -28,7 +28,11 @@ class RestService : Service() {
         // Always, also when the rest ended meanwhile: a service asked for as foreground has to become one.
         ServiceCompat.startForeground(this, RUNNING_ID, RestSystem.countdownNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         if (RestSystem.countdown == null) stopSelfResult(startId)
-        return START_NOT_STICKY
+        // Sticky: when Android ends the process during a rest it starts the service again, with a null
+        // intent, which is how it gets here. `Eisen.init` above restored the rest from the preferences and put
+        // its countdown back, which this start shows. Android's restriction on starting a foreground service
+        // from the background does not apply to the restart of a sticky one (`Service.START_STICKY`).
+        return START_STICKY
     }
 
     override fun onDestroy() {

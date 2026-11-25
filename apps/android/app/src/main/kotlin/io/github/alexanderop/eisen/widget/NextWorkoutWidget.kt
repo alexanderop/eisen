@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.widget
 
+import io.github.alexanderop.eisen.core.counted
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -73,7 +74,7 @@ private fun build(context: Context, content: WidgetContent, heightDp: Float): Re
     views.setTextViewText(R.id.widget_name, content.name)
 
     if (content.running) {
-        views.setTextViewText(R.id.widget_status, "${content.logged} of ${content.total} sets logged")
+        views.setTextViewText(R.id.widget_status, "${content.logged} of ${counted(content.total, "set")} logged")
         views.setViewVisibility(R.id.widget_status, View.VISIBLE)
     } else {
         views.setViewVisibility(R.id.widget_status, View.GONE)

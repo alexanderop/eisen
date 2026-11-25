@@ -8,6 +8,7 @@ import android.media.MediaPlayer
 import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import io.github.alexanderop.eisen.app.elm.Cue
@@ -39,8 +40,13 @@ object Cues {
         main.postDelayed({ tone.release() }, times * BEEP_GAP_MS + BEEP_MS)
     }
 
+    /**
+     * The end of a rest, of a hold or a phase of a timer, felt in a pocket. As an alarm: Android drops a
+     * vibration of an app in the background unless its usage is an alarm, a ringtone or a notification
+     * (`Vibrator.vibrate`), and the end of a rest mostly comes with the app in the background.
+     */
     fun vibrate(context: Context, pattern: List<Long>) {
-        context.getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createWaveform(pattern.toLongArray(), -1))
+        context.getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createWaveform(pattern.toLongArray(), -1), VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM))
     }
 
     private fun say(context: Context, asset: String, beep: Boolean) {

@@ -6,16 +6,31 @@ lists others.
 
 | File | Starts on | Takes (measured) | Feature |
 |---|---|---|---|
-| `workout.md` | `--fresh` (twice) | 1:35 | Start a workout, log sets, pick the reps by holding a set, the rest timer, rating a set, finishing |
+| `workout.md` | `--fresh` (three times, the last with `--animations`) | 4:40 | Start a workout, log sets, pick the reps by holding a set, the rest timer, rating a set, finishing; a double tap, the rest after a kill and a force-stop |
 | `interval-timers.md` | `--state short-timers` | 5:20 | Tabata, EMOM, AMRAP, For Time: setup, saved timers, runs to `Completed`, screen off, a killed app, ending early |
 | `boxing.md` | `--state short-timers` | 5:25 | The boxing timer with the coach: setup, run, result with punches, time left in the round |
 | `wods.md` | `--state lifter` | 2:45 | The WODs page: own WODs, benchmarks, search, a run against the best, a first run |
 | `history-and-data.md` | `--state lifter`, then the emulator's data | 0:45 | The history log, progress, the backup entry points, an update on old data |
+| `layout.md` | `--state short-timers` (three times) | 10:15 | Nine main screens at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
 
 Not mapped yet: the Workouts tab (editing routines, the exercise picker), sharing a workout, the
 home-screen widget and shortcuts, Health Connect, the hold timer for timed exercises, the WOD
-builder, own boxing combinations, saving a preset, the backup file pickers. The five files in a row
-take about 15 minutes.
+builder's every field, own boxing combinations, saving a preset, the backup file pickers. The six files in
+a row take about 30 minutes (measured with `journey`: 29:20).
+
+## Running a file
+
+```sh
+eisenctl journey workout            # every recipe of features/workout.md, in order
+eisenctl journey workout 3          # only its third recipe
+eisenctl journey layout "2.0"       # the recipes whose bold heading matches the regex
+```
+
+`journey` runs the `sh` blocks of a file as written, from a line that launches to the line that cleans up,
+and stops at the first command that fails, also one in the middle of `a && b && c`: it splits such a line
+and checks each command on its own. Then it cleans up and says which command failed. It prints each recipe's
+time. Only a journey whose every recipe passed on an APK built from the current sources stamps them
+`Verified: emulator`; a `launch`, a screenshot or a `cleanup` alone stamps nothing.
 
 ## Baseline preconditions
 
@@ -29,7 +44,8 @@ take about 15 minutes.
 ## Driving conventions
 
 - Commands are literal; `eisenctl` stands for `.claude/skills/verify-eisen/bin/eisenctl` from the
-  repo root. Chain with `&&`.
+  repo root. Chain with `&&`. A loop (`for ...; do ...; done`) is one command to `journey`: only its last
+  step counts, so a loop only looks for something and the line after it acts on it.
 - The commands are in `sh` blocks, in order, and run as written: every line succeeds or the recipe
   is wrong (or the app is). A line that checks something (`has`, `jq -e`, `said`, `grep -q`) is the
   proof; the prose around it says what the shots show.

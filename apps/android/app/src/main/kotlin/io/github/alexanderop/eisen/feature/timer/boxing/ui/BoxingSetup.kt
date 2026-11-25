@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.timer.boxing.ui
 
+import io.github.alexanderop.eisen.core.counted
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -637,7 +638,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                                     selected = option.name == pace,
                                     tint = round.theme.tint,
                                     modifier = Modifier.weight(1f),
-                                    description = "${option.name}: a call every ${option.every} seconds",
+                                    description = "${option.name}: a call every ${counted(option.every, "second")}",
                                 ) { change(round.copy(every = option.every)) }
                             }
                         }
@@ -694,7 +695,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                     Icon(if (sheet.copied) Icons.Check else CopyIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (sheet.copied) "Copied to all ${config.rounds} rounds" else "Copy to all rounds",
+                        if (sheet.copied) "Copied to all ${counted(config.rounds, "round")}" else "Copy to all rounds",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         maxLines = 1,

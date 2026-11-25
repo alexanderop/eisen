@@ -82,6 +82,7 @@ import io.github.alexanderop.eisen.app.elm.TAP_GUARD_MILLIS
 import io.github.alexanderop.eisen.app.elm.timerRun
 import io.github.alexanderop.eisen.app.elm.MAX_QUERY
 import io.github.alexanderop.eisen.app.elm.RESULT_GUARD_MILLIS
+import io.github.alexanderop.eisen.app.elm.SET_TAP_GUARD_MILLIS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -99,6 +100,9 @@ import io.github.alexanderop.eisen.app.elm.fitting
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import io.github.alexanderop.eisen.app.elm.restCountdown
+import io.github.alexanderop.eisen.app.elm.WodDraft
+import io.github.alexanderop.eisen.app.elm.pending
 import org.junit.Test
 
 /**
@@ -667,14 +671,94 @@ class UpdateTest {
     @Test fun `a rest comes back after the process ended, but not without its workout`() {
         val rest = RestState(1_000, 91_000, "All reps done.")
         val running = started().state
-        val (back, cmds) = init(Flags(running, rest, healthEnabled = false, notifications = Notifications(true, true)))
+        val (back, _) = init(Flags(running, rest, healthEnabled = false, notifications = Notifications(true, true)))
         assertEquals(rest, back.rest)
         assertTrue(back.nav.workoutOpen)
-        assertEquals(listOf(refreshHomeSurfaces(running)), cmds)
 
         val (gone, stale) = init(Flags(freshState(), rest, healthEnabled = true, notifications = Notifications(true, true)))
         assertNull(gone.rest)
         assertEquals(stopRest + Cmd.Health(HealthJob.CheckPermission(PermissionCheck.STARTUP)) + refreshHomeSurfaces(freshState()), stale)
+    }
+
+    // Restart: `init` is pure, so for every state that survives the end of the process one test says what it
+    // puts back around it. A force-stop takes the alarms and the countdown, a kill the countdown and the
+    // service; the commands are the same ones that set them, so they are harmless when those survived.
+
+    /** What a restart must never do again: a cue, a vibration, or a rest that starts over. */
+    private fun assertHarmless(cmds: List<Cmd>) =
+        assertTrue("$cmds", cmds.none { it is Cmd.PlayCue || it is Cmd.Vibrate || it is Cmd.Beep || it is Cmd.SaveRest || it is Cmd.PlayTimerSound })
+
+    @Test fun `restart during a rest puts back its alarms, its countdown and its screen`() {
+        // QA build 19: after a force-stop during a rest nothing signalled its end.
+        val resting = started().send(WorkoutEvent.TapSet(0, 0))
+        val rest = resting.model.rest!!
+        val now = rest.startedAt + 30_000
+        val (back, cmds) = init(Flags(resting.state, rest, healthEnabled = false, notifications = Notifications(true, true), now = now))
+        assertEquals(rest, back.rest)
+        assertEquals(
+            listOf(Cmd.ScheduleRestAlarms(tenAt = rest.endsAt - 10_000, overAt = rest.endsAt), Cmd.ShowRestCountdown(restCountdown(rest, now)), refreshHomeSurfaces(resting.state)),
+            cmds,
+        )
+        assertHarmless(cmds)
+        // The rest bar opens its screen: the rest names its set.
+        assertEquals(RestScreen.Minimised(0, 0, "hackSquat"), back.restScreen)
+        assertEquals(RestScreen.Shown(0, 0, "hackSquat"), Step(back).send(Msg.Rest.Open).model.restScreen)
+        // Its clock ticks once the app shows.
+        assertEquals(setOf(Sub.RestClock(rest.endsAt)), subscriptions(Step(back).send(Msg.App.Foreground(true)).model))
+        // Inside its last ten seconds there is no warning left to set.
+        val (late, lateCmds) = init(Flags(resting.state, rest, healthEnabled = false, notifications = Notifications(true, true), now = rest.endsAt - 5_000))
+        assertEquals(rest, late.rest)
+        assertTrue(Cmd.ScheduleRestAlarms(tenAt = null, overAt = rest.endsAt) in lateCmds)
+    }
+
+    @Test fun `restart after a rest ran out shows that it is over, once, without a cue`() {
+        val resting = started().send(WorkoutEvent.TapSet(0, 0))
+        val rest = resting.model.rest!!
+        val (over, cmds) = init(Flags(resting.state, rest, healthEnabled = false, notifications = Notifications(true, true), now = rest.endsAt + 60_000))
+        assertEquals(rest, over.rest)
+        assertEquals(listOf(Cmd.HideRestCountdown, Cmd.ShowRestOver(restOver(rest)), refreshHomeSurfaces(resting.state)), cmds)
+        assertHarmless(cmds)
+        // Without notifications only the countdown goes.
+        val (_, quiet) = init(Flags(resting.state, rest, healthEnabled = false, notifications = Notifications(false, true), now = rest.endsAt + 60_000))
+        assertEquals(listOf(Cmd.HideRestCountdown, refreshHomeSurfaces(resting.state)), quiet)
+    }
+
+    @Test fun `restart with a rest kept by build 19 goes on without knowing its set`() {
+        val resting = started().send(WorkoutEvent.TapSet(0, 0))
+        val old = resting.model.rest!!.copy(exerciseId = null, set = null)
+        val (back, cmds) = init(Flags(resting.state, old, healthEnabled = false, notifications = Notifications(true, true), now = old.startedAt + 1_000))
+        assertEquals(old, back.rest)
+        assertTrue(cmds.any { it is Cmd.ScheduleRestAlarms } && cmds.any { it is Cmd.ShowRestCountdown })
+        assertNull(back.overlay)
+    }
+
+    @Test fun `restart during an interval timer puts back its sounds and its notification, paused only the notification`() {
+        val config = io.github.alexanderop.eisen.feature.timer.TimerConfig(TimerMode.TABATA, 20, 10, 3)
+        val run = io.github.alexanderop.eisen.feature.timer.TimerRun("t1", "Tabata", config, io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMER_CALLS, startedAt = STARTED_AT)
+        val flags = Flags(freshState(), savedRest = null, healthEnabled = false, notifications = Notifications(true, true), savedTimer = run, now = STARTED_AT + 30_000)
+        val (going, cmds) = init(flags)
+        assertEquals(TimerState.Running(run), going.timer)
+        assertTrue(cmds.any { it is Cmd.ScheduleTimer } && cmds.any { it is Cmd.ShowTimer })
+        assertHarmless(cmds)
+        assertTrue(subscriptions(going).any { it is Sub.TimerClock })
+        val (paused, quiet) = init(flags.copy(savedTimer = run.copy(pausedAt = STARTED_AT + 20_000)))
+        assertTrue(quiet.any { it is Cmd.ShowTimer })
+        assertTrue(quiet.none { it is Cmd.ScheduleTimer })
+        assertTrue(subscriptions(paused).none { it is Sub.TimerClock })
+    }
+
+    @Test fun `restart during a workout opens it, and a kept WOD draft is offered, without writing anything`() {
+        val running = started().send(WorkoutEvent.TapSet(0, 0)).state
+        val (back, cmds) = init(Flags(running, savedRest = null, healthEnabled = false, notifications = Notifications(true, true)))
+        assertTrue(back.nav.workoutOpen)
+        assertEquals(running.active, back.session.active)
+        assertEquals(listOf(refreshHomeSurfaces(running)), cmds)
+        assertNull(back.overlay)
+
+        val draft = WodDraft(WOD_LIBRARY.first(), WOD_LIBRARY.first())
+        val (drafted, draftCmds) = init(Flags(freshState(), savedRest = null, healthEnabled = false, notifications = Notifications(true, true), savedDrafts = listOf(draft)))
+        assertEquals(draft, drafted.wods.pending)
+        assertTrue(draftCmds.none { it is Cmd.SaveDraft || it is Cmd.Save })
     }
 
     @Test fun `the first rest asks once to allow notifications and an answer shows the countdown`() {
@@ -828,11 +912,65 @@ class UpdateTest {
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
         // The timer's and the WODs' Msgs and the ratings dilute the walk, so it takes more seeds to reach everything as often as before.
+        var bounced = 0
         /** One Msg and every rule that must hold after it. Gives back where the walk stands then. */
-        fun check(step: Step, sent: Sent): Step {
+        fun check(walk: Walk, sent: Sent): Walk {
+            val step = walk.step
             val (msg, now, id) = sent
             val after = step.send(msg, now = now, id = id)
             val where = "$id, $msg"
+            // Orders of input nobody scripted (QA build 19: a double tap saved 4 instead of 5).
+            // A set that was open is never left below its target by a tap that came faster than the guard.
+            val event0 = (msg as? Msg.Workout)?.event
+            var opened = walk.opened
+            if (event0 is WorkoutEvent.TapSet && step.session is Session.Running) {
+                val log = step.workout.exercises.getOrNull(event0.exercise)
+                val before = log?.sets?.getOrNull(event0.set)
+                val logged = after.session.active?.exercises?.getOrNull(event0.exercise)?.sets?.getOrNull(event0.set)
+                if (log != null && before == null && logged != null) opened = opened + ((log.id to event0.set) to now)
+                val since = log?.let { opened[it.id to event0.set] }
+                if (log != null && before != null && since != null && now - since in 0 until SET_TAP_GUARD_MILLIS) {
+                    assertEquals("$where: a set logged ${now - since} ms ago was counted down", before, logged)
+                    bounced++
+                }
+            }
+            // A set's count only changes through a Msg that names that set, or the hold timer that holds it.
+            val activeBefore = step.session.active
+            val activeAfter = after.session.active
+            if (activeBefore != null && activeAfter != null && activeBefore.id == activeAfter.id && msg !is Msg.Data) {
+                for (log in activeAfter.exercises) {
+                    val old = activeBefore.exercises.firstOrNull { it.id == log.id } ?: continue
+                    for (set in old.sets.indices) {
+                        if (old.sets[set] == log.sets.getOrNull(set)) continue
+                        fun names(exercise: Int, at: Int) = activeBefore.exercises.getOrNull(exercise)?.id == log.id && at == set
+                        val named = when {
+                            msg is Msg.WorkoutScreen.PickReps -> names(msg.exercise, msg.set)
+                            msg is Msg.Hold || msg is Msg.App.Foreground -> step.model.hold?.let { names(it.exercise, it.set) } ?: false
+                            else -> when (val event = event0) {
+                                is WorkoutEvent.TapSet -> names(event.exercise, event.set)
+                                is WorkoutEvent.LogReps -> names(event.exercise, event.set)
+                                is WorkoutEvent.CorrectReps -> names(event.exercise, event.set)
+                                is WorkoutEvent.LogHold -> names(event.exercise, event.set)
+                                else -> false
+                            }
+                        }
+                        assertTrue("$where changed set $set of ${log.id} from ${old.sets[set]} to ${log.sets.getOrNull(set)}", named)
+                    }
+                }
+            }
+            // A running rest of a logged set can always be opened: something lies over the workout for it,
+            // and a rest screen there is the one of that set.
+            val running = after.model.rest
+            if (running != null && after.model.timer !is TimerState.Running) {
+                val restId = running.exerciseId
+                val restSet = running.set
+                val restLog = after.session.active?.exercises?.firstOrNull { it.id == restId }
+                if (restLog != null && restSet != null && restLog.sets.getOrNull(restSet) != null) assertNotNull("$where: a rest runs with no screen to open", after.model.overlay)
+                (after.model.overlay as? RestScreen)?.takeIf { it !is RestScreen.SetDone }?.let { screen ->
+                    assertEquals(where, restId to restSet, screen.exerciseId to screen.set)
+                    assertEquals(where, after.session.active?.exercises?.indexOfFirst { it.id == screen.exerciseId }, screen.exercise)
+                }
+            }
 
             // Pure: the same Msg on the same model at the same time gives the same answer.
             assertEquals(where, after, step.send(msg, now = now, id = id))
@@ -1072,20 +1210,22 @@ class UpdateTest {
             }
             if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
             if (after.model != step.model) changed++
-            return after
+            return Walk(after, opened)
         }
         for (seed in 1L..320L) {
             val random = java.util.Random(seed)
-            var step = stepOf(withHolds)
+            var walk = Walk(stepOf(withHolds))
             var now = STARTED_AT
             val trail = mutableListOf<Sent>()
             repeat(300) { turn ->
-                now += random.nextInt(120_000)
-                val sent = Sent(randomMsg(step.model, random), now, "r$seed-$turn")
+                // Now and then the same Msg again right after it, as a bouncing thumb or a double tap sends it.
+                val again = trail.isNotEmpty() && random.nextInt(5) == 0
+                now += if (again) 30L + random.nextInt(700) else random.nextInt(120_000).toLong()
+                val sent = Sent(if (again) trail.last().msg else randomMsg(walk.step.model, random), now, "r$seed-$turn")
                 trail += sent
-                step = runCatching { check(step, sent) }.getOrElse { failure ->
+                walk = runCatching { check(walk, sent) }.getOrElse { failure ->
                     // The walk is cut down to the Msgs the failure needs, so the report is a handful of lines and not three hundred.
-                    val shortest = shrink(trail) { part -> runCatching { part.fold(stepOf(withHolds), ::check) }.isFailure }
+                    val shortest = shrink(trail) { part -> runCatching { part.fold(Walk(stepOf(withHolds)), ::check) }.isFailure }
                     throw AssertionError("${failure.message}\nShortest walk that fails, ${shortest.size} of ${trail.size} Msgs:\n${shortest.joinToString("\n") { "  ${it.id} at ${it.now}: ${it.msg}" }}", failure)
                 }
             }
@@ -1111,10 +1251,14 @@ class UpdateTest {
         assertTrue("only $boxingRuns boxing runs started", boxingRuns >= 5)
         assertTrue("only $boxingEdits boxing plans were edited", boxingEdits >= 50)
         assertTrue("only $ownSaved own combinations were saved", ownSaved >= 20)
+        assertTrue("only $bounced taps came within the guard after the tap that logged their set", bounced >= 20)
     }
 
     /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
     private data class Sent(val msg: Msg, val now: Long, val id: String)
+
+    /** Where a walk stands: the step, and when each set (exercise id and index) was last logged from open by a tap. */
+    private data class Walk(val step: Step, val opened: Map<Pair<String, Int>, Long> = emptyMap())
 
     private fun wasRunningRun(step: Step) = (step.model.timer as? TimerState.Running)?.run
 

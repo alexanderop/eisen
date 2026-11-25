@@ -247,7 +247,7 @@ private fun ExerciseCard(
 
     fun format(value: Double): String = when {
         holds -> holdText(value.roundToInt())
-        bodyweight -> "${formatNumber(value)} reps"
+        bodyweight -> if (value == 1.0) "1 rep" else "${formatNumber(value)} reps"
         else -> fmt(value, unit)
     }
 

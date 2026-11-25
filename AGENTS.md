@@ -33,8 +33,12 @@ bin/check     # unit tests with the architecture and purity rules, then the debu
   evidence under `verify/android/`, `eisenctl cleanup`. Test muted, always.
 - **Review** with `REVIEW.md`: a checklist whose items trigger on the diff. Read it from the last
   commit, not from the working copy.
-- **A miss becomes a rule.** When a bug reaches the owner, add a test or a `REVIEW.md` item for it in
-  the fix.
+- **A miss becomes a test.** A bug gets a test that fails before its fix, at the cheapest layer that
+  sees it: a unit test, then a rule over the sources (`RulesTest`), then a step in a feature file.
+  Then ask what kind of bug it was and check the kind, not the case: a rule the random walk in
+  `UpdateTest` holds after every message, a limit `LimitsTest` sends the largest number through,
+  what `init` puts back after a restart, what `features/layout.md` must see at every font scale.
+  Only what no check can hold becomes a `REVIEW.md` item.
 
 ## Commits say how they were verified
 

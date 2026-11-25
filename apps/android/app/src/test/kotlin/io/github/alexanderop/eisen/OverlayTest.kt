@@ -35,11 +35,12 @@ class OverlayTest {
         }
     }
 
-    @Test fun `a question goes over the rest bar and keeps it, replaces a full screen or a question, never a hold timer`() {
+    @Test fun `a question goes over the rest screen and keeps it put away, replaces a question, never a hold timer`() {
         val next = RepsQuestion(3, 1, "dips", 10)
         assertEquals(next, after(null, OverlayEvent.AskReps(next)))
         assertEquals(next.copy(under = minimised), after(minimised, OverlayEvent.AskReps(next)))
-        assertEquals(next, after(shown, OverlayEvent.AskReps(next)))
+        // QA build 19: a question over the full screen dropped it, and the rest bar no longer opened anything.
+        assertEquals(next.copy(under = minimised), after(shown, OverlayEvent.AskReps(next)))
         assertEquals(next, after(done, OverlayEvent.AskReps(next)))
         assertEquals(next.copy(under = minimised), after(question.copy(under = minimised), OverlayEvent.AskReps(next)))
         assertEquals(hold, after(hold, OverlayEvent.AskReps(next)))
@@ -97,11 +98,15 @@ class OverlayTest {
         assertNull(closed.send(Msg.Nav.OpenWorkout).model.repsQuestion)
     }
 
-    @Test fun `the question names its exercise, so another one in its place does not inherit it`() {
+    @Test fun `the question names its exercise, so another one in its place does not inherit it, and it follows its own`() {
         // The first exercise goes and a new one comes in at the end: place 3 is the lat pulldown now, not dips.
         val moved = asked().send(WorkoutEvent.RemoveExercise(0)).send(WorkoutEvent.AddExercise("latPulldown"))
         assertEquals("latPulldown", moved.workout.exercises[3].id)
-        assertNull(moved.model.repsQuestion)
+        val question = moved.model.repsQuestion
+        assertEquals("dips", question?.exerciseId)
+        assertEquals(2, question?.exercise)
+        // Its own exercise gone, it goes too.
+        assertNull(moved.send(WorkoutEvent.RemoveExercise(2)).model.repsQuestion)
     }
 
     @Test fun `a question asked over the rest bar gives the bar back its screen when it closes`() {

@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.home.ui
 
+import io.github.alexanderop.eisen.core.counted
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -157,7 +158,7 @@ private fun records(workout: Workout, history: List<Workout>): List<String> {
         when {
             log.equipment != Equipment.BODYWEIGHT -> "${log.name} ${fmt(log.weight, workout.unit)}"
             log.timed -> "${log.name} ${holdText(longestHold(log))}"
-            else -> "${log.name} ${totalReps(log)} reps"
+            else -> "${log.name} ${counted(totalReps(log), "rep")}"
         }
     }
 }
@@ -178,7 +179,7 @@ private fun SavedCard(changes: List<Change>, workout: Workout?, history: List<Wo
                     // A saved workout always has an end time. The minimum of one minute matches the PWA.
                     Text("${durationMinutes(workout) ?: 1} min", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text("·", fontSize = 20.sp, color = EisenColors.MutedForeground)
-                    Text("${sets.count { it != null }} of ${sets.size} sets", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("${sets.count { it != null }} of ${counted(sets.size, "set")}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
                 val records = records(workout, history)
                 if (records.isNotEmpty()) {

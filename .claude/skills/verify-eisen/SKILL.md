@@ -27,6 +27,7 @@ eisenctl launch --fresh      # build the debug APK, install it, wipe the app's d
 eisenctl launch              # the same, on the data the emulator's app already has
 eisenctl launch --no-build   # reuse the APK that is already built
 eisenctl launch --state lifter   # fresh data, then fixtures/lifter.json as the app's eisen.json
+eisenctl launch --fresh --animations   # the same with the animation scales left at 1, as on a phone
 ```
 
 - Starts the emulator (`-no-audio`) only when none is attached, and waits for it to boot.
@@ -38,8 +39,11 @@ eisenctl launch --state lifter   # fresh data, then fixtures/lifter.json as the 
   before it starts, so a journey that needs earlier data or a short timer does not tap it together.
   The file's days are moved by whole weeks so its newest entry is in the last seven days; the moved
   copy is the run's `00-fixture-<name>.json`. Each journey in `features/` says which start it needs.
-- Grants the notification permission, turns system animations off, wakes the screen and mutes the
-  media volume. **The owner wants every test muted. Never raise the volume.**
+- Grants the notification permission, turns system animations off (`--animations` leaves them at 1),
+  wakes the screen and mutes the media volume. **The owner wants every test muted. Never raise the volume.**
+  A run with the animations off is faster and steadier, and misses what only breaks while something
+  moves: a tap during a transition, a screen reopened while it leaves. Run the recipes that say so with
+  `--animations`.
 - Ready means the app's first screen is drawn (the five tabs, or a workout that runs), not that the
   process started. It prints `ready: <evidence directory>`. If it cannot get there in 30 seconds it
   fails and says so.
@@ -66,12 +70,16 @@ user reads, and `eisenctl` matches them **whole** (a regular expression against 
 ```sh
 eisenctl texts                 # everything on screen: text=... / content-desc=... and bounds
 eisenctl tap "Start workout"   # tap the first match; a third argument picks the n-th
+eisenctl doubletap "5" 1 150   # two taps from one dump, 150 ms apart (the default): a bouncing thumb
 eisenctl hold "Hold to finish" # press it for a second
 eisenctl wait "Rest" 10        # until it is on screen, at most 10 s (default 15); fails otherwise
 eisenctl has "Completed" "2 rounds"   # each one on screen, checked on one dump
 eisenctl type "murph"          # into the focused field
 eisenctl back                  # the system back key
 eisenctl scroll down           # one screen; it waits for the list to settle
+eisenctl font 2.0              # the system font scale; cleanup puts back the one the run found
+eisenctl visible "Next set" "Rest 15 seconds less"   # on screen, not cut off, tapped on at least 48 dp
+eisenctl small                 # fails listing every clickable node on screen under 48 dp
 eisenctl adb shell ...         # plain adb when nothing else fits
 ```
 
@@ -88,6 +96,7 @@ eisenctl shot 03-rest-running   # <run>/03-rest-running.png and .txt (the screen
 eisenctl state 04-after-set     # <run>/04-after-set.json: the eisen.json the app wrote
 eisenctl log                    # <run>/logcat.txt since launch
 eisenctl said round-1 complete  # fails unless the log has "EisenTimer: said <sound>" for each
+eisenctl buzzed                 # fails unless a vibration of the app played since launch and none was dropped
 ```
 
 Evidence goes to `verify/android/<date-time>/` in the repo (ignored by git). Standards for a proof:
@@ -101,7 +110,9 @@ Evidence goes to `verify/android/<date-time>/` in the repo (ignored by git). Sta
   set, a finished workout, a timer session), `eisenctl adb shell dumpsys notification --noredact`
   for a notification, `eisenctl adb shell dumpsys activity services io.github.alexanderop.eisen`
   for a running service, `eisenctl log` and its `EisenTimer: said <sound>` lines for what the coach
-  said (the emulator is muted, so the log is the only witness of sound).
+  said (the emulator is muted, so the log is the only witness of sound), and `eisenctl buzzed` for a
+  vibration (an emulator does not shake: `dumpsys vibrator_manager` is the witness; a vibration of an app
+  in the background without an alarm usage is logged `ignored_background` and nobody feels it).
 - Nothing is mocked. Time is real: a 20 second interval takes 20 seconds. There is no fast clock on
   purpose: alarms, the timer's service and the notification's chronometer would run a path the
   release does not have. Speed comes from the fixtures' short timers and prepared data instead.
@@ -109,14 +120,26 @@ Evidence goes to `verify/android/<date-time>/` in the repo (ignored by git). Sta
   not evidence.
 - Report per feature id from `features/` what was verified, and what was not and why.
 
+## Journeys
+
+```sh
+eisenctl journey workout        # every recipe of features/workout.md
+eisenctl journey workout 2      # one recipe, by number or by a regex on its bold headings
+```
+
+Runs a feature file's `sh` blocks as written, recipe by recipe, and stops at the first command that fails,
+also one in the middle of `a && b && c` (under `bash -e` such a failure is hidden). On a failure it runs
+`doctor` and `cleanup` and says which command failed. It prints each recipe's time. A journey whose every
+recipe passed on APKs built from the current sources stamps them; it is the only thing that does.
+
 ## Cleanup
 
 ```sh
 eisenctl cleanup
 ```
 
-Stops the app, puts the emulator's saved files back, turns animations on again, and shuts the
-emulator down **only if this run started it**. It never kills by process name. It removes its own
+Stops the app, puts the emulator's saved files back, turns animations on again, puts back the font
+scale, and shuts the emulator down **only if this run started it**. It stamps nothing: only `journey` does. It never kills by process name. It removes its own
 state directory and keeps the evidence, printing where it is. Run it after every run, also a failed
 one: an open run blocks the next `launch`.
 

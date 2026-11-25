@@ -1,5 +1,8 @@
 package io.github.alexanderop.eisen.feature.workout.ui
 
+import io.github.alexanderop.eisen.feature.workout.MAX_LOGGED_REPS
+import io.github.alexanderop.eisen.feature.workout.MAX_INCREMENT
+import io.github.alexanderop.eisen.core.MAX_WEIGHT
 import io.github.alexanderop.eisen.core.typedIncrementSnap
 import io.github.alexanderop.eisen.core.typedWeightSnap
 import androidx.compose.foundation.layout.Arrangement
@@ -113,6 +116,7 @@ internal fun EditExerciseSheet(
                     onValueChange = onWeightChange,
                     step = step,
                     min = step,
+                    max = MAX_WEIGHT,
                     label = "weight",
                     format = { fmt(it, unit) },
                     snap = typedWeightSnap(log.equipment, unit),
@@ -140,6 +144,7 @@ internal fun EditExerciseSheet(
                     onValueChange = onIncrementChange,
                     step = step,
                     min = step,
+                    max = MAX_INCREMENT,
                     label = "weight added after a full workout",
                     format = { "+${fmt(it, unit)}" },
                     snap = typedIncrementSnap(unit),
@@ -168,7 +173,7 @@ internal fun RepsEntrySheet(
 ) {
     WorkoutSheet(title, onDismiss) {
         SheetRow("Reps") {
-            IntStepper(value = reps, onValueChange = onRepsChange, label = "reps", onDone = { onSave(it) })
+            IntStepper(value = reps, onValueChange = onRepsChange, label = "reps", max = MAX_LOGGED_REPS, onDone = { onSave(it) })
         }
         PrimaryButton("Save set") { onSave(reps) }
         SecondaryButton("Clear set") { onSave(null) }

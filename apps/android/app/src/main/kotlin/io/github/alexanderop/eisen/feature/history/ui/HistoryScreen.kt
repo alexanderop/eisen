@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.feature.history.ui
 
+import io.github.alexanderop.eisen.feature.workout.MAX_LOGGED_REPS
+import io.github.alexanderop.eisen.core.MAX_WEIGHT
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -524,6 +526,7 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
                                 onValueChange = { weight -> editLog(index) { it.copy(weight = weight) } },
                                 step = step,
                                 min = step,
+                                max = MAX_WEIGHT,
                                 label = "${log.name} weight",
                                 format = { fmt(it, draft.unit) },
                                 snap = typedWeightSnap(log.equipment, draft.unit),
@@ -577,6 +580,7 @@ private fun EditSheet(draft: Workout, onChange: (Workout) -> Unit, onSave: () ->
                                     value = reps ?: 0,
                                     onValueChange = { setReps(index, setIndex, if (it == 0) null else it) },
                                     label = "${log.name} set ${setIndex + 1} reps",
+                                    max = MAX_LOGGED_REPS,
                                     format = { if (it == 0) "–" else it.toString() },
                                 )
                             }

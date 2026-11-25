@@ -1,5 +1,9 @@
 package io.github.alexanderop.eisen.feature.settings.ui
 
+import io.github.alexanderop.eisen.feature.workout.MAX_REST_SECONDS
+import io.github.alexanderop.eisen.feature.workout.MAX_BAR
+import io.github.alexanderop.eisen.feature.workout.MAX_INCREMENT
+import io.github.alexanderop.eisen.core.MAX_WEIGHT
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -171,7 +175,6 @@ private const val REST_TYPED_IN = " sec"
 private const val REST_SNAP = 5
 
 /** An hour. Only there so a slip of the thumb (9000 instead of 90) does not set a rest of hours. */
-private const val MAX_REST = 3600
 
 /** What the open sheet changes. Kept over a rotation as a short text, see [EditingSaver]. */
 private sealed interface Editing {
@@ -396,6 +399,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 onValueChange = { bar -> dispatch(Msg.Settings.SetBar(bar)) },
                 step = unitDefaults(settings.unit).step,
                 min = 0.0,
+                max = MAX_BAR,
                 label = "bar weight",
                 format = { fmt(it, settings.unit) },
                 snap = BAR_SNAP,
@@ -412,7 +416,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 onValueChange = { seconds -> dispatch(Msg.Settings.SetRestDone(seconds)) },
                 step = 15,
                 min = 15,
-                max = MAX_REST,
+                max = MAX_REST_SECONDS,
                 label = "rest after a full set",
                 format = ::formatClock,
                 snap = REST_SNAP,
@@ -430,7 +434,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 onValueChange = { seconds -> dispatch(Msg.Settings.SetRestMissed(seconds)) },
                 step = 30,
                 min = 30,
-                max = MAX_REST,
+                max = MAX_REST_SECONDS,
                 label = "rest after missed reps",
                 format = ::formatClock,
                 snap = REST_SNAP,
@@ -666,6 +670,7 @@ private fun WorkingWeightSheet(exercise: Exercise, progress: ExerciseProgress, u
                 onValueChange = { dispatch(Msg.Workout(WorkoutEvent.SetWorkingWeight(exercise.id, it))) },
                 step = step,
                 min = step,
+                max = MAX_WEIGHT,
                 label = "${exercise.name} weight",
                 format = { fmt(it, unit) },
                 snap = typedWeightSnap(exercise.equipment, unit),
@@ -681,6 +686,7 @@ private fun WorkingWeightSheet(exercise: Exercise, progress: ExerciseProgress, u
                 onValueChange = { dispatch(Msg.Settings.SetIncrement(exercise.id, it)) },
                 step = increment,
                 min = increment,
+                max = MAX_INCREMENT,
                 label = "weight added after a full workout",
                 format = { "+${fmt(it, unit)}" },
                 snap = typedIncrementSnap(unit),

@@ -97,7 +97,7 @@ class HoldTimerTest {
         assertNull(done.hold)
         assertEquals(listOf<Int?>(60, null, null), done.workout.exercises[0].sets)
         assertEquals(listOf(Cmd.Beep(3), Cmd.Vibrate(HOLD_END_VIBRATION)), done.cmds.take(2))
-        assertEquals(RestState(endsAt + 5, endsAt + 5 + 90_000, "Held 1:00."), done.model.rest)
+        assertEquals(RestState(endsAt + 5, endsAt + 5 + 90_000, "Held 1:00.", "plank", 0), done.model.rest)
         assertEquals("plank", done.model.settling?.id)
         assertTrue(subscriptions(done.model).none { it is Sub.HoldClock })
     }
@@ -106,7 +106,7 @@ class HoldTimerTest {
         val stopped = opened().tick(startsAt + 5).send(Msg.Hold.Stop, now = startsAt + 42_700)
         assertNull(stopped.hold)
         assertEquals(listOf<Int?>(42, null, null), stopped.workout.exercises[0].sets)
-        assertEquals(RestState(startsAt + 42_700, startsAt + 42_700 + 300_000, "Hold cut short. Rest longer."), stopped.model.rest)
+        assertEquals(RestState(startsAt + 42_700, startsAt + 42_700 + 300_000, "Hold cut short. Rest longer.", "plank", 0), stopped.model.rest)
         assertEquals(listOf(Feel.WARNING), stopped.feels)
         assertFalse(stopped.cmds.any { it is Cmd.Beep })
     }

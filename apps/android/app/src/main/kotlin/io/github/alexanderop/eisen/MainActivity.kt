@@ -1,5 +1,8 @@
 package io.github.alexanderop.eisen
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.CompositionLocalProvider
 import io.github.alexanderop.eisen.core.ui.LocalHapticsEnabled
 import android.Manifest
@@ -178,7 +181,15 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
                         selected = tab == item,
                         onClick = { dispatch(Msg.Nav.SelectTab(item)) },
                         icon = { Icon(item.icon, contentDescription = null) },
-                        label = { Text(item.label) },
+                        // A large font shrinks the label instead of breaking it mid-word ("Worko / uts").
+                        label = {
+                            Text(
+                                item.label,
+                                maxLines = 1,
+                                softWrap = false,
+                                autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = MaterialTheme.typography.labelMedium.fontSize),
+                            )
+                        },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = EisenColors.OnPrimary,
                             selectedTextColor = EisenColors.Primary,

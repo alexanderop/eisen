@@ -6,8 +6,10 @@ import io.github.alexanderop.eisen.feature.workout.canRate
  * What lies over the workout screen, as one value: the rest screen (full, put away to the rest bar, or the
  * "set done" screen), the hold timer of a timed set, or the reps question of a max-reps set. One at a
  * time, so no state can hold two of them and no guard has to keep them apart. Every change goes through
- * [overlayAfter]; [fitting] takes away one that no longer belongs to the workout (a backup, an erase, a
- * finished workout, a moved or removed exercise, an ended rest).
+ * [overlayAfter]; [fitting] follows a moved card by its exercise id, takes away one that no longer belongs
+ * to the workout (a backup, an erase, a finished workout, a removed exercise, an ended rest), and puts the
+ * screen of a running rest back, put away to the rest bar, when nothing else lies there (after a restart,
+ * or when a hold timer or a question over it went): a rest can always be opened.
  *
  * Two things stay outside on purpose: [Model.rest] (kept in the preferences, it drives the alarms and
  * outlives its screen), and a running interval timer, [Model.timer], which covers everything: while it
@@ -26,7 +28,8 @@ import io.github.alexanderop.eisen.feature.workout.canRate
  *   tap on an open timed set ──▶ ┌───────────┐ HoldClosed (Cancel, Stop, logged, Back) ──▶ none
  *                                │ HoldTimer │ the hold stays over a rest screen or a question that would open
  *                                └───────────┘ under it
- *   from every state: Cleared (an erase, a backup) ──▶ none; Reordered closes a hold timer, which names its set by place
+ *   from every state: Cleared (an erase, a backup) ──▶ none; Reordered closes a hold timer, which names its set by place;
+ *   none while a rest of a logged set runs ──▶ RestScreen.Minimised of that set ([fitting])
  *   Rest, SetDone, AskReps and Hold replace a rest screen or a question: the newest thing the lifter did shows.
  */
 
@@ -128,8 +131,10 @@ fun overlayAfter(overlay: Overlay?, event: OverlayEvent): Overlay? = when (event
     is OverlayEvent.AskReps -> when (overlay) {
         is HoldTimer -> overlay
         is RestScreen.Minimised -> event.question.copy(under = overlay)
+        // The question goes over the rest screen, which is back put away when the question goes.
+        is RestScreen.Shown -> event.question.copy(under = RestScreen.Minimised(overlay.exercise, overlay.set, overlay.exerciseId))
         is RepsQuestion -> event.question.copy(under = overlay.under)
-        null, is RestScreen.Shown, is RestScreen.SetDone -> event.question
+        null, is RestScreen.SetDone -> event.question
     }
     OverlayEvent.Answered, OverlayEvent.CloseReps -> if (overlay is RepsQuestion) overlay.under else overlay
     is OverlayEvent.Hold -> event.timer
@@ -171,10 +176,38 @@ fun fitting(model: Model, overlay: Overlay?): Overlay? = when {
 }
 
 private fun fits(model: Model, overlay: Overlay?): Overlay? = when (overlay) {
-    null -> null
-    is HoldTimer -> overlay.takeIf { holdFits(model, it) }
-    is RestScreen -> overlay.takeIf { restScreenFits(model, it) }
-    is RepsQuestion -> if (repsQuestionFits(model, overlay)) overlay else fits(model, overlay.under)
+    // A running rest can always be opened: with nothing over the workout, its screen lies put away to the
+    // rest bar (after a restart, a closed hold timer or reps question).
+    null -> restBar(model)
+    is HoldTimer -> overlay.takeIf { holdFits(model, it) } ?: restBar(model)
+    is RestScreen -> followed(model, overlay).takeIf { restScreenFits(model, it) } ?: restBar(model)
+    is RepsQuestion -> followed(model, overlay).takeIf { repsQuestionFits(model, it) } ?: fits(model, overlay.under)
+}
+
+/** Where the exercise of [screen] is now: a card moved, put off or one before it removed. Unchanged when it is gone. */
+private fun followed(model: Model, screen: RestScreen): RestScreen {
+    val at = model.session.active?.exercises?.indexOfFirst { it.id == screen.exerciseId } ?: -1
+    if (at == -1 || at == screen.exercise) return screen
+    return when (screen) {
+        is RestScreen.Shown -> screen.copy(exercise = at)
+        is RestScreen.Minimised -> screen.copy(exercise = at)
+        is RestScreen.SetDone -> screen.copy(exercise = at)
+    }
+}
+
+private fun followed(model: Model, question: RepsQuestion): RepsQuestion {
+    val at = model.session.active?.exercises?.indexOfFirst { it.id == question.exerciseId } ?: -1
+    val under = question.under?.let { followed(model, it) as? RestScreen.Minimised }
+    return if (at == -1 || at == question.exercise) question.copy(under = under) else question.copy(exercise = at, under = under)
+}
+
+/** The running rest's screen put away to the rest bar, when the rest names a logged set of the workout. */
+private fun restBar(model: Model): RestScreen.Minimised? {
+    val rest = model.rest ?: return null
+    val id = rest.exerciseId ?: return null
+    val set = rest.set ?: return null
+    val at = model.session.active?.exercises?.indexOfFirst { it.id == id } ?: return null
+    return RestScreen.Minimised(at, set, id).takeIf { at != -1 && restScreenFits(model, it) }
 }
 
 /**
@@ -185,7 +218,11 @@ private fun fits(model: Model, overlay: Overlay?): Overlay? = when (overlay) {
 fun restScreenFits(model: Model, screen: RestScreen): Boolean {
     when (screen) {
         is RestScreen.SetDone -> if (!model.nav.workoutOpen || !model.state.settings.trackRir) return false
-        is RestScreen.Shown, is RestScreen.Minimised -> if (model.rest == null) return false
+        is RestScreen.Shown, is RestScreen.Minimised -> {
+            val rest = model.rest ?: return false
+            // The screen of the set that started the rest: a rest saved by an older build names none.
+            if (rest.exerciseId != null && (rest.exerciseId != screen.exerciseId || rest.set != screen.set)) return false
+        }
     }
     val log = model.session.active?.exercises?.getOrNull(screen.exercise) ?: return false
     return log.id == screen.exerciseId && log.sets.getOrNull(screen.set) != null && (screen !is RestScreen.SetDone || canRate(log, screen.set))

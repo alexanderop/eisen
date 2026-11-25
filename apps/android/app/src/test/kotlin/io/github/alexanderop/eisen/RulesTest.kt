@@ -60,6 +60,112 @@ class RulesTest {
         assertEquals("Read timerOutcome(session) instead of session.completed:\n${broken.joinToString("\n")}\n", 0, broken.size)
     }
 
+    private val sources = root.walk().filter { it.extension == "kt" }.toList()
+
+    /** The text of the call that starts at [open], the index of its "(", up to its matching ")". */
+    private fun callAt(text: String, open: Int): String {
+        var depth = 0
+        for (at in open until text.length) {
+            when (text[at]) {
+                '(' -> depth++
+                ')' -> if (--depth == 0) return text.substring(open, at + 1)
+            }
+        }
+        return text.substring(open)
+    }
+
+    private fun lineOf(text: String, at: Int) = text.substring(0, at).count { it == '\n' } + 1
+
+    /**
+     * A number without a limit (QA build 19: 9999999 reps typed into the reps question crashed the app).
+     * Every stepper says how far it goes: the default of none lets any number through to the model.
+     */
+    @Test fun `every number entry names its maximum`() {
+        val call = Regex("""(?<![\w.])(IntStepper|Stepper)\(""")
+        val broken = sources.flatMap { file ->
+            val text = file.readText()
+            call.findAll(text).filterNot { text.substring(maxOf(0, it.range.first - 4), it.range.first) == "fun " }.mapNotNull { match ->
+                val args = callAt(text, match.range.last)
+                if (Regex("""\bmax\s*=""").containsMatchIn(args)) null else "${file.relativeTo(root)}:${lineOf(text, match.range.first)} ${match.value} without max ="
+            }.toList()
+        }
+        assertEquals("Give each of these a max (a constant of the domain):\n${broken.joinToString("\n")}\n", 0, broken.size)
+    }
+
+    /** What a wheel's values may be built with: functions `LimitsTest` checks stay short for any value, or a range up to a constant. */
+    private val boundedWheels = Regex("""\b(repsChoices|weightChoices|timerWheelSeconds|timerCapSeconds|wodAmounts|wodLoads)\(|\(\d+\.\.[A-Z][A-Z_]+\)|coerceAtMost\([A-Z][A-Z_]+\)""")
+
+    /**
+     * A wheel holds a row per value. Its values come from a builder that stays short whatever the value it
+     * shows (`LimitsTest`), or from a range up to a constant: never from a range up to a value of the model.
+     * A wheel that takes its values as a parameter is checked where it is called.
+     */
+    @Test fun `every wheel is built from a bounded list`() {
+        val wheel = Regex("""(?<![\w.])Wheel\(""")
+        val broken = mutableListOf<String>()
+        for (file in sources) {
+            val text = file.readText()
+            for (match in wheel.findAll(text)) {
+                if (text.substring(maxOf(0, match.range.first - 4), match.range.first) == "fun ") continue
+                val args = callAt(text, match.range.last)
+                val name = Regex("""labels\s*=\s*remember(\([^)]*\))?\s*\{\s*(\w+)\.map""").find(args)?.groupValues?.get(2)
+                val where = "${file.relativeTo(root)}:${lineOf(text, match.range.first)}"
+                if (name == null) { broken += "$where: labels not as remember(...) { values.map ... }"; continue }
+                val before = text.substring(0, match.range.first)
+                val local = Regex("""val $name = (.*)""").findAll(before).lastOrNull()?.groupValues?.get(1)
+                val enclosing = Regex("""fun (\w+)\(""").findAll(before).lastOrNull()?.groupValues?.get(1)
+                val parameter = enclosing != null && Regex("""fun $enclosing\([^{]*\b$name: List<""").containsMatchIn(text)
+                when {
+                    local != null -> if (!boundedWheels.containsMatchIn(local)) broken += "$where: $name = $local"
+                    parameter -> for (other in sources) {
+                        val otherText = other.readText()
+                        for (use in Regex("""(?<![\w.])$enclosing\(""").findAll(otherText)) {
+                            if (otherText.substring(maxOf(0, use.range.first - 4), use.range.first) == "fun ") continue
+                            val passed = callAt(otherText, use.range.last)
+                            if (!boundedWheels.containsMatchIn(passed)) broken += "${other.relativeTo(root)}:${lineOf(otherText, use.range.first)}: $enclosing gets $passed"
+                        }
+                    }
+                    else -> broken += "$where: cannot tell where $name comes from"
+                }
+            }
+        }
+        assertTrue("checked no wheel", sources.any { wheel.containsMatchIn(it.readText()) })
+        assertEquals("Build these wheels from a bounded list:\n${broken.joinToString("\n")}\n", 0, broken.size)
+    }
+
+    /**
+     * A count with a fixed plural (QA build 19: TalkBack said "1 reps in reserve"). A number of a value
+     * goes through `counted`, unless the line itself tells 1 apart.
+     */
+    @Test fun `a count in a text says 1 rep, not 1 reps`() {
+        val fixed = Regex(""""[^"\n]*\$\{?([a-z][\w.!]*(\([^)]*\))?)\}? (reps|rounds|seconds|minutes|sets|workouts|holds|punches|combinations|movements)\b""")
+        val broken = sources.flatMap { file ->
+            file.readLines().mapIndexedNotNull { index, line ->
+                if (fixed.containsMatchIn(line) && !line.contains("== 1") && !line.contains("> 1 ->")) "${file.relativeTo(root)}:${index + 1}\n    ${line.trim()}" else null
+            }
+        }
+        assertEquals("Say these counts with counted(n, \"rep\"):\n${broken.joinToString("\n")}\n", 0, broken.size)
+    }
+
+    /**
+     * A cue nobody hears (QA build 19: the end of a rest after the process died was dropped as a vibration
+     * from the background, `usage: UNKNOWN`). Android lets an app in the background vibrate only with the
+     * usage of an alarm, a ringtone or a notification, and restarts a killed foreground service only when it
+     * is sticky.
+     */
+    @Test fun `cues vibrate as an alarm and the services that play them come back`() {
+        val vibrations = sources.flatMap { file ->
+            file.readLines().mapIndexedNotNull { index, line ->
+                if (Regex("""\.vibrate\(VibrationEffect""").containsMatchIn(line) && !line.contains("VibrationAttributes")) "${file.relativeTo(root)}:${index + 1}\n    ${line.trim()}" else null
+            }
+        }
+        assertEquals("Vibrate with VibrationAttributes (USAGE_ALARM for a cue):\n${vibrations.joinToString("\n")}\n", 0, vibrations.size)
+        val services = sources.filter { it.readText().contains(": Service()") }
+        assertTrue("no services under ${root.absolutePath}", services.size >= 2)
+        val notSticky = services.filterNot { it.readText().contains("return START_STICKY") }.map { it.relativeTo(root) }
+        assertEquals("A foreground service that keeps a cue must return START_STICKY: $notSticky", emptyList<File>(), notSticky)
+    }
+
     @Test fun `a failing walk is cut down to the steps that matter`() {
         val walk = (1..300).toList()
         // Fails whenever 7 comes before 213, whatever else is there.

@@ -63,3 +63,12 @@ fun loadText(bodyweight: Boolean, weight: Double, unit: WeightUnit, label: Strin
     weight > 0 -> "$label + ${formatWeight(weight, unit)}"
     else -> label
 }
+
+/** The heaviest a working weight, a logged weight, a bar or an added weight gets, in the lifter's unit. */
+const val MAX_WEIGHT = 2000.0
+
+/**
+ * A count with its noun as TalkBack says it and the screen shows it: "1 rep", "5 reps", "1 minute".
+ * Every count in a text goes through here, so none reads "1 reps" (`RulesTest`).
+ */
+fun counted(count: Int, one: String, many: String = one + "s"): String = "$count ${if (count == 1) one else many}"

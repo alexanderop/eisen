@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.feature.workout
 
+import io.github.alexanderop.eisen.core.MAX_WEIGHT
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
@@ -88,17 +89,50 @@ fun weightChoices(equipment: Equipment, unit: WeightUnit, bar: Double, current: 
         Equipment.BODYWEIGHT -> 0.0
         else -> step
     }
-    val count = ((maxOf(wheelTop(unit), current) - lightest) / step + 1e-9).toInt()
+    // Up to the top of the wheel or the weight it shows, but never past MAX_WEIGHT: a saved weight above
+    // it (from an older build) is one more choice at the end, not thousands of rows.
+    val count = ((maxOf(wheelTop(unit), current).coerceAtMost(MAX_WEIGHT) - lightest) / step + 1e-9).toInt()
     // Rounded to the cent, so 20 + 3 × 2.5 is 27.5 and not 27.499999.
     val grid = (0..count).map { Math.round((lightest + it * step) * 100) / 100.0 }
     return if (current in grid) grid else (grid + current).sorted()
 }
 
-/** The most reps the wheel offers for a max-reps set. */
-const val MAX_CORRECTED_REPS = 100
+/**
+ * The most reps a logged set holds. The reps question stops here, the machine refuses more, and the rest
+ * screen's wheel offers no more. A count above it in a saved file (QA build 19 saved 9999999) still loads
+ * and shows, as one more choice at the end of the wheel.
+ */
+const val MAX_LOGGED_REPS = 100
 
-/** The counts the rest screen's reps wheel offers: 0 up to the target, or up to 100 for a max-reps set, and [current]. */
-fun repsChoices(target: Int?, current: Int): IntRange = 0..maxOf(target ?: MAX_CORRECTED_REPS, current)
+/** The most weight added after a workout with all reps, in the lifter's unit. */
+const val MAX_INCREMENT = 50.0
+
+/** The heaviest bar, in the lifter's unit. */
+const val MAX_BAR = 50.0
+
+/** The longest rest the settings take, in seconds. */
+const val MAX_REST_SECONDS = 3600
+
+/**
+ * The counts the rest screen's reps wheel offers: 0 up to the target, or up to [MAX_LOGGED_REPS] for a
+ * max-reps set, and [current] after them when it is more. Never more than one past the limit.
+ */
+fun repsChoices(target: Int?, current: Int): List<Int> {
+    val top = minOf(target ?: MAX_LOGGED_REPS, MAX_LOGGED_REPS)
+    return (0..top).toList() + listOfNotNull(current.takeIf { it > top })
+}
+
+/** [slot] within its limits: 1 to [MAX_SETS] sets, 1 to [MAX_REPS] reps, or a hold of [MIN_HOLD_SECONDS] to [MAX_HOLD_SECONDS]. */
+fun slotWithin(slot: Slot, timed: Boolean): Slot = slot.copy(
+    sets = slot.sets.coerceIn(1, MAX_SETS),
+    reps = slot.reps?.let { if (timed) it.coerceIn(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS) else it.coerceIn(1, MAX_REPS) },
+)
+
+/** A logged [log] within its limits: weights up to [MAX_WEIGHT], counts up to [MAX_LOGGED_REPS] (a hold: [MAX_HELD_SECONDS]). */
+fun logWithin(log: ExerciseLog): ExerciseLog {
+    val most = if (log.timed) MAX_HELD_SECONDS else maxOf(MAX_LOGGED_REPS, log.targetReps ?: 0)
+    return log.copy(weight = log.weight.coerceIn(0.0, MAX_WEIGHT), sets = log.sets.map { it?.coerceIn(0, most) })
+}
 
 /** Warmup weights on a machine use whole plates: nobody loads 1.25s onto a sled to warm up. */
 fun warmupStep(equipment: Equipment, unit: WeightUnit): Double {
