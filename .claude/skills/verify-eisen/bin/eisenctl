@@ -139,7 +139,9 @@ case "${1:-}" in
     action="$1"; set -- $(echo "$line" | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]$' | grep -oE '[0-9]+')
     x=$(( ($1 + $3) / 2 )); y=$(( ($2 + $4) / 2 ))
     # A hold is a swipe that does not move: a press of one second ("Hold to finish" fills in 0.7 s).
-    if [ "$action" = hold ]; then "$ADB" shell input swipe $x $y $x $y 1000; else "$ADB" shell input tap $x $y; fi
+    # A tap moves two pixels on its way, as a finger does: `input tap` sends a down and an up with
+    # nothing between, and a tap that only works without a move does not work on a phone.
+    if [ "$action" = hold ]; then "$ADB" shell input swipe $x $y $x $y 1000; else "$ADB" shell input swipe $x $y $((x + 2)) $((y + 1)) 60; fi
     sleep 0.6
     ;;
   type) "$ADB" shell input text "$(echo "$2" | sed 's/ /%s/g')" ;;

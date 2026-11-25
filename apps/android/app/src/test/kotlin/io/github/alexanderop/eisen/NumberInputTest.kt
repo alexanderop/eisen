@@ -1,6 +1,10 @@
 package io.github.alexanderop.eisen
 
 import io.github.alexanderop.eisen.core.Equipment
+import io.github.alexanderop.eisen.core.NumberEntry
+import io.github.alexanderop.eisen.core.NumberEntryEvent
+import io.github.alexanderop.eisen.core.NumberEntryStep
+import io.github.alexanderop.eisen.core.numberEntryAfter
 import io.github.alexanderop.eisen.core.TypedAffixes
 import io.github.alexanderop.eisen.core.WeightUnit
 import io.github.alexanderop.eisen.core.formatNumber
@@ -113,5 +117,35 @@ class NumberInputTest {
     @Test fun `typing 0 is a value when 0 is allowed`() {
         assertEquals(0.0, typed("0", 0.5)!!, 0.0)
         assertEquals(10.0, typed("10", 0.5)!!, 0.0)
+    }
+
+    // A stepper's number shown or typed over (`NumberEntry`): every event of every state.
+
+    private fun entry(entry: NumberEntry, event: NumberEntryEvent, latest: Double = 80.0) = numberEntryAfter(entry, event, latest, 0.0, 500.0, 2.5)
+
+    @Test fun `a tap on the number starts typing over the latest one`() {
+        assertEquals(NumberEntryStep(NumberEntry.Typing(80.0, "80")), entry(NumberEntry.Showing, NumberEntryEvent.Start(80.0, "80")))
+        val typing = NumberEntry.Typing(80.0, "8")
+        assertEquals(NumberEntryStep(typing), entry(typing, NumberEntryEvent.Start(90.0, "90")))
+    }
+
+    @Test fun `every keystroke that makes a new number sends it`() {
+        val typing = NumberEntry.Typing(80.0, "8")
+        assertEquals(NumberEntryStep(NumberEntry.Typing(80.0, "85"), send = 85.0), entry(typing, NumberEntryEvent.Type("85")))
+        assertEquals(NumberEntryStep(NumberEntry.Typing(80.0, "")), entry(typing, NumberEntryEvent.Type("")))
+        assertEquals(NumberEntryStep(NumberEntry.Typing(80.0, "80")), entry(typing, NumberEntryEvent.Type("80"), latest = 80.0))
+    }
+
+    @Test fun `finishing a number keeps it, finishing garbage puts the number from before back`() {
+        assertEquals(NumberEntryStep(NumberEntry.Showing), entry(NumberEntry.Typing(80.0, "85"), NumberEntryEvent.Finish, latest = 85.0))
+        assertEquals(NumberEntryStep(NumberEntry.Showing, send = 80.0), entry(NumberEntry.Typing(80.0, ""), NumberEntryEvent.Finish, latest = 7.5))
+        assertEquals(NumberEntryStep(NumberEntry.Showing), entry(NumberEntry.Typing(80.0, ""), NumberEntryEvent.Finish, latest = 80.0))
+    }
+
+    @Test fun `the second of several finishes, or a keystroke after them, changes nothing`() {
+        // Done, the keyboard closing, the focus going and the field leaving the screen can all come for one typing.
+        for (event in listOf(NumberEntryEvent.Finish, NumberEntryEvent.Type("85"))) {
+            assertEquals(NumberEntryStep(NumberEntry.Showing), entry(NumberEntry.Showing, event))
+        }
     }
 }

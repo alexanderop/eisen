@@ -21,7 +21,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -156,22 +155,30 @@ abstract class ReorderState internal constructor(
     /** Where each item is laid out, without the offset this state draws it at. */
     internal val itemCoordinates = mutableMapOf<Any, LayoutCoordinates>()
 
-    /** The key of the item under the finger, or null when nothing is dragged. */
-    var draggingKey: Any? by mutableStateOf(null)
-        private set
-
-    /** The item gliding into its place after the finger lifted. */
-    internal var droppingKey: Any? by mutableStateOf(null)
+    /** Idle, an item under the finger, or one gliding into its place: see [ReorderPhase]. */
+    internal var phase: ReorderPhase by mutableStateOf(ReorderPhase.Idle)
         private set
     internal val dropOffset = Animatable(0f)
+    private var autoScroll: Job? = null
+
+    /** The key of the item under the finger, or null when nothing is dragged. */
+    val draggingKey: Any? get() = (phase as? ReorderPhase.Dragging)?.key
+
+    /** The item gliding into its place after the finger lifted. */
+    internal val droppingKey: Any? get() = (phase as? ReorderPhase.Dropping)?.key
 
     /** How far the finger moved since the pick-up, in pixels. */
-    internal var dragDelta by mutableFloatStateOf(0f)
-        private set
+    internal val dragDelta: Float get() = (phase as? ReorderPhase.Dragging)?.delta ?: 0f
 
-    /** Where the finger holds the item, from its top edge. */
-    private var grab = 0f
-    private var autoScroll: Job? = null
+    /** Where the finger holds the dragged item, from its top edge. */
+    private val grab: Float get() = (phase as? ReorderPhase.Dragging)?.grab ?: 0f
+
+    /** True when a drag of [key] could start now: nothing else is dragged or still gliding into its place. */
+    internal fun canStart(key: Any): Boolean = phase.canStart && key in keys
+
+    private fun send(event: ReorderEvent) {
+        phase = reorderPhaseAfter(phase, event)
+    }
 
     val isDragging: Boolean get() = draggingKey != null
 
@@ -211,11 +218,8 @@ abstract class ReorderState internal constructor(
     }
 
     internal fun start(key: Any, fingerInRoot: Float): Boolean {
-        if (draggingKey != null || droppingKey != null || key !in keys) return false
-        if (!begin(key)) return false
-        grab = itemCoordinates[key]?.takeIf { it.isAttached }?.let { fingerInRoot - it.positionInRoot().y } ?: 0f
-        dragDelta = 0f
-        draggingKey = key
+        if (!canStart(key) || !begin(key)) return false
+        send(ReorderEvent.Start(key, grab = itemCoordinates[key]?.takeIf { it.isAttached }?.let { fingerInRoot - it.positionInRoot().y } ?: 0f))
         haptics.perform(Haptic.THRESHOLD)
         onDragStart(key)
         autoScroll = scope.launch { scrollAtEdges() }
@@ -224,7 +228,7 @@ abstract class ReorderState internal constructor(
 
     internal fun drag(delta: Float) {
         if (draggingKey == null) return
-        dragDelta += delta
+        send(ReorderEvent.Move(delta))
         afterDrag()
     }
 
@@ -232,8 +236,7 @@ abstract class ReorderState internal constructor(
         val key = draggingKey ?: return
         autoScroll?.cancel()
         val offset = draggedOffset(key)
-        droppingKey = key
-        draggingKey = null
+        send(ReorderEvent.Drop)
         haptics.perform(Haptic.TAP)
         // Undispatched, so the snap below lands before the next frame. Otherwise that frame draws
         // the dropped item at the old drop offset: back in its first place, or for a Column at the
@@ -244,8 +247,7 @@ abstract class ReorderState internal constructor(
                 settle(key)
             } finally {
                 reset()
-                droppingKey = null
-                dragDelta = 0f
+                send(ReorderEvent.Settled)
                 onDragEnd(key)
             }
         }
@@ -375,6 +377,14 @@ class ColumnReorderState internal constructor(
         private set
 
     private val scrolled: Float get() = ((scrollState?.value ?: 0) - scrollAtStart).toFloat()
+
+    /**
+     * The items changed while one was dragged (one added or removed meanwhile): the places taken at
+     * pick-up are not theirs any more, so the drop moves nothing and the item glides back.
+     */
+    override fun onKeysChanged() {
+        if (phase != ReorderPhase.Idle) reset()
+    }
 
     override fun begin(key: Any): Boolean {
         val all = keys.map { item ->
@@ -618,7 +628,8 @@ fun Modifier.reorderHandle(state: ReorderState, key: Any, enabled: Boolean = tru
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             if (!allowed) return@awaitEachGesture
-            val moved = awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() } ?: return@awaitEachGesture
+            // Takes the touch only when the drag can start: while the last drop still glides into its place, the list scrolls.
+            val moved = awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> if (state.canStart(key)) change.consume() } ?: return@awaitEachGesture
             followDrag(state, key, moved, holder)
         }
     }

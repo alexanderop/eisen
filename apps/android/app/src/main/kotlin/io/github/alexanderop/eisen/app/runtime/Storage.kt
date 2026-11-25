@@ -14,6 +14,8 @@ import io.github.alexanderop.eisen.app.state.loadState
 import io.github.alexanderop.eisen.app.elm.RestState
 import io.github.alexanderop.eisen.app.elm.TimerPage
 import io.github.alexanderop.eisen.app.elm.WodDraft
+import io.github.alexanderop.eisen.app.elm.decodeDrafts
+import io.github.alexanderop.eisen.app.elm.encodeDrafts
 import io.github.alexanderop.eisen.app.state.encodeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -87,25 +89,25 @@ internal object TimerFile {
 }
 
 /**
- * The WOD builder's draft, in a small file next to the state, so a draft survives the end of the
- * process. Not part of the state or of backups.
+ * The WOD builder's drafts, in a small file next to the state, so a draft survives the end of the
+ * process. Not part of the state or of backups. Its shape is in `encodeDrafts`.
  */
 internal object DraftFile {
     private const val NAME = "wod-draft.json"
     private val writer = Executors.newSingleThreadExecutor()
 
-    fun read(context: Context): WodDraft? =
-        runCatching { StateJson.decodeFromString(WodDraft.serializer(), File(context.filesDir, NAME).readText()) }.getOrNull()
+    fun read(context: Context): List<WodDraft> =
+        runCatching { decodeDrafts(File(context.filesDir, NAME).readText()) }.getOrDefault(emptyList())
 
-    /** Off the main thread, in order. Null deletes the file. */
-    fun write(context: Context, draft: WodDraft?) {
+    /** Off the main thread, in order. No drafts deletes the file. */
+    fun write(context: Context, drafts: List<WodDraft>) {
         val target = File(context.filesDir, NAME)
         writer.execute {
             runCatching {
-                if (draft == null) {
+                val text = encodeDrafts(drafts)
+                if (text == null) {
                     target.delete()
                 } else {
-                    val text = StateJson.encodeToString(WodDraft.serializer(), draft)
                     val temp = File(target.parentFile, target.name + ".tmp")
                     temp.writeText(text)
                     if (!temp.renameTo(target)) target.writeText(text)

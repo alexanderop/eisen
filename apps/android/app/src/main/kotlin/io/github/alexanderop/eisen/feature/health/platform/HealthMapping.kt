@@ -4,7 +4,9 @@ import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import io.github.alexanderop.eisen.core.Equipment
 import io.github.alexanderop.eisen.feature.timer.TimerMode
+import io.github.alexanderop.eisen.feature.timer.TimerOutcome
 import io.github.alexanderop.eisen.feature.timer.TimerSession
+import io.github.alexanderop.eisen.feature.timer.timerOutcome
 import io.github.alexanderop.eisen.feature.workout.Workout
 import io.github.alexanderop.eisen.core.loadText
 import io.github.alexanderop.eisen.feature.workout.loadText
@@ -134,7 +136,12 @@ fun timerSessionFields(session: TimerSession, zone: ZoneId): SessionFields? {
     if (session.finishedAt <= session.startedAt) return null
     val start = Instant.ofEpochMilli(session.startedAt)
     val end = Instant.ofEpochMilli(session.finishedAt)
-    val done = if (session.completed) "" else ", stopped early"
+    // The same outcome the result and the history show: a For Time that ran into its cap says so.
+    val done = when (timerOutcome(session)) {
+        TimerOutcome.COMPLETED -> ""
+        TimerOutcome.CAPPED -> ", time cap"
+        TimerOutcome.STOPPED -> ", stopped early"
+    }
     return SessionFields(
         start = start,
         startOffset = zone.rules.getOffset(start),

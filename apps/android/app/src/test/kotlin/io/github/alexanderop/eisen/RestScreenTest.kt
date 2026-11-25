@@ -1,5 +1,8 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.restScreen
+import io.github.alexanderop.eisen.app.elm.repsQuestion
+import io.github.alexanderop.eisen.app.elm.hold
 import io.github.alexanderop.eisen.core.Equipment
 import io.github.alexanderop.eisen.app.elm.Session
 import io.github.alexanderop.eisen.core.WeightUnit
@@ -34,43 +37,43 @@ class RestScreenTest {
     @Test fun `a logged set opens the rest screen for that set`() {
         val step = resting()
         assertEquals(benchRest, step.model.rest)
-        assertEquals(RestScreen(1, 0, "bench"), step.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), step.model.restScreen)
         assertTrue(showsRestScreen(step.model))
     }
 
     @Test fun `with the setting off a rest starts as the bar, and a tap on it still opens the screen`() {
         val step = started().send(Msg.Settings.SetRestFullScreen(false)).send(WorkoutEvent.TapSet(1, 0))
         assertEquals(benchRest, step.model.rest)
-        assertEquals(RestScreen(1, 0, "bench", minimised = true), step.model.restScreen)
+        assertEquals(RestScreen.Minimised(1, 0, "bench"), step.model.restScreen)
         assertFalse(showsRestScreen(step.model))
         assertTrue(showsRestScreen(step.send(Msg.Rest.Open).model))
     }
 
     @Test fun `every way a rest starts opens the screen`() {
-        assertEquals(RestScreen(1, 0, "bench"), resting().send(WorkoutEvent.TapSet(1, 0)).model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), resting().send(WorkoutEvent.TapSet(1, 0)).model.restScreen)
         // A count entered for a max-reps set.
-        assertEquals(RestScreen(3, 1, "dips"), started().send(WorkoutEvent.LogReps(3, 1, 8)).model.restScreen)
+        assertEquals(RestScreen.Shown(3, 1, "dips"), started().send(WorkoutEvent.LogReps(3, 1, 8)).model.restScreen)
         // One tap on a max-reps set with a last time to go by.
         val again = started().send(WorkoutEvent.LogReps(3, 0, 8)).send(WorkoutEvent.RequestFinish).send(WorkoutEvent.Confirm)
             .send(Msg.Routines.Select("A")).send(WorkoutEvent.Start)
         val tapped = again.send(WorkoutEvent.TapSet(3, 0))
         assertEquals(8, tapped.workout.exercises[3].sets[0])
-        assertEquals(RestScreen(3, 0, "dips"), tapped.model.restScreen)
+        assertEquals(RestScreen.Shown(3, 0, "dips"), tapped.model.restScreen)
         // A hold the timer logged.
         val holding = started().send(WorkoutEvent.AddExercise("plank")).send(WorkoutEvent.TapSet(4, 0))
         val held = holding.send(Msg.Hold.Tick, now = LATER + 5_000 + 60_000)
         assertEquals(60, held.workout.exercises[4].sets[0])
-        assertEquals(RestScreen(4, 0, "plank"), held.model.restScreen)
+        assertEquals(RestScreen.Shown(4, 0, "plank"), held.model.restScreen)
     }
 
     @Test fun `no rest after the last set of an exercise, so no screen with a clock`() {
         var step = started()
         for (set in 0..3) step = step.send(WorkoutEvent.TapSet(1, set))
-        assertEquals(RestScreen(1, 3, "bench"), step.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 3, "bench"), step.model.restScreen)
         val last = step.send(WorkoutEvent.TapSet(1, 4))
         assertNull(last.model.rest)
         // Only the screen that rates the set, see RirTest.
-        assertEquals(RestScreen(1, 4, "bench", setDone = true), last.model.restScreen)
+        assertEquals(RestScreen.SetDone(1, 4, "bench"), last.model.restScreen)
         val untracked = step.send(Msg.Settings.SetTrackRir(false)).send(WorkoutEvent.TapSet(1, 4))
         assertNull(untracked.model.rest)
         assertNull(untracked.model.restScreen)
@@ -78,14 +81,14 @@ class RestScreenTest {
 
     @Test fun `minimised it leaves the rest running in the bar, a tap on the bar brings it back`() {
         val down = resting().send(Msg.Rest.Minimise, now = LATER + 5_000)
-        assertEquals(RestScreen(1, 0, "bench", minimised = true), down.model.restScreen)
+        assertEquals(RestScreen.Minimised(1, 0, "bench"), down.model.restScreen)
         assertEquals(benchRest, down.model.rest)
         assertTrue(down.cmds.isEmpty())
         assertFalse(showsRestScreen(down.model))
         assertIgnored(down, Msg.Rest.Minimise)
 
         val up = down.send(Msg.Rest.Open, now = LATER + 7_000)
-        assertEquals(RestScreen(1, 0, "bench"), up.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), up.model.restScreen)
         assertEquals(LATER + 7_000, up.model.now)
         assertTrue(up.cmds.isEmpty())
         assertIgnored(resting(), Msg.Rest.Open)
@@ -93,12 +96,12 @@ class RestScreenTest {
         assertIgnored(started(), Msg.Rest.Minimise)
 
         // The next rest opens its screen again, for its own set.
-        assertEquals(RestScreen(1, 1, "bench"), down.send(WorkoutEvent.TapSet(1, 1)).model.restScreen)
+        assertEquals(RestScreen.Shown(1, 1, "bench"), down.send(WorkoutEvent.TapSet(1, 1)).model.restScreen)
     }
 
     @Test fun `back puts the screen away before it closes the workout`() {
         val down = resting().send(Msg.Nav.Back)
-        assertTrue(down.model.restScreen!!.minimised)
+        assertTrue(down.model.restScreen is RestScreen.Minimised)
         assertTrue(showsWorkout(down.model))
         assertEquals(benchRest, down.model.rest)
         assertFalse(down.send(Msg.Nav.Back).model.nav.workoutOpen)
@@ -116,7 +119,7 @@ class RestScreenTest {
         val step = resting().send(WorkoutEvent.CorrectReps(1, 0, 3), now = LATER + 20_000)
         assertEquals(listOf(3, null, null, null, null), step.workout.exercises[1].sets)
         assertEquals(benchRest, step.model.rest)
-        assertEquals(RestScreen(1, 0, "bench"), step.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), step.model.restScreen)
         assertTrue(step.restCmds().isEmpty())
         assertTrue(step.uiEvents.isEmpty())
         assertNull(step.model.repsQuestion)
@@ -154,7 +157,7 @@ class RestScreenTest {
         assertEquals(82.5, step.workout.exercises[1].weight, 0.0)
         assertEquals(82.5, step.state.progress.getValue("bench").weight, 0.0)
         assertEquals(benchRest, step.model.rest)
-        assertEquals(RestScreen(1, 0, "bench"), step.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), step.model.restScreen)
         assertTrue(step.restCmds().isEmpty())
     }
 
@@ -165,7 +168,7 @@ class RestScreenTest {
         assertTrue(Cmd.SaveRest(rest) in step.cmds)
         assertTrue(Cmd.ScheduleRestAlarms(tenAt = LATER + 65_000, overAt = LATER + 75_000) in step.cmds)
         assertTrue(Cmd.ShowRestCountdown(restCountdown(rest, LATER + 10_000)) in step.cmds)
-        assertEquals(RestScreen(1, 0, "bench"), step.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), step.model.restScreen)
     }
 
     @Test fun `minus 15 seconds never goes past now and does nothing once the rest is over`() {
@@ -199,8 +202,8 @@ class RestScreenTest {
         assertNull(step.send(WorkoutEvent.Defer(0)).model.restScreen)
         assertNotNull(step.send(WorkoutEvent.RemoveExercise(0)).model.rest)
         // A change behind it leaves it where it is.
-        assertEquals(RestScreen(1, 0, "bench"), step.send(WorkoutEvent.RemoveExercise(2)).model.restScreen)
-        assertEquals(RestScreen(1, 0, "bench"), step.send(WorkoutEvent.Defer(2)).model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), step.send(WorkoutEvent.RemoveExercise(2)).model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), step.send(WorkoutEvent.Defer(2)).model.restScreen)
         // Finishing asks first; the question still shows the workout.
         val asking = step.send(WorkoutEvent.RequestFinish)
         assertTrue(asking.session is Session.ConfirmingFinish)

@@ -45,7 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -142,6 +142,9 @@ private val COMPACT_HEIGHT = 700.dp
  *
  * Without a [rest] it is the "set done" screen after the last set of an exercise: no clock, and "Done",
  * a swipe down, the chevron or the back gesture close it.
+ *
+ * [shown] is false while the screen leaves (its exit animation still draws it). How far it is pulled is
+ * a [RestPull], changed only by [restPullAfter].
  */
 @Composable
 internal fun RestTimerScreen(
@@ -152,24 +155,34 @@ internal fun RestTimerScreen(
     now: Long,
     dispatch: (Msg) -> Unit,
     modifier: Modifier = Modifier,
+    shown: Boolean = true,
 ) {
     val minimiseAt = with(LocalDensity.current) { MinimiseDistance.toPx() }
-    // How far the screen is pulled down. Pure presentation: letting go far enough minimises it.
-    var pulled by remember { mutableFloatStateOf(0f) }
+    var pull by remember { mutableStateOf<RestPull>(RestPull.Still) }
+    fun send(event: RestPullEvent) {
+        val step = restPullAfter(pull, event)
+        pull = step.pull
+        if (step.minimise) dispatch(Msg.Rest.Minimise)
+    }
+    // Back over the workout while the exit still held it: in its place, and a drag starts from there.
+    if (shown && pull is RestPull.Away) send(RestPullEvent.Shown)
+    val returning = pull is RestPull.Returning
+    LaunchedEffect(returning) {
+        val from = (pull as? RestPull.Returning)?.offset ?: return@LaunchedEffect
+        animate(from, 0f) { value, _ -> send(RestPullEvent.Frame(value)) }
+        send(RestPullEvent.Settled)
+    }
     BoxWithConstraints(
         modifier
             .fillMaxSize()
-            .offset { IntOffset(0, pulled.roundToInt()) }
+            .offset { IntOffset(0, pull.offset.roundToInt()) }
             .background(EisenColors.Background)
             // Takes every touch, so nothing of the workout below reacts.
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
             .draggable(
-                rememberDraggableState { delta -> pulled = (pulled + delta).coerceAtLeast(0f) },
+                rememberDraggableState { delta -> send(RestPullEvent.Drag(delta)) },
                 Orientation.Vertical,
-                onDragStopped = { velocity ->
-                    if (pulled > minimiseAt || velocity > MINIMISE_VELOCITY) dispatch(Msg.Rest.Minimise)
-                    else animate(pulled, 0f) { value, _ -> pulled = value }
-                },
+                onDragStopped = { velocity -> send(RestPullEvent.LetGo(velocity, minimiseAt, MINIMISE_VELOCITY)) },
             )
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = 20.dp, vertical = 8.dp),

@@ -60,8 +60,18 @@ object TimerSounds {
 
     private val SEQUENCE = Any()
 
-    /** Silences a line that is being said: a pause or the end of a run. */
+    /**
+     * Silences everything: the line being said and what a [playAll] still had to say. A pause, the end of
+     * a run, or a new schedule: a combination previewed with "Listen" must not talk into a run started
+     * right after it.
+     */
     fun stop() {
+        main.removeCallbacksAndMessages(SEQUENCE)
+        hush()
+    }
+
+    /** Silences the line being said. The rest of a [playAll] goes on. */
+    private fun hush() {
         line?.let { runCatching { it.stop() } }
         finish()
     }
@@ -69,7 +79,7 @@ object TimerSounds {
     /** False when there is no recording of [name]. */
     private fun say(context: Context, name: String): Boolean {
         // One line at a time. The schedule never overlaps them, a sample tapped twice might.
-        stop()
+        hush()
         app = context.applicationContext
         val asset = "voice/timer/$name.mp3"
         val player = MediaPlayer()

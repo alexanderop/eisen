@@ -91,7 +91,7 @@ class BoxingUpdateTest {
         val open = setup()
         assertEquals(default, open.config)
         assertEquals(6, open.rounds.size)
-        assertNull(open.model.timerSetup!!.round)
+        assertNull(open.model.timerSetup!!.sheet?.index)
     }
 
     @Test fun `changing the number of rounds keeps the rounds and repeats the last one`() {
@@ -111,11 +111,11 @@ class BoxingUpdateTest {
 
     @Test fun `a round's sheet opens, steps through the rounds, edits, and Back closes it before the setup`() {
         val open = setup().send(Msg.Timer.OpenRound(2))
-        assertEquals(2, open.model.timerSetup!!.round)
+        assertEquals(2, open.model.timerSetup!!.sheet?.index)
         assertIgnored(open, Msg.Timer.OpenRound(6))
         assertIgnored(open, Msg.Timer.OpenRound(2))
         val stepped = open.send(Msg.Timer.OpenRound(3))
-        assertEquals(3, stepped.model.timerSetup!!.round)
+        assertEquals(3, stepped.model.timerSetup!!.sheet?.index)
         // A pace and a split out of range come back into the limits of a round.
         val edited = stepped.send(Msg.Timer.EditRound(3, BoxingRound(BoxingTheme.BODY, 99, 30)))
         assertEquals(BoxingRound(BoxingTheme.BODY, 15, 30), edited.rounds[3])
@@ -123,9 +123,9 @@ class BoxingUpdateTest {
         assertIgnored(edited, Msg.Timer.EditRound(3, BoxingRound(BoxingTheme.BODY, 15, 30)))
         assertIgnored(edited, Msg.Timer.EditRound(6, BoxingRound(BoxingTheme.BODY, 5, 0)))
         // Fewer rounds than the open one: its sheet closes.
-        assertNull(edited.send(Msg.Timer.Edit(edited.config.copy(rounds = 2))).model.timerSetup!!.round)
+        assertNull(edited.send(Msg.Timer.Edit(edited.config.copy(rounds = 2))).model.timerSetup!!.sheet?.index)
         val back = edited.send(Msg.Nav.Back)
-        assertNull(back.model.timerSetup!!.round)
+        assertNull(back.model.timerSetup!!.sheet?.index)
         assertEquals(edited.config, back.config)
         assertNull(back.send(Msg.Nav.Back).model.timerSetup)
         assertIgnored(back, Msg.Timer.CloseRound)
@@ -139,13 +139,13 @@ class BoxingUpdateTest {
         // No snackbar over Start: the Undo stands next to the chips and goes after six seconds.
         assertTrue(applied.uiEvents.isEmpty())
         assertTrue(Cmd.After(TEMPLATE_UNDO_MILLIS, Msg.Timer.ForgetTemplate(LATER)) in applied.cmds)
-        assertEquals(numbers.config.boxing, applied.model.timerSetup!!.beforeTemplate)
+        assertEquals(numbers.config.boxing, applied.model.timerSetup!!.template?.before)
         val undone = applied.send(Msg.Timer.UndoTemplate)
         assertEquals(numbers.config, undone.config)
         assertIgnored(undone, Msg.Timer.UndoTemplate)
         assertIgnored(numbers, Msg.Timer.ApplyTemplate(9))
         val forgotten = applied.send(Msg.Timer.ForgetTemplate(LATER))
-        assertNull(forgotten.model.timerSetup!!.beforeTemplate)
+        assertNull(forgotten.model.timerSetup!!.template?.before)
         assertEquals(applied.config, forgotten.config)
         // A later template has its own six seconds.
         val again = applied.send(Msg.Timer.ApplyTemplate(3), now = LATER + 2_000)
@@ -191,7 +191,7 @@ class BoxingUpdateTest {
         val open = setup().send(Msg.Timer.OpenRound(1))
         val later = open.send(Msg.Timer.MoveRound(1, 2))
         assertEquals(listOf(BoxingTheme.JAB, BoxingTheme.THREE, BoxingTheme.TWO), later.rounds.take(3).map { it.theme })
-        assertEquals(2, later.model.timerSetup!!.round)
+        assertEquals(2, later.model.timerSetup!!.sheet?.index)
         // A drag over several places.
         val dragged = setup().send(Msg.Timer.MoveRound(5, 0))
         assertEquals(listOf(BoxingTheme.FREESTYLE, BoxingTheme.JAB, BoxingTheme.TWO, BoxingTheme.THREE, BoxingTheme.FOUR, BoxingTheme.MIX), dragged.rounds.map { it.theme })
@@ -199,11 +199,11 @@ class BoxingUpdateTest {
         val copy = open.send(Msg.Timer.DuplicateRound(1))
         assertEquals(7, copy.config.rounds)
         assertEquals(listOf(BoxingTheme.JAB, BoxingTheme.TWO, BoxingTheme.TWO), copy.rounds.take(3).map { it.theme })
-        assertEquals(2, copy.model.timerSetup!!.round)
+        assertEquals(2, copy.model.timerSetup!!.sheet?.index)
         val removed = open.send(Msg.Timer.RemoveRound(1))
         assertEquals(5, removed.config.rounds)
         assertEquals(BoxingTheme.THREE, removed.rounds[1].theme)
-        assertEquals(1, removed.model.timerSetup!!.round)
+        assertEquals(1, removed.model.timerSetup!!.sheet?.index)
         assertEquals(removed.config, removed.state.timerConfigs[TimerMode.BOXING])
         // One round stays, fifteen is the most.
         val one = setup().send(Msg.Timer.Edit(default.copy(rounds = 1)))
@@ -215,9 +215,9 @@ class BoxingUpdateTest {
     @Test fun `a round is copied to all rounds, and the sheet says so until something else changes`() {
         val copied = setup().send(Msg.Timer.OpenRound(1)).send(Msg.Timer.CopyToAll(1))
         assertEquals(List(6) { plan.rounds[1] }, copied.rounds)
-        assertTrue(copied.model.timerSetup!!.copied)
-        assertFalse(copied.send(Msg.Timer.EditRound(1, BoxingRound(BoxingTheme.HOOKS, 5, 0))).model.timerSetup!!.copied)
-        assertFalse(copied.send(Msg.Timer.OpenRound(2)).model.timerSetup!!.copied)
+        assertTrue(copied.model.timerSetup!!.sheet!!.copied)
+        assertFalse(copied.send(Msg.Timer.EditRound(1, BoxingRound(BoxingTheme.HOOKS, 5, 0))).model.timerSetup!!.sheet!!.copied)
+        assertFalse(copied.send(Msg.Timer.OpenRound(2)).model.timerSetup!!.sheet!!.copied)
         assertIgnored(copied, Msg.Timer.CopyToAll(1))
         assertIgnored(copied, Msg.Timer.CopyToAll(6))
     }
@@ -226,10 +226,11 @@ class BoxingUpdateTest {
         val numbers = setup().send(Msg.Timer.SetStyle(BoxingStyle.NUMBERS))
         assertEquals(BoxingStyle.NUMBERS, numbers.config.boxing!!.style)
         assertIgnored(numbers, Msg.Timer.SetStyle(BoxingStyle.NUMBERS))
-        val first = numbers.send(Msg.Timer.Listen(1))
+        // Listen is in the round's sheet, which names what it played.
+        val first = numbers.send(Msg.Timer.OpenRound(1)).send(Msg.Timer.Listen(1))
         val sound = first.cmds.single() as Cmd.PlayTimerSound
         assertEquals("box-jab-cross-d", sound.sound)
-        assertEquals("jab-cross", first.model.timerSetup!!.heard)
+        assertEquals("jab-cross", first.model.timerSetup!!.sheet?.heard)
         assertEquals("box-jab-hook-d", (first.send(Msg.Timer.Listen(1)).cmds.single() as Cmd.PlayTimerSound).sound)
         // Without a recording it beeps, so the button is never silent.
         assertEquals("beep", sound.fallback)

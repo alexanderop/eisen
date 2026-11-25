@@ -133,9 +133,9 @@ class BoxingCoachUpdateTest {
         assertIgnored(numbers, Msg.Timer.ListenMoves(emptyList()))
         assertIgnored(numbers, Msg.Timer.ListenMoves(listOf("kick")))
         // Listen in a "My combos" round plays them in turn.
-        val round = numbers.send(Msg.Timer.EditRound(0, BoxingRound(BoxingTheme.OWN, 6, 0)))
+        val round = numbers.send(Msg.Timer.OpenRound(0)).send(Msg.Timer.EditRound(0, BoxingRound(BoxingTheme.OWN, 6, 0)))
         val heard = round.send(Msg.Timer.Listen(0))
-        assertEquals("own-1", heard.model.timerSetup!!.heard)
+        assertEquals("own-1", heard.model.timerSetup!!.sheet?.heard)
         assertTrue(heard.cmds.single() is Cmd.PlayTimerSounds)
     }
 

@@ -123,14 +123,18 @@ import io.github.alexanderop.eisen.feature.timer.wod.wodLines
 import io.github.alexanderop.eisen.app.elm.AddTarget
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.Builder
 import io.github.alexanderop.eisen.app.elm.WodDraft
+import io.github.alexanderop.eisen.app.elm.SchemeChoice
+import io.github.alexanderop.eisen.app.elm.customText
+import io.github.alexanderop.eisen.app.elm.schemeChoice
+import io.github.alexanderop.eisen.app.elm.pending
 import io.github.alexanderop.eisen.app.elm.WodFilter
 import io.github.alexanderop.eisen.app.elm.benchmarks
 import io.github.alexanderop.eisen.app.elm.callsSummary
 import io.github.alexanderop.eisen.app.elm.draftEditsOwn
 import io.github.alexanderop.eisen.app.elm.exercises
 import io.github.alexanderop.eisen.app.elm.lastWodRun
-import io.github.alexanderop.eisen.app.elm.parseScheme
 import io.github.alexanderop.eisen.app.elm.timerCapSeconds
 import io.github.alexanderop.eisen.app.elm.timerWheelSeconds
 import io.github.alexanderop.eisen.app.elm.withMax
@@ -778,11 +782,9 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
     var picking by rememberSaveable { mutableStateOf(false) }
     var editing by rememberSaveable { mutableStateOf<Int?>(null) }
     var number by rememberSaveable { mutableStateOf<Number?>(null) }
-    var custom by rememberSaveable { mutableStateOf(wod.scheme.isNotEmpty() && wod.scheme !in SCHEMES) }
     // The picker's search and chip stay while the builder is open.
     val pickerQuery = rememberSaveable { mutableStateOf("") }
     val pickerFilter = rememberSaveable { mutableStateOf(WOD_FILTER) }
-    var customText by rememberSaveable { mutableStateOf(if (custom) wod.scheme.joinToString("-") else "") }
     val focus = LocalFocusManager.current
     val scroll = rememberScrollState()
     // One exercise can be in a WOD twice, so the items are known by their place.
@@ -826,36 +828,27 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
             when (mode) {
                 TimerMode.FOR_TIME -> {
                     val schemed = wod.scheme.isNotEmpty()
+                    // The lit chip is what Save saves; the field shows while custom reps are typed.
+                    val choice = schemeChoice(wod.scheme)
+                    val customText = customText(draft)
                     if (schemed) ValueRow("Scheme", wod.scheme.joinToString("-"), enabled = false) {}
                     else ValueRow("Rounds", wod.rounds.toString()) { number = Number.ROUNDS }
                     Text("Reps per round", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground, modifier = Modifier.padding(bottom = 0.dp))
                     LazyRow(Modifier.bleed(16.dp), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
-                            SchemeChip("Same each round", !schemed && !custom) {
-                                custom = false
-                                dispatch(Msg.Wods.SetScheme(emptyList()))
-                            }
+                            SchemeChip("Same each round", choice == SchemeChoice.Same) { dispatch(Msg.Wods.SetScheme(emptyList())) }
                         }
                         items(SCHEMES) { scheme ->
-                            SchemeChip(schemeLabel(scheme), !custom && wod.scheme == scheme) {
-                                custom = false
-                                dispatch(Msg.Wods.SetScheme(scheme))
-                            }
+                            SchemeChip(schemeLabel(scheme), choice == SchemeChoice.Preset(scheme)) { dispatch(Msg.Wods.SetScheme(scheme)) }
                         }
                         item {
-                            SchemeChip("Custom", custom) {
-                                custom = true
-                                dispatch(Msg.Wods.SetScheme(parseScheme(customText)))
-                            }
+                            SchemeChip("Custom", choice is SchemeChoice.Custom) { dispatch(Msg.Wods.ChooseCustom) }
                         }
                     }
-                    if (custom) {
+                    if (customText != null) {
                         OutlinedTextField(
                             value = customText,
-                            onValueChange = {
-                                customText = it.take(48)
-                                dispatch(Msg.Wods.SetScheme(parseScheme(customText)))
-                            },
+                            onValueChange = { dispatch(Msg.Wods.TypeScheme(it)) },
                             label = { Text("Reps per round") },
                             placeholder = { Text("30-20-10") },
                             singleLine = true,
@@ -985,7 +978,7 @@ internal fun WodBuilder(model: Model, draft: WodDraft, dispatch: (Msg) -> Unit) 
         )
     }
 
-    if (draft.asking) {
+    if (model.wods.builder is Builder.Asking) {
         AlertDialog(
             onDismissRequest = { dispatch(Msg.Wods.KeepEditing) },
             title = { Text("Discard changes?") },

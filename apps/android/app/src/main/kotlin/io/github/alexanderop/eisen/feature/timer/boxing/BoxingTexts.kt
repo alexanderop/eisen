@@ -5,6 +5,7 @@ import io.github.alexanderop.eisen.core.holdText
 import io.github.alexanderop.eisen.feature.timer.timerSeconds
 import io.github.alexanderop.eisen.feature.timer.TimerMode
 import io.github.alexanderop.eisen.feature.timer.TimerSession
+import io.github.alexanderop.eisen.feature.timer.timerOutcome
 
 /*
  * What the boxing setup and run say, the same words as the PWA's `domain/boxingScreens.ts`.
@@ -148,4 +149,4 @@ fun combosText(count: Int): String = if (count == 1) "One combination called" el
 fun upNext(roundNumber: Int): String = "Up next · Round $roundNumber"
 
 private fun sameLength(a: TimerSession, b: TimerSession): Boolean =
-    a.config.rounds == b.config.rounds && a.config.work == b.config.work && a.completed == b.completed
+    a.config.rounds == b.config.rounds && a.config.work == b.config.work && timerOutcome(a) == timerOutcome(b)

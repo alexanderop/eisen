@@ -47,8 +47,8 @@ object Cues {
         val audio = context.getSystemService(AudioManager::class.java)
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attributes).build()
         audio.requestAudioFocus(focus)
+        val player = MediaPlayer()
         try {
-            val player = MediaPlayer()
             player.setAudioAttributes(attributes)
             context.assets.openFd(asset).use { player.setDataSource(it.fileDescriptor, it.startOffset, it.length) }
             player.setOnCompletionListener {
@@ -63,8 +63,17 @@ object Cues {
             player.prepare()
             player.start()
         } catch (_: Exception) {
+            // Not recorded, or the player failed before it could start: it is let go here, nobody else will.
+            runCatching { player.release() }
             audio.abandonAudioFocusRequest(focus)
-            if (beep) runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP2, 600) }
+            if (beep) runCatching {
+                val tone = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+                tone.startTone(ToneGenerator.TONE_PROP_BEEP2, FALLBACK_BEEP_MS)
+                main.postDelayed({ tone.release() }, FALLBACK_BEEP_MS + 200L)
+            }
         }
     }
+
+    /** The beep a cue without its recording plays instead. */
+    private const val FALLBACK_BEEP_MS = 600
 }

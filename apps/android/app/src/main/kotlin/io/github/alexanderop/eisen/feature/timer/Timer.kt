@@ -477,13 +477,18 @@ fun timerSession(run: TimerRun, now: Long, finished: Boolean): TimerSession? {
     // In a For Time WOD the taps count items: a round is done with its last item.
     val perRound = if (steps == null) 0 else run.wod?.let(::tapsPerRound) ?: 0
     val tapped = if (countsRoundsByTap(run.config.mode)) run.taps else view.roundsDone
+    // A For Time ended before its cap keeps a time under the cap, also within the half second that would
+    // round up to it: the cap is how [timerOutcome] tells a run that ran into it.
+    val rounded = (view.elapsed.toDouble() / SECOND).roundToLong().toInt()
+    val cap = run.config.work.takeIf { run.config.mode == TimerMode.FOR_TIME && it > 0 }
+    val seconds = if (cap != null && view.elapsed < cap * SECOND) minOf(rounded, cap - 1) else rounded
     return TimerSession(
         id = run.id,
         name = run.name,
         config = run.config,
         startedAt = run.startedAt,
         finishedAt = now,
-        seconds = (view.elapsed.toDouble() / SECOND).roundToLong().toInt(),
+        seconds = seconds,
         rounds = if (perRound > 0) minOf(run.taps, steps ?: 0) / perRound else tapped,
         completed = finished && allDone,
         wodId = run.wod?.id,
@@ -502,6 +507,9 @@ val OUTCOME_LABELS: Map<TimerOutcome, String> = mapOf(
 /**
  * How a timer ended. A For Time that ran into its cap is its own case:
  * the clock ran out, but the work was not finished.
+ *
+ * The one reader of the session's `completed` flag: every screen, Health Connect and the comparisons ask
+ * this (`RulesTest` holds it), so they never disagree about a run.
  */
 fun timerOutcome(session: TimerSession): TimerOutcome {
     val config = session.config

@@ -21,12 +21,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,12 +39,12 @@ import io.github.alexanderop.eisen.core.unitDefaults
 import io.github.alexanderop.eisen.core.ui.ADDED_WEIGHT_HINT
 import io.github.alexanderop.eisen.core.ui.AddedWeightStepper
 import io.github.alexanderop.eisen.core.ui.EisenColors
+import io.github.alexanderop.eisen.core.ui.rememberArming
 import io.github.alexanderop.eisen.core.ui.pressShapes
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.IntStepper
 import io.github.alexanderop.eisen.core.ui.Stepper
 import io.github.alexanderop.eisen.core.ui.fmt
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import io.github.alexanderop.eisen.core.ui.rememberFullSheetState
 
@@ -207,22 +202,9 @@ internal fun SecondaryButton(text: String, modifier: Modifier = Modifier, conten
     }
 }
 
-/** A destructive action that needs two taps instead of a dialog. It disarms by itself after a few seconds. */
+/** A destructive action that needs two taps instead of a dialog, in the shape of [SecondaryButton]. See [rememberArming]. */
 @Composable
 private fun ConfirmButton(label: String, confirmLabel: String, onConfirm: () -> Unit) {
-    var armed by remember { mutableStateOf(false) }
-    LaunchedEffect(armed) {
-        if (armed) {
-            delay(4000)
-            armed = false
-        }
-    }
-    SecondaryButton(if (armed) confirmLabel else label, contentColor = EisenColors.Destructive) {
-        if (armed) {
-            armed = false
-            onConfirm()
-        } else {
-            armed = true
-        }
-    }
+    val arming = rememberArming()
+    SecondaryButton(if (arming.armed) confirmLabel else label, contentColor = EisenColors.Destructive) { arming.tap(onConfirm) }
 }

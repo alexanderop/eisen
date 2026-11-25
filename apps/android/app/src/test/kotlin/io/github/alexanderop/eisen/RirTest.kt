@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.restScreen
+import io.github.alexanderop.eisen.app.elm.hold
 import io.github.alexanderop.eisen.core.*
 import io.github.alexanderop.eisen.app.state.*
 import io.github.alexanderop.eisen.app.elm.*
@@ -154,7 +156,7 @@ class RirTest {
     /** Four sets of the bench press logged, the fifth is the last one. */
     private fun beforeLast(state: AppState = freshState(kg)): Step = (0..3).fold(started(state)) { at, set -> at.send(WorkoutEvent.TapSet(1, set)) }
 
-    private val setDone = RestScreen(1, 4, "bench", setDone = true)
+    private val setDone = RestScreen.SetDone(1, 4, "bench")
 
     private fun Step.restCmds(): List<Cmd> =
         cmds.filter { it is Cmd.SaveRest || it is Cmd.ScheduleRestAlarms || it is Cmd.CancelRestAlarms || it is Cmd.ShowRestCountdown || it is Cmd.HideRestCountdown }
@@ -163,7 +165,7 @@ class RirTest {
         val rated = resting().send(WorkoutEvent.RateSet(1, 0, 2), now = LATER + 20_000)
         assertEquals(listOf<Int?>(2), rated.workout.exercises[1].rir)
         assertEquals(benchRest, rated.model.rest)
-        assertEquals(RestScreen(1, 0, "bench"), rated.model.restScreen)
+        assertEquals(RestScreen.Shown(1, 0, "bench"), rated.model.restScreen)
         assertTrue(rated.restCmds().isEmpty())
         assertTrue(rated.uiEvents.isEmpty())
         assertTrue(rated.cmds.none { it is Cmd.After })
@@ -271,7 +273,7 @@ class RirTest {
         assertTrue(holding.model.hold != null)
         assertNull(holding.model.restScreen)
         // A rest that starts takes its place too.
-        assertEquals(RestScreen(0, 0, "hackSquat"), last.send(WorkoutEvent.TapSet(0, 0)).model.restScreen)
+        assertEquals(RestScreen.Shown(0, 0, "hackSquat"), last.send(WorkoutEvent.TapSet(0, 0)).model.restScreen)
     }
 
     @Test fun `a last set rated 4+ doubles the jump of the next workout`() {

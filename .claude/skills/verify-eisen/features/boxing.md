@@ -112,3 +112,7 @@ eisenctl doctor && eisenctl cleanup
   card reads `1 × 30s / 10s`. The setup shot comes first.
 - A template, a round's sheet (theme grid, pace, reminders, non-stop finish) and "My combos" are
   not mapped yet. Their handles are on screen; add them here when you drive them.
+- The list of a round's combinations (the row `Combinations: all 7` in a round's sheet) says what the
+  round calls: `All 7 are called`, `2 of 7 are called`, and after `None` (every box unchecked)
+  `None checked yet: all 7 are called`. A round never calls none: closed with nothing checked, it
+  calls all of them.

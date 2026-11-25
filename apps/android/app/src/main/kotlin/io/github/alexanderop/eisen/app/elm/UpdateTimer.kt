@@ -64,6 +64,7 @@ import io.github.alexanderop.eisen.feature.timer.boxing.soundCombo
 import io.github.alexanderop.eisen.feature.timer.boxing.isAgain
 import io.github.alexanderop.eisen.feature.timer.boxing.copiedToAll
 import io.github.alexanderop.eisen.feature.timer.boxing.themeCombos
+import io.github.alexanderop.eisen.feature.timer.boxing.toggledPick
 import io.github.alexanderop.eisen.feature.timer.boxing.withRound
 import io.github.alexanderop.eisen.feature.timer.boxing.BOXING_COMBOS
 import io.github.alexanderop.eisen.feature.timer.boxing.BoxingStyle
@@ -168,18 +169,18 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val count = timerConfig(msg.config).rounds
             val all = plan.rounds + setup.removed
             val config = timerConfig(msg.config.copy(boxing = plan.copy(rounds = all.take(count))))
-            // The sheet of a round that is gone closes.
-            val next = setup.copy(config = config, removed = all.drop(count), round = setup.round?.takeIf { it < config.rounds }, beforeTemplate = null)
+            // The sheet of a round that is gone closes, and a template can no longer be undone.
+            val next = setup.copy(config = config, removed = all.drop(count), sheet = sheetAfter(setup.sheet, SheetEvent.Rounds(config.rounds)), template = null)
             if (next == setup) model.only() else boxingEdited(model, next).only()
         }
         is Msg.Timer.OpenRound -> {
             val setup = boxingSetup(model) ?: return model.only()
-            if (msg.index !in 0 until setup.config.rounds || setup.round == msg.index) return model.only()
-            model.timerSetup { it.copy(round = msg.index, copied = false, heard = null) }.only()
+            if (msg.index !in 0 until setup.config.rounds || setup.sheet?.index == msg.index) return model.only()
+            model.timerSetup { it.copy(sheet = sheetAfter(it.sheet, SheetEvent.Open(msg.index))) }.only()
         }
         Msg.Timer.CloseRound -> {
             val setup = model.timerSetup
-            if (setup?.round == null) model.only() else model.timerSetup { it.copy(round = null, copied = false, heard = null) }.only()
+            if (setup?.sheet == null) model.only() else model.timerSetup { it.copy(sheet = sheetAfter(it.sheet, SheetEvent.Close)) }.only()
         }
         is Msg.Timer.EditRound -> {
             val setup = boxingSetup(model) ?: return model.only()
@@ -189,14 +190,13 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val themed = if (msg.round.theme != old.theme) msg.round.copy(pick = emptyList()) else msg.round
             val all = themeCombos(themed.theme, plan.own).map { it.id }
             val round = if (all.isNotEmpty() && all.all { it in themed.pick }) themed.copy(pick = emptyList()) else themed
-            val heard = setup.heard.takeIf { round.theme == old.theme }
-            replan(model, setup.copy(heard = heard), withRound(plan, msg.index, round))
+            replan(model, setup, withRound(plan, msg.index, round), SheetEvent.Edited(retheme = msg.index.takeIf { round.theme != old.theme }))
         }
         is Msg.Timer.CopyToAll -> {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
             if (msg.index !in plan.rounds.indices) return model.only()
-            replan(model, setup, copiedToAll(plan, msg.index), copied = true)
+            replan(model, setup, copiedToAll(plan, msg.index), SheetEvent.CopiedToAll)
         }
         is Msg.Timer.MoveRound -> {
             val setup = boxingSetup(model) ?: return model.only()
@@ -207,31 +207,21 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             var moved = plan
             if (step > 0) for (at in msg.from until msg.to) moved = movedRound(moved, at, 1)
             else for (at in msg.from downTo msg.to + 1) moved = movedRound(moved, at, -1)
-            val open = setup.round?.let { round ->
-                when {
-                    round == msg.from -> msg.to
-                    step > 0 && round in msg.from + 1..msg.to -> round - 1
-                    step < 0 && round in msg.to until msg.from -> round + 1
-                    else -> round
-                }
-            }
-            replan(model, setup.copy(round = open), moved)
+            replan(model, setup, moved, SheetEvent.Moved(msg.from, msg.to))
         }
         is Msg.Timer.DuplicateRound -> {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
             val copied = duplicatedRound(plan, msg.index)
             if (copied === plan) return model.only()
-            // The sheet goes on with the copy.
-            replan(model, setup.copy(round = setup.round?.let { if (it == msg.index) it + 1 else if (it > msg.index) it + 1 else it }), copied)
+            replan(model, setup, copied, SheetEvent.Duplicated(msg.index))
         }
         is Msg.Timer.RemoveRound -> {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
             val left = withoutRound(plan, msg.index)
             if (left === plan) return model.only()
-            // The sheet shows the round that took the removed one's place.
-            replan(model, setup.copy(round = setup.round?.let { if (it > msg.index) it - 1 else minOf(it, left.rounds.size - 1) }), left)
+            replan(model, setup, left, SheetEvent.Removed(msg.index, left.rounds.size))
         }
         is Msg.Timer.ApplyTemplate -> {
             val template = BOXING_TEMPLATES.getOrNull(msg.index) ?: return model.only()
@@ -241,23 +231,23 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val applied = templatePlan(template.rounds, setup.config.rounds, plan)
             if (applied == plan) return model.only()
             // Its Undo stands next to the chips until the next edit, or for a few seconds.
-            boxingEdited(model, setup.copy(config = setup.config.copy(boxing = applied), beforeTemplate = plan, templateAt = env.now, removed = emptyList(), copied = false)) and
+            val sheet = sheetAfter(setup.sheet, SheetEvent.Edited())
+            boxingEdited(model, setup.copy(config = setup.config.copy(boxing = applied), template = TemplateUndo(plan, env.now), removed = emptyList(), sheet = sheet)) and
                 Cmd.After(TEMPLATE_UNDO_MILLIS, Msg.Timer.ForgetTemplate(env.now))
         }
         Msg.Timer.UndoTemplate -> {
             val setup = boxingSetup(model) ?: return model.only()
-            val before = setup.beforeTemplate ?: return model.only()
-            boxingEdited(model, setup.copy(config = timerConfig(setup.config.copy(boxing = before)), beforeTemplate = null, templateAt = null)).only()
+            val template = setup.template ?: return model.only()
+            boxingEdited(model, setup.copy(config = timerConfig(setup.config.copy(boxing = template.before)), template = null)).only()
         }
         is Msg.Timer.ForgetTemplate -> {
             val setup = model.timerSetup
-            if (setup?.beforeTemplate == null || setup.templateAt != msg.at) model.only()
-            else model.timerSetup { it.copy(beforeTemplate = null, templateAt = null) }.only()
+            if (setup?.template?.at != msg.at) model.only() else model.timerSetup { it.copy(template = null) }.only()
         }
         is Msg.Timer.SetStyle -> {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
-            if (plan.style == msg.style) model.only() else boxingEdited(model, setup.copy(config = setup.config.copy(boxing = plan.copy(style = msg.style)), beforeTemplate = null, templateAt = null)).only()
+            if (plan.style == msg.style) model.only() else boxingEdited(model, setup.copy(config = setup.config.copy(boxing = plan.copy(style = msg.style)), template = null)).only()
         }
         is Msg.Timer.Listen -> {
             // Each tap the next combination of the round, in order, and the sheet names it.
@@ -266,8 +256,9 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val round = plan.rounds.getOrNull(msg.index) ?: return model.only()
             val combos = if (round.theme == BoxingTheme.FREESTYLE) emptyList() else roundCombos(round, plan.own)
             if (combos.isEmpty()) return model.only()
-            val combo = combos[(combos.indexOfFirst { it.id == setup.heard } + 1) % combos.size]
-            model.timerSetup { it.copy(heard = combo.id) } and playCombo(combo, plan.style)
+            val heard = setup.sheet?.heard
+            val combo = combos[(combos.indexOfFirst { it.id == heard } + 1) % combos.size]
+            model.timerSetup { it.copy(sheet = sheetAfter(it.sheet, SheetEvent.Heard(combo.id))) } and playCombo(combo, plan.style)
         }
         is Msg.Timer.PlayCombo -> {
             val plan = boxingSetup(model)?.config?.boxing ?: return model.only()
@@ -298,14 +289,27 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             val at = msg.round?.takeIf { msg.id == null }
             val round = at?.let { saved.rounds.getOrNull(it) }
             val next = if (at == null || round == null) saved else withRound(saved, at, round.copy(theme = BoxingTheme.OWN, pick = emptyList()))
-            replan(model, setup, next)
+            replan(model, setup.copy(combo = null), next, SheetEvent.Edited(retheme = at.takeIf { round != null && round.theme != BoxingTheme.OWN }))
         }
+        is Msg.Timer.NewCombo -> {
+            val setup = boxingSetup(model) ?: return model.only()
+            if (setup.combo != null || (msg.round != null && msg.round !in 0 until setup.config.rounds)) return model.only()
+            model.timerSetup { it.copy(combo = ComboBuild.New(msg.round)) }.only()
+        }
+        is Msg.Timer.EditOwn -> {
+            val setup = boxingSetup(model) ?: return model.only()
+            if (setup.combo != null || setup.config.boxing?.own?.none { it.id == msg.id } != false) return model.only()
+            model.timerSetup { it.copy(combo = ComboBuild.Edit(msg.id)) }.only()
+        }
+        Msg.Timer.CloseCombo -> if (model.timerSetup?.combo == null) model.only() else model.timerSetup { it.copy(combo = null) }.only()
+        Msg.Timer.OpenPicks, Msg.Timer.ClosePicks, Msg.Timer.PickAll, Msg.Timer.PickNone, is Msg.Timer.TogglePick -> picks(msg, model)
         is Msg.Timer.DeleteOwn -> {
             val setup = boxingSetup(model) ?: return model.only()
             val plan = setup.config.boxing ?: return model.only()
             val left = withoutOwn(plan, msg.id)
             if (left === plan) return model.only()
-            val (edited, cmds) = replan(model, setup, left)
+            // The builder that edited it closes with it.
+            val (edited, cmds) = replan(model, setup.copy(combo = setup.combo.takeIf { it != ComboBuild.Edit(msg.id) }), left)
             val after = edited.timerSetup?.config?.boxing ?: left
             edited.undo { it.copy(deletedOwn = DeletedOwn(plan, after)) } and cmds +
                 Cmd.Ui(UiEvent.Snackbar("Combination deleted", actionLabel = "Undo", onAction = Msg.Timer.UndoDeleteOwn, tag = TIMER_SNACKBAR))
@@ -439,7 +443,7 @@ internal fun timer(msg: Msg.Timer, model: Model, env: Env): Next {
             // Like a start: the run covers a rest begun meanwhile and a hold timer.
             val (stopped, stopCmds) = stopRest(model)
             stopped.withState { state -> state.copy(timerSessions = state.timerSessions.filter { it.id != finished.session.id }) }
-                .copy(timer = TimerState.Running(back), hold = null, restScreen = null, now = env.now) and
+                .copy(timer = TimerState.Running(back), now = env.now) and
                 stopCmds + listOf(Cmd.SaveTimer(back), schedule(model, back, env.now), Cmd.ShowTimer(timerNotice(back, env.now, model.state)))
         }
         Msg.Timer.Untap -> {
@@ -515,11 +519,111 @@ fun boxingSetup(model: Model): TimerSetup? = model.timerSetup?.takeIf { it.confi
 /** A template's Undo stands next to the chips this long. */
 const val TEMPLATE_UNDO_MILLIS = 6_000L
 
-/** The boxing setup with [plan]: an edit, so a template can no longer be undone. [copied] says so in the round sheet. */
-private fun replan(model: Model, setup: TimerSetup, plan: BoxingPlan, copied: Boolean = false): Next {
+/** The boxing setup with [plan]: an edit, so a template can no longer be undone. [sheet] says what it did to the open round sheet. */
+private fun replan(model: Model, setup: TimerSetup, plan: BoxingPlan, sheet: SheetEvent = SheetEvent.Edited()): Next {
     val config = timerConfig(setup.config.copy(rounds = plan.rounds.size, boxing = plan))
-    val next = setup.copy(config = config, beforeTemplate = null, templateAt = null, copied = copied)
+    val next = setup.copy(config = config, template = null, sheet = sheetAfter(setup.sheet, sheet))
     return if (next == setup) model.only() else boxingEdited(model, next).only()
+}
+
+/**
+ * The list of the open round sheet's combinations, see [Picks]: open and close it, and check what the
+ * round calls. All of them checked is the same as none picked: the round calls all.
+ */
+private fun picks(msg: Msg.Timer, model: Model): Next {
+    val setup = boxingSetup(model) ?: return model.only()
+    val sheet = setup.sheet ?: return model.only()
+    val plan = setup.config.boxing ?: return model.only()
+    val round = plan.rounds.getOrNull(sheet.index) ?: return model.only()
+    // A freestyle round has nothing to pick, and a "build" round adds up its own.
+    if (round.theme == BoxingTheme.FREESTYLE || round.theme == BoxingTheme.BUILD) return model.only()
+    val open = sheet.picks
+    val (pick, picks) = when (msg) {
+        Msg.Timer.OpenPicks -> return if (open != null) model.only() else model.timerSetup { it.copy(sheet = sheetAfter(sheet, SheetEvent.PickList(Picks.SHOWN))) }.only()
+        Msg.Timer.ClosePicks -> return if (open == null) model.only() else model.timerSetup { it.copy(sheet = sheetAfter(sheet, SheetEvent.PickList(null))) }.only()
+        Msg.Timer.PickAll -> emptyList<String>() to Picks.SHOWN
+        Msg.Timer.PickNone -> emptyList<String>() to Picks.NONE_YET
+        is Msg.Timer.TogglePick -> {
+            val all = themeCombos(round.theme, plan.own).map { it.id }
+            if (msg.id !in all) return model.only()
+            val next = if (pickChoice(round, open) == PickChoice.NoneYet) listOf(msg.id) else toggledPick(round, msg.id, plan.own)
+            (if (next.size == all.size) emptyList() else next) to Picks.SHOWN
+        }
+        else -> return model.only()
+    }
+    if (open == null) return model.only()
+    if (pick == round.pick) return if (picks == open) model.only() else model.timerSetup { it.copy(sheet = sheetAfter(sheet, SheetEvent.PickList(picks))) }.only()
+    return replan(model, setup, withRound(plan, sheet.index, round.copy(pick = pick)), SheetEvent.Picked(picks))
+}
+
+/** What changed for the open round sheet of a boxing setup, see [sheetAfter]. */
+sealed interface SheetEvent {
+    /** The sheet of round [index] opens. Another round's sheet gives way to it. */
+    data class Open(val index: Int) : SheetEvent
+
+    data object Close : SheetEvent
+
+    /** The number of rounds is now [count]: the sheet of a round past it closes. */
+    data class Rounds(val count: Int) : SheetEvent
+
+    /** "Listen" played [combo] of the sheet's round. */
+    data class Heard(val combo: String) : SheetEvent
+
+    /** The plan was edited where it is: nothing is "copied" any more. Round [retheme] got another theme: its sheet forgets what it played. */
+    data class Edited(val retheme: Int? = null) : SheetEvent
+
+    /** The sheet's round was copied to all rounds. */
+    data object CopiedToAll : SheetEvent
+
+    /** Round [from] was moved to place [to], one place at a time. */
+    data class Moved(val from: Int, val to: Int) : SheetEvent
+
+    /** Round [index] was copied into the place after it. */
+    data class Duplicated(val index: Int) : SheetEvent
+
+    /** Round [index] was removed, [left] rounds are left. */
+    data class Removed(val index: Int, val left: Int) : SheetEvent
+
+    /** The list of the round's combinations opened, closed ([picks] null) or showed none checked, without a change of the plan. */
+    data class PickList(val picks: Picks?) : SheetEvent
+
+    /** What the round calls was checked in its list, which is in state [picks] now. */
+    data class Picked(val picks: Picks) : SheetEvent
+}
+
+/**
+ * The open round sheet after [event], the one place it changes (see [RoundSheet]). A sheet stays with
+ * its round when the rounds move; one whose round is gone shows the round in its place, as a fresh sheet,
+ * so what it said and played about the old round goes with it.
+ */
+internal fun sheetAfter(sheet: RoundSheet?, event: SheetEvent): RoundSheet? = when (event) {
+    is SheetEvent.Open -> if (sheet?.index == event.index) sheet else RoundSheet(event.index)
+    SheetEvent.Close -> null
+    is SheetEvent.Rounds -> sheet?.takeIf { it.index < event.count }
+    is SheetEvent.Heard -> sheet?.copy(heard = event.combo)
+    is SheetEvent.Edited -> sheet?.copy(copied = false, heard = sheet.heard.takeIf { event.retheme != sheet.index })
+    SheetEvent.CopiedToAll -> sheet?.copy(copied = true)
+    is SheetEvent.PickList -> sheet?.copy(picks = event.picks)
+    is SheetEvent.Picked -> sheet?.copy(copied = false, picks = event.picks)
+    is SheetEvent.Moved -> sheet?.let {
+        val index = when {
+            it.index == event.from -> event.to
+            event.to > event.from && it.index in event.from + 1..event.to -> it.index - 1
+            event.to < event.from && it.index in event.to until event.from -> it.index + 1
+            else -> it.index
+        }
+        it.copy(index = index, copied = false)
+    }
+    // The sheet goes on with the copy, which is the same round.
+    is SheetEvent.Duplicated -> sheet?.let { it.copy(index = if (it.index >= event.index) it.index + 1 else it.index, copied = false) }
+    is SheetEvent.Removed -> sheet?.let {
+        when {
+            // The round that took the removed one's place: another round, a fresh sheet.
+            it.index == event.index -> RoundSheet(minOf(it.index, event.left - 1))
+            it.index > event.index -> it.copy(index = it.index - 1, copied = false)
+            else -> it.copy(copied = false)
+        }
+    }
 }
 
 /**
@@ -559,8 +663,8 @@ fun defaultPresetName(mode: TimerMode, presets: List<TimerPreset>): String {
 }
 
 /**
- * A new run of [config] from now: a rest that runs ends and a hold timer closes (the run covers the
- * workout, which stays as it is underneath), and the config becomes the one its mode opens with.
+ * A new run of [config] from now: a rest that runs ends and whatever lay over the workout goes (the run
+ * covers the workout, which stays as it is underneath), and the config becomes the one its mode opens with.
  * A run of a [wod] carries it and leaves that config alone: a WOD is not how the lifter set the mode.
  */
 private fun startTimer(model: Model, config: TimerConfig, name: String, env: Env, wod: Wod? = null): Next {
@@ -573,7 +677,7 @@ private fun startTimer(model: Model, config: TimerConfig, name: String, env: Env
     val seed = if (config.mode == TimerMode.BOXING) env.newSeed() else null
     val run = TimerRun(id = env.newId(), name = name, config = config, calls = model.state.settings.timerCalls, startedAt = env.now, wod = wod, seed = seed)
     val (stopped, stopCmds) = stopRest(model)
-    val running = stopped.copy(timer = TimerState.Running(run), hold = null, restScreen = null, now = env.now)
+    val running = stopped.copy(timer = TimerState.Running(run), now = env.now)
     val started = if (wod != null) running else running.withState { it.copy(timerConfigs = it.timerConfigs + (config.mode to config)) }
     return started.copy(pendingStart = null) and stopCmds + listOf(Cmd.SaveTimer(run), schedule(model, run, env.now), Cmd.ShowTimer(timerNotice(run, env.now, model.state)))
 }

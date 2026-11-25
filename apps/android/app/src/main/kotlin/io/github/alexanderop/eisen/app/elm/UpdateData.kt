@@ -273,7 +273,7 @@ internal fun data(msg: Msg.Data, model: Model, env: Env): Next = when (msg) {
             state = freshState(model.state.settings.unit),
             session = Session.Idle,
             lastChanges = null,
-            repsQuestion = null,
+            overlay = overlayAfter(model.overlay, OverlayEvent.Cleared),
             undo = Undo(),
             dataNotice = "All data erased.",
         ) and cmds
@@ -292,7 +292,7 @@ private fun import(model: Model, json: String): Next {
         state = parsed,
         session = Session.restore(parsed),
         lastChanges = null,
-        repsQuestion = null,
+        overlay = overlayAfter(model.overlay, OverlayEvent.Cleared),
         undo = Undo(),
         dataNotice = BACKUP_RESTORED,
     ) and cmds

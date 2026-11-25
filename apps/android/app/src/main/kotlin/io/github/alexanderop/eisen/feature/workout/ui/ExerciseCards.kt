@@ -256,11 +256,11 @@ internal class SetHolds(
 private fun holdOf(log: ExerciseLog, set: Int, holds: SetHolds, onTap: (Int) -> Unit): SetHold {
     val target = log.targetReps
     return when {
-        log.timed -> SetHold(label = null, action = null, start = { onTap(set); false })
+        log.timed -> SetHold(label = null, action = null, start = { _, _ -> onTap(set); false })
         target == null -> SetHold(
             label = "Enter the reps",
             action = SET_REPS,
-            start = {
+            start = { _, _ ->
                 holds.haptics.perform(Haptic.THRESHOLD)
                 holds.onEnter(set)
                 false
@@ -269,7 +269,7 @@ private fun holdOf(log: ExerciseLog, set: Int, holds: SetHolds, onTap: (Int) -> 
         else -> SetHold(
             label = "Pick the reps",
             action = SET_REPS,
-            start = { anchor ->
+            start = { anchor, fingerDown ->
                 val logged = log.sets.getOrNull(set)
                 holds.picker.open(
                     RepsPick(pickableReps(target), logged, anchor) { reps ->
@@ -277,12 +277,14 @@ private fun holdOf(log: ExerciseLog, set: Int, holds: SetHolds, onTap: (Int) -> 
                         if (logged != null && reps != logged) holds.haptics.perform(Haptic.TOGGLE_ON)
                         holds.onPick(set, reps)
                     },
+                    fingerDown,
                 )
                 holds.haptics.perform(Haptic.THRESHOLD)
                 true
             },
-            slide = { at -> if (holds.picker.slide(at)) holds.haptics.perform(Haptic.STEP) },
-            lift = { at, slid -> holds.picker.lift(at, slid) },
+            move = { at, slid -> if (holds.picker.move(at, slid)) holds.haptics.perform(Haptic.STEP) },
+            lift = { at -> holds.picker.lift(at) },
+            cancel = { holds.picker.cancel() },
         )
     }
 }

@@ -61,3 +61,49 @@ fun typedAffixes(value: Double, probe: Double, format: (Double) -> String, plain
     }
     return TypedAffixes("", "")
 }
+
+/*
+ * A number of a stepper being shown or typed over, as one value. Typing ends from several places (the
+ * keyboard's Done, the keyboard closing, the field losing focus or leaving the screen, a step of the
+ * buttons); all of them send [NumberEntryEvent.Finish] and [numberEntryAfter] decides what it does.
+ *
+ *              Start (a tap on the number)
+ *   ┌─────────┐ ─────────────────────────▶ ┌──────────────────────┐  Type(text): a number in
+ *   │ Showing │                            │ Typing(before, text) │  the limits is sent at once
+ *   └─────────┘ ◀───────────────────────── └──────────────────────┘
+ *        Finish: the text is no number, so the number from before typing is sent back
+ */
+sealed interface NumberEntry {
+    data object Showing : NumberEntry
+
+    /** [before]: the number when typing started, put back when [text] is no number. [text]: as typed. */
+    data class Typing(val before: Double, val text: String) : NumberEntry
+}
+
+sealed interface NumberEntryEvent {
+    /** Typing starts over the number [latest], shown as [text]. */
+    data class Start(val latest: Double, val text: String) : NumberEntryEvent
+
+    /** The field holds [text] now. */
+    data class Type(val text: String) : NumberEntryEvent
+
+    data object Finish : NumberEntryEvent
+}
+
+/** The entry after an event, and the number to [send] (null: none). [latest] is the number as last sent. */
+data class NumberEntryStep(val entry: NumberEntry, val send: Double? = null)
+
+fun numberEntryAfter(entry: NumberEntry, event: NumberEntryEvent, latest: Double, min: Double, max: Double, snap: Double): NumberEntryStep =
+    when (entry) {
+        NumberEntry.Showing -> when (event) {
+            is NumberEntryEvent.Start -> NumberEntryStep(NumberEntry.Typing(event.latest, event.text))
+            // A keystroke or a finish that comes after typing ended changes nothing.
+            is NumberEntryEvent.Type, NumberEntryEvent.Finish -> NumberEntryStep(entry)
+        }
+        is NumberEntry.Typing -> when (event) {
+            is NumberEntryEvent.Start -> NumberEntryStep(entry)
+            is NumberEntryEvent.Type -> NumberEntryStep(entry.copy(text = event.text), typedValue(event.text, min, max, snap)?.takeIf { it != latest })
+            NumberEntryEvent.Finish ->
+                NumberEntryStep(NumberEntry.Showing, entry.before.takeIf { typedValue(entry.text, min, max, snap) == null && latest != it })
+        }
+    }

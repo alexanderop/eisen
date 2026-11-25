@@ -12,7 +12,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,6 +59,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.isOutOfBounds
 import androidx.compose.ui.keepScreenOn
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -831,16 +835,28 @@ private fun RoundCounter(taps: Int, height: Dp, color: Color, enabled: Boolean, 
 
 /**
  * For Time's "Finish": it ends the run as completed, so it has to be held for a moment and fills
- * while it is. A short tap only says so. TalkBack's double tap finishes at once: there is no way to hold there.
+ * while it is. A short tap only says so. Full, it finishes when the finger lifts on it; sliding off backs
+ * out. What a touch does is decided by [finishHoldAfter]; this only turns touches into its events.
+ * TalkBack's double tap finishes at once: there is no way to hold there.
  */
 @Composable
 private fun HoldToFinish(enabled: Boolean, onFinish: () -> Unit) {
     val fill = remember { Animatable(0f) }
     var hint by remember { mutableStateOf(false) }
+    var hold by remember { mutableStateOf<FinishHold>(FinishHold.Idle) }
     val finish by rememberUpdatedState(onFinish)
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
     val motion = MaterialTheme.motionScheme
+    fun send(event: FinishHoldEvent) {
+        val before = hold
+        val step = finishHoldAfter(before, event)
+        hold = step.hold
+        if (step.hint) hint = true
+        // Back to Idle the bar empties, also after a finish the program did not take.
+        if (step.hold == FinishHold.Idle && before != FinishHold.Idle) scope.launch { fill.animateTo(0f, motion.fastSpatialSpec()) }
+        if (step.finish) finish()
+    }
     LaunchedEffect(hint) {
         if (hint) {
             delay(1800)
@@ -862,21 +878,24 @@ private fun HoldToFinish(enabled: Boolean, onFinish: () -> Unit) {
             }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
-                detectTapGestures(onPress = {
-                    // The fill follows the hold's own length, so it keeps its tween; full, letting go finishes.
-                    val held = scope.launch {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    send(FinishHoldEvent.Down)
+                    // The fill follows the hold's own length, so it keeps its tween.
+                    val filling = scope.launch {
                         fill.animateTo(1f, tween(HOLD_TO_FINISH_MS, easing = LinearEasing))
                         haptics.perform(Haptic.THRESHOLD)
+                        send(FinishHoldEvent.Full)
                     }
-                    val released = tryAwaitRelease()
-                    if (fill.value >= 1f) {
-                        finish()
-                    } else {
-                        held.cancel()
-                        if (released) hint = true
-                        scope.launch { fill.animateTo(0f, motion.fastSpatialSpec()) }
+                    // A gesture cut off on the way (the button left the screen) ends as a cancel.
+                    var end: FinishHoldEvent = FinishHoldEvent.Cancel
+                    try {
+                        end = awaitHoldEnd(down.id)
+                    } finally {
+                        filling.cancel()
+                        send(end)
                     }
-                })
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -888,6 +907,20 @@ private fun HoldToFinish(enabled: Boolean, onFinish: () -> Unit) {
             fontWeight = FontWeight.ExtraBold,
             fontSize = 17.sp,
         )
+    }
+}
+
+/**
+ * How the touch of [pointer] on "Hold to finish" ends: a lift on the button or off it, or a cancel when
+ * the finger slides off or the system takes the touch, which Compose reports as a lift already consumed.
+ */
+private suspend fun AwaitPointerEventScope.awaitHoldEnd(pointer: PointerId): FinishHoldEvent {
+    while (true) {
+        val change = awaitPointerEvent().changes.firstOrNull { it.id == pointer } ?: return FinishHoldEvent.Cancel
+        if (change.isConsumed) return FinishHoldEvent.Cancel
+        val outside = change.isOutOfBounds(size, extendedTouchPadding)
+        if (!change.pressed) return FinishHoldEvent.Release(inside = !outside)
+        if (outside) return FinishHoldEvent.Cancel
     }
 }
 

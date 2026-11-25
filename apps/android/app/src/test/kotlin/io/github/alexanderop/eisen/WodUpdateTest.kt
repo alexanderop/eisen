@@ -1,5 +1,9 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.Builder
+import io.github.alexanderop.eisen.app.elm.pending
+import io.github.alexanderop.eisen.app.elm.draft
+import io.github.alexanderop.eisen.app.elm.hold
 import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMERS
 import io.github.alexanderop.eisen.core.Equipment
 import io.github.alexanderop.eisen.app.state.STATE_VERSION
@@ -711,9 +715,9 @@ class WodUpdateTest {
     @Test fun `leaving with changes asks first`() {
         val changed = building().send(Msg.Wods.AddItem("burpee"))
         val asking = changed.send(Msg.Nav.Back)
-        assertTrue(asking.model.wods.draft!!.asking)
+        assertTrue(asking.model.wods.builder is Builder.Asking)
         assertIgnored(asking, Msg.Wods.Leave)
-        assertFalse(asking.send(Msg.Wods.KeepEditing).model.wods.draft!!.asking)
+        assertTrue(asking.send(Msg.Wods.KeepEditing).model.wods.builder is Builder.Editing)
         val gone = asking.send(Msg.Wods.Discard)
         assertNull(gone.model.wods.draft)
         assertTrue(gone.state.wods.isEmpty())
@@ -784,18 +788,18 @@ class WodUpdateTest {
 
     @Test fun `the draft is kept in its file as it changes, and comes back as Continue after the process ended`() {
         val opened = building()
-        assertEquals(listOf(Cmd.SaveDraft(opened.model.wods.draft)), opened.cmds.filterIsInstance<Cmd.SaveDraft>())
+        assertEquals(listOf(Cmd.SaveDraft(listOfNotNull(opened.model.wods.draft))), opened.cmds.filterIsInstance<Cmd.SaveDraft>())
         val named = opened.send(Msg.Wods.Rename("Half"))
-        assertEquals(named.model.wods.draft, named.cmds.filterIsInstance<Cmd.SaveDraft>().single().draft)
+        assertEquals(listOfNotNull(named.model.wods.draft), named.cmds.filterIsInstance<Cmd.SaveDraft>().single().drafts)
         // The question is not part of the draft: asking writes nothing.
         val asking = named.send(Msg.Wods.Leave)
         assertTrue(asking.cmds.none { it is Cmd.SaveDraft })
-        assertTrue(Cmd.SaveDraft(null) in asking.send(Msg.Wods.Discard).cmds)
+        assertTrue(Cmd.SaveDraft(emptyList()) in asking.send(Msg.Wods.Discard).cmds)
         // A filter tap writes nothing.
         assertTrue(named.send(Msg.Wods.Filter(WodFilter.AMRAP)).cmds.none { it is Cmd.SaveDraft })
 
         val kept = named.model.wods.draft!!
-        val (model, _) = init(Flags(freshState(), savedRest = null, healthEnabled = false, notifications = Notifications(true, true), savedDraft = kept))
+        val (model, _) = init(Flags(freshState(), savedRest = null, healthEnabled = false, notifications = Notifications(true, true), savedDrafts = listOf(kept)))
         val restarted = Step(model)
         assertNull(restarted.model.wods.draft)
         assertEquals(kept, restarted.model.wods.pending)
@@ -804,10 +808,10 @@ class WodUpdateTest {
         assertNull(continued.model.wods.pending)
         assertTrue(continued.cmds.none { it is Cmd.SaveDraft })
         val saved = continued.send(Msg.Wods.AddItem("burpee")).send(Msg.Wods.Save)
-        assertTrue(Cmd.SaveDraft(null) in saved.cmds)
+        assertTrue(Cmd.SaveDraft(emptyList()) in saved.cmds)
         val discarded = restarted.send(Msg.Wods.DiscardDraft)
         assertNull(discarded.model.wods.pending)
-        assertEquals(listOf(Cmd.SaveDraft(null)), discarded.cmds)
+        assertEquals(listOf(Cmd.SaveDraft(emptyList())), discarded.cmds)
         assertIgnored(discarded, Msg.Wods.ContinueDraft)
     }
 
@@ -818,7 +822,7 @@ class WodUpdateTest {
         assertEquals(detail.model.nav.timerTop + 1, top.model.nav.timerTop)
         // A builder with changes asks first.
         val asking = stepOf().send(Msg.Nav.SelectTab(Tab.TIMER)).send(Msg.Wods.New, id = "d1").send(Msg.Wods.AddItem("burpee")).send(Msg.Nav.SelectTab(Tab.TIMER))
-        assertTrue(asking.model.wods.draft!!.asking)
+        assertTrue(asking.model.wods.builder is Builder.Asking)
     }
 
     // The picker

@@ -80,23 +80,7 @@ fun showsWorkout(model: Model): Boolean = model.nav.workoutOpen && model.state.a
 fun openRoutine(model: Model): Routine? = model.nav.routine?.let { id -> model.state.routines.firstOrNull { it.id == id } }
 
 /** The rest screen covers the workout screen. A minimised one leaves the rest bar showing. */
-fun showsRestScreen(model: Model): Boolean = showsWorkout(model) && model.restScreen?.minimised == false
-
-/**
- * The rest screen still belongs to the running rest and to a logged set of its exercise in the running
- * workout. A hold timer never shows with it. The "set done" screen has no rest: it belongs to the workout
- * screen and a set that can still be rated, so it leaves nothing behind when either goes.
- */
-fun restScreenFits(model: Model, screen: RestScreen): Boolean {
-    if (model.hold != null) return false
-    if (screen.setDone) {
-        if (!model.nav.workoutOpen || !model.state.settings.trackRir) return false
-    } else if (model.rest == null) {
-        return false
-    }
-    val log = model.session.active?.exercises?.getOrNull(screen.exercise) ?: return false
-    return log.id == screen.exerciseId && log.sets.getOrNull(screen.set) != null && (!screen.setDone || canRate(log, screen.set))
-}
+fun showsRestScreen(model: Model): Boolean = showsWorkout(model) && model.restScreen.let { it != null && it !is RestScreen.Minimised }
 
 /** The rest screen shows the reps in reserve chips for set [set] of [log]. */
 fun ratesSet(settings: Settings, log: ExerciseLog, set: Int): Boolean = settings.trackRir && canRate(log, set)
@@ -156,13 +140,6 @@ fun holdSecondsShown(hold: HoldTimer, now: Long): Int = when {
     now < hold.startsAt -> Math.ceil((hold.startsAt - now) / 1000.0).toInt()
     hold.target != null -> maxOf(0, Math.ceil((holdEndsAt(hold) - now) / 1000.0).toInt())
     else -> heldSeconds(hold, now)
-}
-
-/** The hold timer still belongs to an open set of a timed exercise of the running workout, which shows. */
-fun holdFits(model: Model, hold: HoldTimer): Boolean {
-    val session = model.session as? Session.Running ?: return false
-    val log = session.run.workout.exercises.getOrNull(hold.exercise) ?: return false
-    return model.nav.workoutOpen && log.id == hold.exerciseId && log.timed && log.sets.getOrNull(hold.set) == null && hold.set in log.sets.indices
 }
 
 // WODs

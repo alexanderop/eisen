@@ -1,5 +1,9 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.draft
+import io.github.alexanderop.eisen.app.elm.restScreen
+import io.github.alexanderop.eisen.app.elm.repsQuestion
+import io.github.alexanderop.eisen.app.elm.hold
 import io.github.alexanderop.eisen.feature.timer.boxing.BOXING_TEMPLATES
 import io.github.alexanderop.eisen.feature.timer.boxing.BOXING_MOVES
 import io.github.alexanderop.eisen.feature.timer.boxing.BoxingCues
@@ -90,7 +94,8 @@ import io.github.alexanderop.eisen.feature.timer.wod.isLibraryWod
 import io.github.alexanderop.eisen.feature.timer.wod.wod
 import io.github.alexanderop.eisen.app.elm.TimerPage
 import io.github.alexanderop.eisen.app.elm.WodFilter
-import io.github.alexanderop.eisen.app.elm.keptDraft
+import io.github.alexanderop.eisen.app.elm.draftFile
+import io.github.alexanderop.eisen.app.elm.fitting
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -496,7 +501,7 @@ class UpdateTest {
         assertTrue(ticked.send(WorkoutEvent.RequestDiscard).send(WorkoutEvent.Start).model.warmupDone.isEmpty())
 
         val asked = started().send(WorkoutEvent.TapSet(3, 0))
-        assertEquals(RepsQuestion(3, 0, 8), asked.model.repsQuestion)
+        assertEquals(RepsQuestion(3, 0, "dips", 8), asked.model.repsQuestion)
         assertNull(asked.send(Msg.WorkoutScreen.CloseRepsEntry).model.repsQuestion)
     }
 
@@ -806,6 +811,7 @@ class UpdateTest {
         var picked = 0
         var rated = 0
         var doneScreens = 0
+        var questions = 0
         var timed = 0
         var filed = 0
         var ranOut = 0
@@ -863,17 +869,22 @@ class UpdateTest {
             // never shows with a hold timer.
             // The "set done" screen has no rest and never minimises.
             after.model.restScreen?.let { screen ->
-                if (screen.setDone) {
+                if (screen is RestScreen.SetDone) {
                     assertNull(where, after.model.rest)
-                    assertFalse(where, screen.minimised)
                     if (step.model.restScreen != screen) doneScreens++
                 } else {
                     assertNotNull(where, after.model.rest)
                 }
-                assertNull(where, after.model.hold)
                 assertTrue(where, restScreenFits(after.model, screen))
                 if (step.model.restScreen == null) screens++
             }
+            // A reps question belongs to a max-reps set of the workout on screen; what lies over the workout always fits it.
+            after.model.repsQuestion?.let { question ->
+                assertTrue(where, showsWorkout(after.model))
+                assertEquals(where, question.exerciseId, after.model.session.active?.exercises?.getOrNull(question.exercise)?.id)
+                if (step.model.repsQuestion == null) questions++
+            }
+            assertEquals(where, fitting(after.model, after.model.overlay), after.model.overlay)
             // A rating only ever sits on a logged set with a target count of reps, and never past the sets.
             for (log in after.state.history.flatMap { it.exercises } + after.state.active?.exercises.orEmpty()) {
                 assertTrue(where, log.rir.size <= log.sets.size)
@@ -917,11 +928,11 @@ class UpdateTest {
                     assertTrue(where, logged in 1..(before.target ?: MAX_HELD_SECONDS))
                 }
             }
-            // An interval timer: a run covers the rest and the hold timer, and its clock runs while it goes.
+            // An interval timer: a run covers the rest and everything over the workout, and its clock runs while it goes.
             val run = after.model.timerRun
             if (run != null) {
                 assertNull(where, after.model.rest)
-                assertNull(where, after.model.hold)
+                assertNull(where, after.model.overlay)
                 val tick = if (run.config.mode == TimerMode.BOXING) 500L else 1000L
                 assertEquals(where, run.pausedAt == null, Sub.TimerClock(run.startedAt + run.paused, tick) in subscriptions(after.model))
             } else {
@@ -999,8 +1010,8 @@ class UpdateTest {
             assertTrue(where, !after.model.wods.suggesting || after.model.wods.query.isNotBlank())
             assertTrue(where, after.model.wods.query.length <= MAX_QUERY)
             // The draft file is written exactly when what it keeps changed, with that.
-            val keptAfter = keptDraft(after.model.wods)
-            assertEquals(where, if (keptAfter != keptDraft(step.model.wods)) listOf(Cmd.SaveDraft(keptAfter)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SaveDraft>())
+            val keptAfter = draftFile(after.model.wods.builder)
+            assertEquals(where, if (keptAfter != draftFile(step.model.wods.builder)) listOf(Cmd.SaveDraft(keptAfter)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SaveDraft>())
             // A finished WOD run is complete only with every step tapped off; Undo brings back the run its last tap ended.
             val ended = (step.model.timer as? TimerState.Finished)?.undo
             if (msg == Msg.Timer.UndoFinish && ended != null && after.model != step.model) {
@@ -1021,7 +1032,7 @@ class UpdateTest {
                 assertNotNull(where, run.seed)
                 if (run.id != step.model.timerRun?.id) boxingRuns++
             }
-            setup?.round?.let { assertTrue(where, it in 0 until setup.config.rounds && setup.config.mode == TimerMode.BOXING) }
+            setup?.sheet?.let { assertTrue(where, it.index in 0 until setup.config.rounds && setup.config.mode == TimerMode.BOXING) }
             // A run waits for the notification question only while none goes, and a boxing setup's edits are its mode's last config.
             if (after.model.pendingStart != null) assertNull(where, run)
             if (setup?.config?.mode == TimerMode.BOXING && msg is Msg.Timer && step.model.timerSetup?.config != setup.config && msg !is Msg.Timer.Open && msg !is Msg.Timer.OpenPreset && msg !is Msg.Timer.StartPreset) {
@@ -1087,6 +1098,7 @@ class UpdateTest {
         assertTrue("only $picked open sets were logged by a picked number", picked >= 5)
         assertTrue("only $rated sets were rated", rated >= 20)
         assertTrue("only $doneScreens set done screens opened", doneScreens >= 5)
+        assertTrue("only $questions reps questions were asked", questions >= 5)
         assertTrue("only $timed timers started", timed >= 30)
         assertTrue("only $filed timers were filed", filed >= 15)
         assertTrue("only $ranOut timers ran out by themselves", ranOut >= 3)
@@ -1158,7 +1170,7 @@ class UpdateTest {
         if (boxing != null && model.timer == null && random.nextInt(3) > 0) {
             val rounds = boxing.config.rounds
             val ownIds = boxing.config.boxing?.own.orEmpty().map { it.id } + "own-99"
-            val at = boxing.round ?: index(rounds)
+            val at = boxing.sheet?.index ?: index(rounds)
             return pick(
                 listOf(
                     { Msg.Timer.OpenRound(index(rounds)) },
@@ -1174,7 +1186,7 @@ class UpdateTest {
                     { Msg.Timer.MoveRound(index(rounds), index(rounds)) },
                     { Msg.Timer.DuplicateRound(index(rounds)) },
                     { Msg.Timer.RemoveRound(index(rounds)) },
-                    { Msg.Timer.ForgetTemplate(boxing.templateAt ?: 0) },
+                    { Msg.Timer.ForgetTemplate(boxing.template?.at ?: 0) },
                     { Msg.Timer.EditRound(at, (boxing.config.boxing?.rounds?.getOrNull(at) ?: BoxingRound(BoxingTheme.MIX, 6, 0)).copy(pick = listOf(pick(listOf("jab", "jab-cross-hook", "six", "nope"))))) },
                     { Msg.Timer.Edit(boxing.config.copy(rounds = random.nextInt(18) - 1, work = random.nextInt(700), rest = random.nextInt(320))) },
                     { Msg.Timer.Edit(boxing.config.copy(boxing = null)) },
@@ -1234,7 +1246,7 @@ class UpdateTest {
             { Msg.Workout(WorkoutEvent.LogHold(exercise, set, random.nextInt(100))) },
             correct, correct, correct, correct, correct, correct,
             rate, rate, rate, rate, tapNext, tapNext, tapNext,
-            { Msg.Rest.Rated(model.restScreen ?: RestScreen(0, 0, "nope"), random.nextInt(MAX_RIR + 1)) },
+            { Msg.Rest.Rated(model.restScreen ?: RestScreen.Shown(0, 0, "nope"), random.nextInt(MAX_RIR + 1)) },
             { Msg.Settings.SetTrackRir(random.nextInt(4) > 0) },
             { Msg.Hold.SkipLeadIn },
             { Msg.Hold.Stop },

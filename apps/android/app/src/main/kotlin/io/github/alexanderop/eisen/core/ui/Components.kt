@@ -21,7 +21,6 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -59,7 +58,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,6 +78,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.isOutOfBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.findRootCoordinates
@@ -112,7 +111,9 @@ import io.github.alexanderop.eisen.core.stepFor
 import io.github.alexanderop.eisen.core.typedWeightSnap
 import io.github.alexanderop.eisen.core.formatNumber
 import io.github.alexanderop.eisen.core.typedAffixes
-import io.github.alexanderop.eisen.core.typedValue
+import io.github.alexanderop.eisen.core.NumberEntry
+import io.github.alexanderop.eisen.core.NumberEntryEvent
+import io.github.alexanderop.eisen.core.numberEntryAfter
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -339,35 +340,27 @@ private fun NumberStepper(
     val latest = remember { Latest(value) }
     latest.value = value
     val change by rememberUpdatedState(onValueChange)
-    var editing by remember { mutableStateOf(autoFocus) }
-    // The number before typing started, put back when the typed text is not a number.
-    var before by remember { mutableDoubleStateOf(value) }
-    var text by remember { mutableStateOf(typedText(value, whole)) }
+    // Showing the number, or typing over it: see `NumberEntry`.
+    var entry by remember { mutableStateOf(if (autoFocus) NumberEntry.Typing(value, typedText(value, whole)) else NumberEntry.Showing) }
 
     fun send(next: Double) {
         latest.value = next
         change(next)
     }
 
+    fun enter(event: NumberEntryEvent) {
+        val step = numberEntryAfter(entry, event, latest.value, min, max, snap)
+        entry = step.entry
+        step.send?.let(::send)
+    }
+
     // Every valid keystroke is sent right away. Tapping "Save" does not take the focus from the
     // field, so a value kept back until the keyboard closes would be lost on the way.
-    fun type(typed: String) {
-        text = typed
-        val next = typedValue(typed, min, max, snap) ?: return
-        if (next != latest.value) send(next)
-    }
+    fun type(typed: String) = enter(NumberEntryEvent.Type(typed))
 
-    fun finishTyping() {
-        if (!editing) return
-        editing = false
-        if (typedValue(text, min, max, snap) == null && latest.value != before) send(before)
-    }
+    fun finishTyping() = enter(NumberEntryEvent.Finish)
 
-    fun startTyping() {
-        before = latest.value
-        text = typedText(latest.value, whole)
-        editing = true
-    }
+    fun startTyping() = enter(NumberEntryEvent.Start(latest.value, typedText(latest.value, whole)))
 
     /** One step from the latest value. False at the limit, so a held button stops. */
     fun stepBy(direction: Int): Boolean {
@@ -388,6 +381,7 @@ private fun NumberStepper(
     val style = if (large) LargeNumber else SmallNumber
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
+    val typing = entry as? NumberEntry.Typing
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         RepeatButton(Icons.Minus, "Decrease $label", enabled = value > min) { stepNow(-1) }
         Box(
@@ -396,7 +390,7 @@ private fun NumberStepper(
                 .heightIn(min = 48.dp)
                 .clip(NumberShape)
                 .then(
-                    if (editing) {
+                    if (typing != null) {
                         Modifier.background(EisenColors.Muted)
                     } else {
                         Modifier
@@ -427,9 +421,9 @@ private fun NumberStepper(
                 .padding(horizontal = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            if (editing) {
+            if (typing != null) {
                 NumberField(
-                    initial = text,
+                    initial = typing.text,
                     prefix = prefix,
                     suffix = suffix,
                     style = style,
@@ -528,18 +522,18 @@ private fun numberCharacters(whole: Boolean, allowMinus: Boolean) = InputTransfo
     if (!fits) revertAllChanges()
 }
 
-/** Set while a held button is repeating, so letting go does not add the step of a tap on top. */
-private class Hold(var repeated: Boolean = false)
-
 /**
  * A round + or − button. A tap is one step. Held, it repeats after [FIRST_REPEAT_MS], faster and
  * faster down to [FASTEST_REPEAT_MS], until the finger lifts, slides away or the limit is reached.
+ *
+ * The press is Pressed, then Repeating once the first repeat stepped. Both live in the gesture below,
+ * which ends with the touch: a Repeating press takes its lift away from the click (it consumes it first),
+ * so the hold's steps get no tap on top, and nothing of it is left for the next TalkBack or keyboard click.
  */
 @Composable
 private fun RepeatButton(icon: ImageVector, description: String, enabled: Boolean, onStep: () -> Boolean) {
     val colors = IconButtonDefaults.filledTonalIconButtonColors()
     val step by rememberUpdatedState(onStep)
-    val hold = remember { Hold() }
     Box(
         Modifier
             .size(52.dp)
@@ -547,27 +541,38 @@ private fun RepeatButton(icon: ImageVector, description: String, enabled: Boolea
             .pointerInput(Unit) {
                 coroutineScope {
                     awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        hold.repeated = false
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var repeating = false
                         val repeat = launch {
                             delay(FIRST_REPEAT_MS)
                             var gap = SECOND_REPEAT_MS
                             while (step()) {
-                                hold.repeated = true
+                                repeating = true
                                 delay(gap)
                                 gap = (gap * 4 / 5).coerceAtLeast(FASTEST_REPEAT_MS)
                             }
                         }
-                        waitForUpOrCancellation()
-                        repeat.cancel()
+                        try {
+                            while (true) {
+                                // Before the click below sees it, so a lift after repeating can be taken from it.
+                                val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) {
+                                    if (repeating) change.consume()
+                                    break
+                                }
+                                if (change.isOutOfBounds(size, extendedTouchPadding)) break
+                                // A scroll around took the touch.
+                                if (awaitPointerEvent(PointerEventPass.Final).changes.any { it.id == down.id && it.isConsumed }) break
+                            }
+                        } finally {
+                            repeat.cancel()
+                        }
                     }
                 }
             }
             .clip(CircleShape)
             .background(if (enabled) colors.containerColor else colors.disabledContainerColor)
-            .clickable(enabled = enabled, role = Role.Button, interactionSource = null, indication = ripple()) {
-                if (hold.repeated) hold.repeated = false else step()
-            },
+            .clickable(enabled = enabled, role = Role.Button, interactionSource = null, indication = ripple()) { step() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = description, tint = if (enabled) colors.contentColor else colors.disabledContentColor)
@@ -681,24 +686,26 @@ fun SetButton(
 
 /**
  * What holding a set does besides its tap. [start] is called with the set's bounds in the root once
- * the hold is long enough (or TalkBack's long press or [action] asks) and says whether numbers opened
- * that follow the finger: then [slide] gets every move after the finger left the set's spot and
- * [lift] where it let go (root), and whether it slid first. Either way the tap does not fire on release.
- * [label] is what TalkBack says a long press does, null for none; [action] the same as a custom action.
+ * the hold is long enough (with the finger down), or TalkBack's long press or [action] asks (without
+ * one), and says whether numbers opened that follow the finger. Then every move goes to [move] (root,
+ * and whether the finger is past the touch slop from where the hold began), and the end of the touch
+ * to [lift] (where it let go) or [cancel] (the system took it). Either way the tap does not fire on
+ * release. [label] is what TalkBack says a long press does, null for none; [action] the same as a custom action.
  */
 class SetHold(
     val label: String?,
     val action: String?,
-    val start: (anchor: Rect) -> Boolean,
-    val slide: (at: Offset) -> Unit = {},
-    val lift: (at: Offset, slid: Boolean) -> Unit = { _, _ -> },
+    val start: (anchor: Rect, fingerDown: Boolean) -> Boolean,
+    val move: (at: Offset, slid: Boolean) -> Unit = { _, _ -> },
+    val lift: (at: Offset) -> Unit = {},
+    val cancel: () -> Unit = {},
 )
 
 /**
  * The hold of a set, next to its click: it watches the press without taking it, so the tap lands on the
  * frame it always did. The touch is claimed for the set ([LongPressClaim]), so the card around does not
  * lift itself for reordering; once the hold is long enough every touch is consumed here, before the
- * click, the card's swipe and the list's scroll see it.
+ * click, the card's swipe and the list's scroll see it. It only reports the touch: what it does is up to [SetHold].
  */
 private fun Modifier.holdToPick(hold: SetHold): Modifier = composed {
     val current by rememberUpdatedState(hold)
@@ -707,8 +714,8 @@ private fun Modifier.holdToPick(hold: SetHold): Modifier = composed {
     fun bounds(): Rect? = holder[0]?.takeIf { it.isAttached }?.boundsInRoot()
     onPlaced { holder[0] = it }
         .semantics {
-            hold.label?.let { label -> onLongClick(label) { bounds()?.let { current.start(it) } != null } }
-            hold.action?.let { action -> customActions = listOf(CustomAccessibilityAction(action) { bounds()?.let { current.start(it) } != null }) }
+            hold.label?.let { label -> onLongClick(label) { bounds()?.let { current.start(it, false) } != null } }
+            hold.action?.let { action -> customActions = listOf(CustomAccessibilityAction(action) { bounds()?.let { current.start(it, false) } != null }) }
         }
         .pointerInput(Unit) {
             awaitEachGesture {
@@ -717,20 +724,28 @@ private fun Modifier.holdToPick(hold: SetHold): Modifier = composed {
                 val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
                 val layout = holder[0]?.takeIf { it.isAttached } ?: return@awaitEachGesture
                 press.consume()
-                val follows = current.start(layout.boundsInRoot())
+                val follows = current.start(layout.boundsInRoot(), true)
                 var at = layout.localToRoot(press.position)
-                var slid = false
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull { it.id == press.id } ?: break
-                    event.changes.forEach { it.consume() }
-                    if (layout.isAttached) at = layout.localToRoot(change.position)
-                    if (!change.pressed) {
-                        if (follows) current.lift(at, slid)
-                        break
+                // A touch that ends any other way than a lift (this gesture cut off, the set gone) is a cancel.
+                var lifted = false
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == press.id } ?: break
+                        // Compose reports a cancelled touch as a lift that is already consumed. Read before consuming below.
+                        val cancelled = !change.pressed && change.isConsumed
+                        event.changes.forEach { it.consume() }
+                        if (layout.isAttached) at = layout.localToRoot(change.position)
+                        if (cancelled) break
+                        if (!change.pressed) {
+                            lifted = true
+                            if (follows) current.lift(at)
+                            break
+                        }
+                        if (follows) current.move(at, (change.position - press.position).getDistance() > viewConfiguration.touchSlop)
                     }
-                    if (!slid && (change.position - press.position).getDistance() > viewConfiguration.touchSlop) slid = true
-                    if (follows && slid) current.slide(at)
+                } finally {
+                    if (follows && !lifted) current.cancel()
                 }
             }
         }

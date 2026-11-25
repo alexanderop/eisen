@@ -67,23 +67,23 @@ const val DISCARD_UNDO_MS = 6_000L
  * What every change brings along, decided once here instead of in each branch: the file is written
  * when the saved state changed, Health Connect follows the history, the widget and the shortcuts
  * follow when what they show changed, the "Workout discarded" snackbar goes once the discard
- * can no longer be undone, a hold timer closes once its set is no longer open on screen, and the
- * rest screen once its rest ended or its set is gone.
+ * can no longer be undone, and what lies over the workout goes once it no longer belongs to it
+ * (see [fitting]).
  */
 private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     // The workout belongs to the session. Nothing else may put a different one on disk.
     var model = if (after.state.active == after.session.active) after else after.withState { it.copy(active = after.session.active) }
     val extra = mutableListOf<Cmd>()
-    // A backup, an erase or a closed workout screen took the set away: the timer goes without logging.
-    if (model.hold?.let { holdFits(model, it) } == false) model = model.copy(hold = null)
-    // A finished, discarded or erased workout, a removed or moved exercise, an ended rest: the screen goes.
-    if (model.restScreen?.let { restScreenFits(model, it) } == false) model = model.copy(restScreen = null)
+    // A backup, an erase, a finished or discarded workout, a closed workout screen, a removed or moved
+    // exercise, an ended rest: what lay over the workout goes (a hold timer without logging).
+    val fits = fitting(model, model.overlay)
+    if (fits != model.overlay) model = model.copy(overlay = fits)
     // A backup or an erase took the WOD away whose detail showed.
     val detail = model.wods.detail
     if (detail != null && findWod(model.state.wods, detail) == null) model = model.wods { it.copy(detail = null) }
-    // The draft file holds the builder's draft, or the one from before the process ended.
-    val kept = keptDraft(model.wods)
-    if (kept != keptDraft(before.wods)) extra += Cmd.SaveDraft(kept)
+    // The draft file holds the builder's draft and the ones kept from before the process ended.
+    val kept = draftFile(model.wods.builder)
+    if (kept != draftFile(before.wods.builder)) extra += Cmd.SaveDraft(kept)
     if (before.session is Session.Discarded && model.session !is Session.Discarded) {
         extra += Cmd.Ui(UiEvent.DismissSnackbar(DISCARD_SNACKBAR))
     }
@@ -96,9 +96,6 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     }
     return model to cmds + extra
 }
-
-/** What the draft file keeps: the open draft without its question, or the one waiting to be continued. */
-fun keptDraft(wods: WodsModel): WodDraft? = (wods.draft ?: wods.pending)?.copy(asking = false)
 
 /**
  * Health Connect follows the history: a new or edited workout is written, a deleted one removed.
@@ -130,12 +127,9 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
     if (result.session::class != model.session::class) next = next.copy(now = env.now)
     // Undo brings the discarded workout back on screen, where it was.
     if (model.session is Session.Discarded && result.session is Session.Running) next = next.nav { it.copy(workoutOpen = true) }
-    if (next.repsQuestion != null && (event is WorkoutEvent.LogReps || next.session.active == null)) next = next.copy(repsQuestion = null)
+    if (event is WorkoutEvent.LogReps) next = next.overlay(OverlayEvent.Answered)
+    if (event is WorkoutEvent.Move || event is WorkoutEvent.Defer || event is WorkoutEvent.RemoveExercise) next = next.overlay(OverlayEvent.Reordered)
     if (next.settling != null && next.session.active == null) next = next.copy(settling = null)
-    // The timer of a hold names its set by place: a list that changed order, lost the exercise or
-    // ended takes it away without logging.
-    val reorders = event is WorkoutEvent.Move || event is WorkoutEvent.Defer || event is WorkoutEvent.RemoveExercise
-    if (next.hold != null && (reorders || next.session !is Session.Running)) next = next.copy(hold = null)
 
     val cmds = mutableListOf<Cmd>()
     for (effect in result.effects) {
@@ -145,7 +139,10 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
                 val (rested, more) = startRest(next, effect.seconds, effect.note, env)
                 // Every rest opens its screen, also after one that was minimised.
                 val id = rested.session.active?.exercises?.getOrNull(effect.exercise)?.id
-                next = if (id == null) rested else rested.copy(restScreen = RestScreen(effect.exercise, effect.set, id, minimised = !rested.state.settings.restFullScreen))
+                val screen = id?.let {
+                    if (rested.state.settings.restFullScreen) RestScreen.Shown(effect.exercise, effect.set, it) else RestScreen.Minimised(effect.exercise, effect.set, it)
+                }
+                next = if (screen == null) rested else rested.overlay(OverlayEvent.Rest(screen))
                 cmds += more
             }
             Effect.StopRest -> {
@@ -157,17 +154,20 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
             is Effect.LastSet -> {
                 val log = next.session.active?.exercises?.getOrNull(effect.exercise)
                 val settings = next.state.settings
-                if (log != null && settings.trackRir && settings.restFullScreen && canRate(log, effect.set) && next.timer !is TimerState.Running) {
-                    next = next.copy(restScreen = RestScreen(effect.exercise, effect.set, log.id, setDone = true))
+                if (log != null && settings.trackRir && settings.restFullScreen && canRate(log, effect.set)) {
+                    next = next.overlay(OverlayEvent.Rest(RestScreen.SetDone(effect.exercise, effect.set, log.id)))
                 }
             }
             is Effect.Haptic -> if (next.state.settings.haptics) cmds += Cmd.Ui(UiEvent.Haptic(effect.kind))
-            is Effect.AskReps -> next = next.copy(repsQuestion = RepsQuestion(effect.exercise, effect.set, effect.reps))
+            is Effect.AskReps -> {
+                val log = next.session.active?.exercises?.getOrNull(effect.exercise)
+                if (log != null) next = next.overlay(OverlayEvent.AskReps(RepsQuestion(effect.exercise, effect.set, log.id, effect.reps)))
+            }
             is Effect.OpenHold -> {
                 val log = next.session.active?.exercises?.getOrNull(effect.exercise)
                 if (log != null && next.timer !is TimerState.Running) {
                     val hold = HoldTimer(effect.exercise, effect.set, log.id, log.targetReps, startsAt = env.now + HOLD_LEAD_IN_SECONDS * 1000L)
-                    next = next.nav { it.copy(workoutOpen = true) }.copy(hold = hold, now = env.now)
+                    next = next.nav { it.copy(workoutOpen = true) }.overlay(OverlayEvent.Hold(hold)).copy(now = env.now)
                 }
             }
             // A new workout forgets the last summary and the ticked warmups, and shows itself.
@@ -191,7 +191,7 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
     }
     // A chip on the "set done" screen closes it a moment later, so the lifter sees the choice land.
     val screen = next.restScreen
-    if (event is WorkoutEvent.RateSet && event.rir != null && screen != null && screen.setDone && screen.exercise == event.exercise && screen.set == event.set) {
+    if (event is WorkoutEvent.RateSet && event.rir != null && screen is RestScreen.SetDone && screen.exercise == event.exercise && screen.set == event.set) {
         cmds += Cmd.After(RATED_CLOSE_MS, Msg.Rest.Rated(screen, event.rir))
     }
     return next and cmds
@@ -248,7 +248,7 @@ private fun workoutScreen(msg: Msg.WorkoutScreen, model: Model, env: Env): Next 
         val done = model.warmupDone
         model.copy(warmupDone = if (msg.key in done) done - msg.key else done + msg.key).only()
     }
-    Msg.WorkoutScreen.CloseRepsEntry -> model.copy(repsQuestion = null).only()
+    Msg.WorkoutScreen.CloseRepsEntry -> model.overlay(OverlayEvent.CloseReps).only()
     is Msg.WorkoutScreen.PickReps -> pickReps(msg, model, env)
     is Msg.WorkoutScreen.Settle ->
         if (model.settling == Settling(msg.id, msg.since)) settle(model, env) else model.only()
@@ -305,11 +305,11 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
         Msg.Nav.Back -> when {
             model.timer is TimerState.Running -> return timer(if ((model.timer as TimerState.Running).ending) Msg.Timer.KeepGoing else Msg.Timer.End, model, env)
             model.timer is TimerState.Finished -> return timer(Msg.Timer.Done, model, env)
-            model.hold != null -> return model.copy(hold = null).only()
+            model.hold != null -> return model.overlay(OverlayEvent.HoldClosed).only()
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
-            nav.tab == Tab.TIMER && model.timerSetup?.round != null -> return timer(Msg.Timer.CloseRound, model, env)
+            nav.tab == Tab.TIMER && model.timerSetup?.sheet != null -> return timer(Msg.Timer.CloseRound, model, env)
             nav.tab == Tab.TIMER && model.timerSetup != null -> return timer(Msg.Timer.CloseSetup, model, env)
             // The builder asks before it loses changes; the detail goes back to the list.
             nav.tab == Tab.TIMER && nav.timerPage == TimerPage.WODS && model.wods.draft != null -> return wods(Msg.Wods.Leave, model, env)
@@ -363,11 +363,11 @@ private fun hold(msg: Msg.Hold, model: Model, env: Env): Next {
             env.now >= holdEndsAt(hold) -> holdClock(model.copy(now = env.now), env)
             else -> {
                 val seconds = heldSeconds(hold, env.now)
-                val closed = model.copy(hold = null, now = env.now)
+                val closed = model.overlay(OverlayEvent.HoldClosed).copy(now = env.now)
                 if (seconds < 1) closed.only() else touch(WorkoutEvent.LogHold(hold.exercise, hold.set, seconds), closed, env)
             }
         }
-        Msg.Hold.Cancel -> model.copy(hold = null, now = env.now).only()
+        Msg.Hold.Cancel -> model.overlay(OverlayEvent.HoldClosed).copy(now = env.now).only()
         Msg.Hold.Tick -> holdClock(model.copy(now = env.now), env)
     }
 }
@@ -388,7 +388,7 @@ private fun holdClock(model: Model, env: Env): Next {
     val end = holdEndsAt(hold)
     if (env.now < end) return next and cmds
     if (env.now - end <= HOLD_CUE_LATE_MILLIS) cmds += holdCues(model, beeps = 3, HOLD_END_VIBRATION)
-    val (logged, more) = touch(WorkoutEvent.LogHold(hold.exercise, hold.set, hold.target ?: MAX_HELD_SECONDS), next.copy(hold = null), env)
+    val (logged, more) = touch(WorkoutEvent.LogHold(hold.exercise, hold.set, hold.target ?: MAX_HELD_SECONDS), next.overlay(OverlayEvent.HoldClosed), env)
     return logged and cmds + more
 }
 
@@ -459,21 +459,15 @@ private fun rest(msg: Msg.Rest, model: Model, env: Env): Next {
             if (current == null) return model.only()
             beginRest(model, current.copy(endsAt = maxOf(current.endsAt, env.now) + ADJUST_SECONDS * 1000L), warn = true, env)
         }
-        Msg.Rest.Minimise -> {
-            val screen = model.restScreen
-            when {
-                screen == null || screen.minimised -> model.only()
-                screen.setDone -> model.copy(restScreen = null).only()
-                else -> model.restScreen { it.copy(minimised = true) }.only()
-            }
-        }
+        Msg.Rest.Minimise -> model.overlay(OverlayEvent.Minimise).only()
         is Msg.Rest.Rated -> {
+            // Only while the chip that sent it is still the rating: another choice made since keeps the screen.
             val log = model.session.active?.exercises?.getOrNull(msg.screen.exercise)
-            if (model.restScreen == msg.screen && log != null && rirOf(log, msg.screen.set) == msg.rir) model.copy(restScreen = null).only() else model.only()
+            if (log != null && rirOf(log, msg.screen.set) == msg.rir) model.overlay(OverlayEvent.Rated(msg.screen)).only() else model.only()
         }
         Msg.Rest.Open -> {
-            val screen = model.restScreen
-            if (screen == null || !screen.minimised) model.only() else model.restScreen { it.copy(minimised = false) }.copy(now = env.now).only()
+            val opened = model.overlay(OverlayEvent.Open)
+            if (opened === model) model.only() else opened.copy(now = env.now).only()
         }
         Msg.Rest.AlarmTen -> {
             val left = (current ?: return model.only()).endsAt - env.now

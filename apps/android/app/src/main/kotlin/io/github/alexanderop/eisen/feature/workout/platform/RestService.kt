@@ -20,12 +20,19 @@ class RestService : Service() {
         Eisen.init(applicationContext)
         if (intent?.action == ACTION_STOP) {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            // Only when no start came after this stop, see `TimerService`.
+            stopSelfResult(startId)
             return START_NOT_STICKY
         }
+        RestSystem.started()
         // Always, also when the rest ended meanwhile: a service asked for as foreground has to become one.
         ServiceCompat.startForeground(this, RUNNING_ID, RestSystem.countdownNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        if (RestSystem.countdown == null) stopSelf()
+        if (RestSystem.countdown == null) stopSelfResult(startId)
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        RestSystem.lost()
+        super.onDestroy()
     }
 }

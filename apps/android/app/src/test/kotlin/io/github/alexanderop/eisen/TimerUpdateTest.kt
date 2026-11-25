@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.restScreen
 import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMERS
 import io.github.alexanderop.eisen.feature.timer.DEFAULT_TIMER_CALLS
 import io.github.alexanderop.eisen.app.state.STATE_VERSION
@@ -256,6 +257,30 @@ class TimerUpdateTest {
         assertIgnored(started().send(Msg.Timer.Tick, now = STARTED_AT + 20_000), Msg.Timer.Finish)
     }
 
+    @Test fun `a Finish in the half second before the cap is a time under the cap, not a capped run`() {
+        // The default For Time has a cap of 20 minutes. Work starts after the ten seconds of lead-in.
+        val forTime = stepOf().send(Msg.Timer.Open(TimerMode.FOR_TIME)).send(Msg.Timer.Start, now = STARTED_AT, id = "f1")
+        val workStart = STARTED_AT + 10_000
+        val finished = forTime.send(Msg.Timer.Finish, now = workStart + 1_199_600).state.timerSessions.single()
+        assertEquals(1199, finished.seconds)
+        assertEquals(io.github.alexanderop.eisen.feature.timer.TimerOutcome.COMPLETED, io.github.alexanderop.eisen.feature.timer.timerOutcome(finished))
+        // One that runs into the cap is capped, with the full time.
+        val capped = forTime.send(Msg.Timer.Tick, now = workStart + 1_200_000).state.timerSessions.single()
+        assertEquals(1200, capped.seconds)
+        assertEquals(io.github.alexanderop.eisen.feature.timer.TimerOutcome.CAPPED, io.github.alexanderop.eisen.feature.timer.timerOutcome(capped))
+    }
+
+    @Test fun `Health Connect names how a run ended the way the app does, a For Time at its cap too`() {
+        val config = TimerConfig(TimerMode.FOR_TIME, work = 600, rest = 0, rounds = 1)
+        fun notes(seconds: Int, completed: Boolean, wodId: String? = null) =
+            io.github.alexanderop.eisen.feature.health.platform.timerSessionFields(TimerSession("f1", "For Time", config, 0, 700_000, seconds, 0, completed, wodId), java.time.ZoneOffset.UTC)!!.notes
+        assertEquals("For Time Cap 10:00: 7:00", notes(420, completed = true))
+        assertEquals("For Time Cap 10:00: 7:00, stopped early", notes(420, completed = false))
+        // At the cap the plain timer (filed as completed) and the WOD (filed as not) both say so, as the result does.
+        assertEquals("For Time Cap 10:00: 10:00, time cap", notes(600, completed = true))
+        assertEquals("For Time Cap 10:00: 10:00, time cap", notes(600, completed = false, wodId = "w1"))
+    }
+
     @Test fun `a run kept in its file comes back at the right time, or is filed when it ran out meanwhile`() {
         val run = TimerRun("t1", "Tabata", short, DEFAULT_TIMER_CALLS, startedAt = STARTED_AT)
         val flags = Flags(freshState(), savedRest = null, healthEnabled = false, notifications = Notifications(true, true), savedTimer = run)
@@ -275,6 +300,26 @@ class TimerUpdateTest {
         val (paused, quiet) = init(flags.copy(savedTimer = run.copy(pausedAt = STARTED_AT + 20_000), now = STARTED_AT + 900_000))
         assertTrue(paused.timer is TimerState.Running)
         assertTrue(quiet.none { it is Cmd.ScheduleTimer })
+    }
+
+    @Test fun `a rest and a run both kept when the process ended, the run goes on and the rest is stale`() {
+        // A workout runs, so a kept rest alone would go on. A run still going is newer: starting it ended the rest.
+        val state = stepOf().send(WorkoutEvent.Start, now = STARTED_AT).state
+        val rest = io.github.alexanderop.eisen.app.elm.RestState(STARTED_AT, STARTED_AT + 90_000, "All reps done.")
+        val run = TimerRun("t1", "Tabata", short, DEFAULT_TIMER_CALLS, startedAt = STARTED_AT + 5_000)
+        val flags = Flags(state, savedRest = rest, healthEnabled = false, notifications = Notifications(true, true), savedTimer = run, now = STARTED_AT + 20_000)
+        val (model, cmds) = init(flags)
+        assertEquals(TimerState.Running(run), model.timer)
+        assertNull(model.rest)
+        assertTrue(cmds.containsAll(io.github.alexanderop.eisen.app.elm.stopRestCmds()))
+        // Without a run the rest goes on, as before.
+        val (resting, restCmds) = init(flags.copy(savedTimer = null))
+        assertEquals("without a run", rest, resting.rest)
+        assertTrue(restCmds.none { it is Cmd.CancelRestAlarms })
+        // A run that ran out meanwhile is filed and covers nothing: the rest goes on.
+        val (filed, _) = init(flags.copy(now = STARTED_AT + 200_000))
+        assertTrue(filed.timer is TimerState.Finished)
+        assertEquals("ran out", rest, filed.rest)
     }
 
     @Test fun `presets are saved, opened, renamed, updated and deleted with Undo, without a snackbar over Start`() {

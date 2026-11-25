@@ -38,11 +38,23 @@ private const val OVER_ID = 2
  */
 internal object RestSystem {
     private lateinit var app: Context
-    private var serviceAsked = false
+
+    /** The countdown service and what its notification shows, see [ForegroundService]. */
+    private val service = ForegroundService<RestCountdown>(
+        // Android refuses the service when the app is not visible. The alarms still fire then.
+        ask = { runCatching { ContextCompat.startForegroundService(app, Intent(app, RestService::class.java)) }.isSuccess },
+        // The service runs: the countdown it shows is updated in place.
+        notify = { runCatching { app.getSystemService(NotificationManager::class.java).notify(RUNNING_ID, countdownNotification()) } },
+        // Stopping it from outside can beat its start, and Android ends an app whose foreground service
+        // was asked for but never showed up: it is asked to stop itself.
+        stop = {
+            runCatching { app.startService(Intent(app, RestService::class.java).setAction(ACTION_STOP)) }
+                .onFailure { app.stopService(Intent(app, RestService::class.java)) }
+        },
+    )
 
     /** What the countdown notification shows. Null once it should go. [RestService] reads it. */
-    var countdown: RestCountdown? = null
-        private set
+    val countdown: RestCountdown? get() = service.notice
 
     fun init(context: Context) {
         app = context.applicationContext
@@ -61,24 +73,13 @@ internal object RestSystem {
         alarms.cancel(broadcast(ACTION_OVER))
     }
 
-    fun showCountdown(notice: RestCountdown) {
-        countdown = notice
-        // Android refuses the service when the app is not visible. The alarms still fire then.
-        runCatching { ContextCompat.startForegroundService(app, Intent(app, RestService::class.java)) }
-            .onSuccess { serviceAsked = true }
-    }
+    fun showCountdown(notice: RestCountdown) = service.show(notice)
 
-    /**
-     * Asks the service to stop itself. Stopping it from outside can beat its start,
-     * and Android ends an app whose foreground service was asked for but never showed up.
-     */
-    fun hideCountdown() {
-        countdown = null
-        if (!serviceAsked) return
-        serviceAsked = false
-        runCatching { app.startService(Intent(app, RestService::class.java).setAction(ACTION_STOP)) }
-            .onFailure { app.stopService(Intent(app, RestService::class.java)) }
-    }
+    fun hideCountdown() = service.hide()
+
+    /** [RestService] came up, or ended: the next countdown asks for it again when it is gone. */
+    internal fun started() = service.started()
+    internal fun lost() = service.lost()
 
     /** Android drops it by itself when notifications are not allowed. */
     fun showOver(notice: RestOver) {

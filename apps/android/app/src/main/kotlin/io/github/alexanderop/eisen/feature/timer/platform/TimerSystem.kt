@@ -27,6 +27,7 @@ import io.github.alexanderop.eisen.app.elm.NoticeProgress
 import io.github.alexanderop.eisen.app.elm.NoticeTone
 import io.github.alexanderop.eisen.app.elm.TimerNotice
 import io.github.alexanderop.eisen.feature.workout.platform.Cues
+import io.github.alexanderop.eisen.feature.workout.platform.ForegroundService
 import io.github.alexanderop.eisen.app.runtime.Eisen
 
 private const val ACTION_PAUSE = "io.github.alexanderop.eisen.timer.PAUSE"
@@ -50,11 +51,21 @@ internal object TimerSystem {
     private val main = Handler(Looper.getMainLooper())
     private val pending = mutableListOf<Runnable>()
     private var awake: PowerManager.WakeLock? = null
-    private var serviceAsked = false
+
+    /** The service and what its notification shows, see [ForegroundService]. */
+    private val service = ForegroundService<TimerNotice>(
+        // Android refuses the service when the app is not visible, for example after the process was killed.
+        ask = { runCatching { ContextCompat.startForegroundService(app, Intent(app, TimerService::class.java)) }.isSuccess },
+        // The service runs: the notification it shows is updated in place.
+        notify = { runCatching { app.getSystemService(NotificationManager::class.java).notify(NOTICE_ID, notification()) } },
+        stop = {
+            runCatching { app.startService(Intent(app, TimerService::class.java).setAction(ACTION_STOP)) }
+                .onFailure { app.stopService(Intent(app, TimerService::class.java)) }
+        },
+    )
 
     /** What the notification shows. Null once it should go. [TimerService] reads it. */
-    var notice: TimerNotice? = null
-        private set
+    val notice: TimerNotice? get() = service.notice
 
     fun init(context: Context) {
         app = context.applicationContext
@@ -86,27 +97,17 @@ internal object TimerSystem {
         }
     }
 
-    fun show(next: TimerNotice) {
-        notice = next
-        if (serviceAsked) {
-            // The service runs: the notification it shows is updated in place.
-            runCatching { app.getSystemService(NotificationManager::class.java).notify(NOTICE_ID, notification()) }
-            return
-        }
-        // Android refuses the service when the app is not visible, for example after the process was killed.
-        runCatching { ContextCompat.startForegroundService(app, Intent(app, TimerService::class.java)) }
-            .onSuccess { serviceAsked = true }
-    }
+    fun show(next: TimerNotice) = service.show(next)
 
     /** The run is over: nothing more plays, the phone may sleep, the service and its notification go. */
     fun hide() {
         clear()
-        notice = null
-        if (!serviceAsked) return
-        serviceAsked = false
-        runCatching { app.startService(Intent(app, TimerService::class.java).setAction(ACTION_STOP)) }
-            .onFailure { app.stopService(Intent(app, TimerService::class.java)) }
+        service.hide()
     }
+
+    /** [TimerService] came up, or ended: the next notice asks for it again when it is gone. */
+    internal fun started() = service.started()
+    internal fun lost() = service.lost()
 
     private fun later(delay: Long, block: () -> Unit) {
         val task = Runnable { block() }
@@ -210,13 +211,21 @@ class TimerService : Service() {
         Eisen.init(applicationContext)
         if (TimerSystem.isStop(intent)) {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            // Only when no start came after this stop: End and Start tapped fast send START, STOP, START,
+            // and a plain stopSelf() would end the service the second START asked for.
+            stopSelfResult(startId)
             return START_NOT_STICKY
         }
+        TimerSystem.started()
         // Always, also when the run ended meanwhile: a service asked for as foreground has to become one.
         ServiceCompat.startForeground(this, TimerSystem.ID, TimerSystem.notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        if (TimerSystem.notice == null) stopSelf()
+        if (TimerSystem.notice == null) stopSelfResult(startId)
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        TimerSystem.lost()
+        super.onDestroy()
     }
 }
 

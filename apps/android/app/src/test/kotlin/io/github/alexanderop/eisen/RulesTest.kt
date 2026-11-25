@@ -39,6 +39,27 @@ class RulesTest {
         assertEquals("The domain has to stay pure:\n${broken.joinToString("\n")}\n", 0, broken.size)
     }
 
+    /**
+     * How a timer run ended has one reader, `timerOutcome`: a screen, Health Connect or a comparison that
+     * read the raw `completed` flag would call a For Time that ran into its cap "completed" or "stopped
+     * early" where the app says "Time cap". Every source of the app is checked, the Android side too.
+     */
+    @Test fun `only timerOutcome reads whether a timer run was completed`() {
+        val reads = Regex("""\.completed\b""")
+        val owner = File(root, "feature/timer/Timer.kt")
+        val ownerLines = owner.readLines()
+        val start = ownerLines.indexOfFirst { it.startsWith("fun timerOutcome(") }
+        val end = (start until ownerLines.size).first { ownerLines[it] == "}" }
+        val broken = root.walk().filter { it.extension == "kt" }.flatMap { file ->
+            file.readLines().mapIndexedNotNull { index, line ->
+                val allowed = file == owner && index in start..end
+                if (reads.containsMatchIn(line) && !allowed) "${file.relativeTo(root)}:${index + 1}\n    ${line.trim()}" else null
+            }
+        }.toList()
+        assertTrue("timerOutcome is gone from ${owner.path}", start >= 0)
+        assertEquals("Read timerOutcome(session) instead of session.completed:\n${broken.joinToString("\n")}\n", 0, broken.size)
+    }
+
     @Test fun `a failing walk is cut down to the steps that matter`() {
         val walk = (1..300).toList()
         // Fails whenever 7 comes before 213, whatever else is there.

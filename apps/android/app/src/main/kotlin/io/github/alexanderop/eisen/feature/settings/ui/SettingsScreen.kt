@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -172,14 +173,42 @@ private const val REST_SNAP = 5
 /** An hour. Only there so a slip of the thumb (9000 instead of 90) does not set a rest of hours. */
 private const val MAX_REST = 3600
 
-/** What the open sheet changes. A working weight is `exercise:<id>`, so it fits in saved state. */
-private object Editing {
-    const val UNIT = "unit"
-    const val BAR = "bar"
-    const val REST_DONE = "restDone"
-    const val REST_MISSED = "restMissed"
-    const val EXERCISE = "exercise:"
+/** What the open sheet changes. Kept over a rotation as a short text, see [EditingSaver]. */
+private sealed interface Editing {
+    data object WeightUnit : Editing
+    data object Bar : Editing
+    data object RestDone : Editing
+    data object RestMissed : Editing
+
+    /** The working weight (or the added weight) of exercise [id]. */
+    data class Exercise(val id: String) : Editing
 }
+
+private const val EXERCISE_KEY = "exercise:"
+
+/** [Editing] as `unit`, `bar`, `restDone`, `restMissed` or `exercise:<id>`, which saved state can hold. */
+private val EditingSaver = Saver<Editing?, String>(
+    save = { editing ->
+        when (editing) {
+            null -> null
+            Editing.WeightUnit -> "unit"
+            Editing.Bar -> "bar"
+            Editing.RestDone -> "restDone"
+            Editing.RestMissed -> "restMissed"
+            is Editing.Exercise -> EXERCISE_KEY + editing.id
+        }
+    },
+    restore = { key ->
+        when {
+            key == "unit" -> Editing.WeightUnit
+            key == "bar" -> Editing.Bar
+            key == "restDone" -> Editing.RestDone
+            key == "restMissed" -> Editing.RestMissed
+            key.startsWith(EXERCISE_KEY) -> Editing.Exercise(key.removePrefix(EXERCISE_KEY))
+            else -> null
+        }
+    },
+)
 
 /** Every exercise that is part of a workout, once. Bodyweight ones are here for their added weight. */
 private fun workoutExercises(model: Model): List<Exercise> =
@@ -197,7 +226,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
     val settings = model.settings
     val uriHandler = LocalUriHandler.current
     val haptics = rememberHaptics()
-    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    var editing by rememberSaveable(stateSaver = EditingSaver) { mutableStateOf<Editing?>(null) }
     var erasing by rememberSaveable { mutableStateOf(false) }
 
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -244,9 +273,9 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 description = if (workoutRunning(model)) "Finish the current workout to change it." else null,
                 value = UNITS.first { it.first == settings.unit }.second,
                 enabled = !workoutRunning(model),
-                onClick = { editing = Editing.UNIT },
+                onClick = { editing = Editing.WeightUnit },
             )
-            SettingRow(icon = WeightIcon, label = "Bar weight", value = fmt(settings.bar, settings.unit), onClick = { editing = Editing.BAR })
+            SettingRow(icon = WeightIcon, label = "Bar weight", value = fmt(settings.bar, settings.unit), onClick = { editing = Editing.Bar })
         }
 
         Section("Working weights") {
@@ -257,18 +286,18 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                     leading = { ExerciseTile(exercise.image, exercise.name, size = 36.dp) },
                     label = exercise.name,
                     value = fmtLoad(exercise.equipment, progressOf(model, exercise.id).weight, settings.unit),
-                    onClick = { editing = Editing.EXERCISE + exercise.id },
+                    onClick = { editing = Editing.Exercise(exercise.id) },
                 )
             }
         }
 
         Section("Rest timer") {
-            SettingRow(icon = TimerIcon, label = "After a full set", value = formatClock(settings.restDone), onClick = { editing = Editing.REST_DONE })
+            SettingRow(icon = TimerIcon, label = "After a full set", value = formatClock(settings.restDone), onClick = { editing = Editing.RestDone })
             SettingRow(
                 icon = HourglassIcon,
                 label = "After missed reps",
                 value = formatClock(settings.restMissed),
-                onClick = { editing = Editing.REST_MISSED },
+                onClick = { editing = Editing.RestMissed },
             )
             SwitchRow(icon = HourglassIcon, label = "Full-screen rest timer", checked = settings.restFullScreen, onToggle = ::toggleRestFullScreen)
             SwitchRow(
@@ -347,9 +376,9 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
         )
     }
 
-    val target = editing
-    when {
-        target == Editing.UNIT -> UnitSheet(
+    when (val target = editing) {
+        null -> Unit
+        Editing.WeightUnit -> UnitSheet(
             current = settings.unit,
             onPick = { unit ->
                 dispatch(Msg.Settings.SetUnit(unit))
@@ -357,7 +386,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
             },
             onClose = { editing = null },
         )
-        target == Editing.BAR -> NumberSheet(
+        Editing.Bar -> NumberSheet(
             title = "Bar weight",
             hint = "The empty bar. Plates and warmups are worked out from it.",
             onClose = { editing = null },
@@ -373,7 +402,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 large = true,
             )
         }
-        target == Editing.REST_DONE -> NumberSheet(
+        Editing.RestDone -> NumberSheet(
             title = "Rest after a full set",
             hint = "The timer starts when you log a set with all reps.",
             onClose = { editing = null },
@@ -391,7 +420,7 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 typedSuffix = REST_TYPED_IN,
             )
         }
-        target == Editing.REST_MISSED -> NumberSheet(
+        Editing.RestMissed -> NumberSheet(
             title = "Rest after missed reps",
             hint = "A longer rest gives the next set a fair chance.",
             onClose = { editing = null },
@@ -409,8 +438,8 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
                 typedSuffix = REST_TYPED_IN,
             )
         }
-        target != null && target.startsWith(Editing.EXERCISE) -> {
-            val exercise = findExercise(model, target.removePrefix(Editing.EXERCISE))
+        is Editing.Exercise -> {
+            val exercise = findExercise(model, target.id)
             if (exercise == null) {
                 // A restored backup can drop the exercise while its sheet is open.
                 LaunchedEffect(target) { editing = null }

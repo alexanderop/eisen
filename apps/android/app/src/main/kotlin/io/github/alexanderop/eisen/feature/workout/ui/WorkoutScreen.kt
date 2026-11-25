@@ -71,6 +71,9 @@ import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.RestScreen
 import io.github.alexanderop.eisen.app.elm.RestState
+import io.github.alexanderop.eisen.app.elm.hold
+import io.github.alexanderop.eisen.app.elm.repsQuestion
+import io.github.alexanderop.eisen.app.elm.restScreen
 import io.github.alexanderop.eisen.app.elm.exercises
 import io.github.alexanderop.eisen.app.elm.findExercise
 import io.github.alexanderop.eisen.app.elm.progressOf
@@ -176,12 +179,12 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
     val holding = hold?.let { workout.exercises.getOrNull(it.exercise) }
     val restScreen = model.restScreen
     val rest = model.rest
-    // The "set done" screen after the last set of an exercise has no rest.
-    val resting = restScreen?.takeIf { !it.minimised && (rest != null || it.setDone) && hold == null }?.let { workout.exercises.getOrNull(it.exercise) }
+    // A minimised one leaves the rest bar. The "set done" screen after the last set of an exercise has no rest.
+    val resting = restScreen?.takeIf { it !is RestScreen.Minimised }?.let { workout.exercises.getOrNull(it.exercise) }
 
     Box(Modifier.fillMaxSize()) {
-        // Under an open hold timer or rest screen the workout is out of reach, for TalkBack too.
-        val covered = holding != null || resting != null
+        // Under an open hold timer, rest screen or the numbers of a set the workout is out of reach, for TalkBack too.
+        val covered = holding != null || resting != null || picker.pick != null
         Column(Modifier.fillMaxSize().background(EisenColors.Background).then(if (covered) Modifier.clearAndSetSemantics { } else Modifier)) {
             CenterAlignedTopAppBar(
                 title = { Text(workout.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1) },
@@ -303,7 +306,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
                     onExtend = { dispatch(Msg.Rest.Extend) },
                     onDismiss = { dispatch(Msg.Rest.Dismiss) },
                     modifier = Modifier.align(Alignment.TopCenter),
-                    onOpen = if (restScreen?.minimised == true) ({ dispatch(Msg.Rest.Open) }) else null,
+                    onOpen = if (restScreen is RestScreen.Minimised) ({ dispatch(Msg.Rest.Open) }) else null,
                 )
             }
         }
@@ -403,7 +406,7 @@ private fun RestScreenOverlay(shown: Triple<RestScreen, RestState?, ExerciseLog>
         exit = slideOutVertically { it } + fadeOut(),
     ) {
         last.value?.let { (screen, rest, log) ->
-            RestTimerScreen(screen, rest, log, model.settings, model.now, dispatch)
+            RestTimerScreen(screen, rest, log, model.settings, model.now, dispatch, shown = shown != null)
         }
     }
 }

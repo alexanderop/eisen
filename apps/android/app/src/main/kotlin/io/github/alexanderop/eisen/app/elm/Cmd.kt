@@ -75,8 +75,8 @@ sealed interface Cmd {
     /** Stops the interval timer's service, its sounds and its notification. */
     data object HideTimer : Cmd
 
-    /** Keeps the builder's draft in a file of its own, so it survives the end of the process. Null deletes it. */
-    data class SaveDraft(val draft: WodDraft?) : Cmd
+    /** Keeps the builder's drafts in a file of their own, so they survive the end of the process. Empty deletes it. See [draftFile]. */
+    data class SaveDraft(val drafts: List<WodDraft>) : Cmd
 
     /** Keeps the page of the Timer tab in an Android preference, see [Navigation.timerPage]. */
     data class SaveTimerPage(val page: TimerPage) : Cmd

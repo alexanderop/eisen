@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.feature.health.platform
 
 import android.content.Context
+import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSegment
@@ -43,7 +44,19 @@ object HealthSync {
     fun start(context: Context, dispatch: (Msg) -> Unit) {
         app = context.applicationContext
         this.dispatch = dispatch
-        scope.launch { for (job in jobs) job() }
+        scope.launch {
+            for (job in jobs) {
+                // One job that fails in a way [guarded] does not catch must not end the queue: every later
+                // sync of the process would wait in it forever.
+                try {
+                    job()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    Log.w(TAG, "a Health Connect job failed", failure)
+                }
+            }
+        }
     }
 
     /** Whether Health Connect is installed and usable on this phone, as `HealthConnectClient.SDK_*`. */
@@ -79,7 +92,10 @@ object HealthSync {
     private suspend fun hasPermission(): Boolean =
         guarded { client()?.permissionController?.getGrantedPermissions()?.containsAll(PERMISSIONS) } == true
 
-    /** Runs [block], reporting a revoked permission and swallowing every other failure. */
+    /**
+     * Runs [block], reporting a revoked permission and swallowing every other failure, an [Error] from
+     * the Health Connect library too: a sync that cannot run is skipped, and a past sync still answers.
+     */
     private suspend fun <T> guarded(block: suspend () -> T): T? = try {
         block()
     } catch (cancelled: CancellationException) {
@@ -87,9 +103,12 @@ object HealthSync {
     } catch (_: SecurityException) {
         dispatch(Msg.Health.Revoked)
         null
-    } catch (_: Exception) {
+    } catch (failure: Throwable) {
+        Log.w(TAG, "Health Connect failed", failure)
         null
     }
+
+    private const val TAG = "EisenHealth"
 
     /** The number of records written, or null when Health Connect is not there. */
     private suspend fun upsert(workouts: List<Workout>, timers: List<TimerSession>): Int? {

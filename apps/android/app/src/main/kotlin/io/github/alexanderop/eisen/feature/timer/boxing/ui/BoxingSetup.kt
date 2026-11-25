@@ -117,6 +117,9 @@ import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.feature.timer.boxing.NUMBERS_KEY
 import io.github.alexanderop.eisen.app.elm.TimerSetup
+import io.github.alexanderop.eisen.app.elm.ComboBuild
+import io.github.alexanderop.eisen.app.elm.PickChoice
+import io.github.alexanderop.eisen.app.elm.pickChoice
 import io.github.alexanderop.eisen.app.elm.boxingCallsSummary
 import io.github.alexanderop.eisen.feature.timer.boxing.callsText
 import io.github.alexanderop.eisen.feature.timer.boxing.comboGroups
@@ -130,7 +133,6 @@ import io.github.alexanderop.eisen.app.elm.roundCalls
 import io.github.alexanderop.eisen.feature.timer.boxing.roundDetail
 import io.github.alexanderop.eisen.feature.timer.boxing.themeExample
 import io.github.alexanderop.eisen.app.elm.timerWheelSeconds
-import io.github.alexanderop.eisen.feature.timer.boxing.toggledPick
 import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.pressShapes
@@ -141,6 +143,7 @@ import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberColumnReorderState
 import io.github.alexanderop.eisen.core.ui.rememberFullSheetState
 import io.github.alexanderop.eisen.core.ui.rememberHaptics
+import io.github.alexanderop.eisen.core.ui.Haptics
 import io.github.alexanderop.eisen.core.ui.reorderContainer
 import io.github.alexanderop.eisen.core.ui.reorderHandle
 import kotlin.math.ceil
@@ -158,7 +161,7 @@ import io.github.alexanderop.eisen.feature.timer.ui.modeLine
 /*
  * The boxing timer's card on the Timers page and its setup: the fight card of rounds, the templates,
  * the calls, and the round sheet with the combinations to pick. Every edit is a Msg; the open round
- * sheet is `TimerSetup.round`.
+ * sheet is `TimerSetup.sheet`.
  */
 
 /** A theme's colour, the same as in the PWA. */
@@ -315,9 +318,6 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
     val calls = model.state.settings.timerCalls
     var voiceOpen by rememberSaveable { mutableStateOf(false) }
     var naming by rememberSaveable { mutableStateOf(false) }
-    // The combo builder: the combination it edits ("" for a new one) and the round whose tile opened it (-1 for none).
-    var building by rememberSaveable { mutableStateOf<String?>(null) }
-    var buildingFor by rememberSaveable { mutableStateOf(-1) }
     val preset = presetOf(model, setup)
     val haptics = rememberHaptics()
     fun edit(change: (TimerConfig) -> TimerConfig) = dispatch(Msg.Timer.Edit(change(config)))
@@ -368,7 +368,7 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
                         }
                     }
                     // The Undo of a template stands beside the chips, not in a snackbar over Start.
-                    if (setup.beforeTemplate != null) {
+                    if (setup.template != null) {
                         Spacer(Modifier.width(8.dp))
                         FilledTonalButton(
                             onClick = { dispatch(Msg.Timer.UndoTemplate) },
@@ -414,7 +414,7 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
                 }
 
                 SectionLabel("My combos")
-                OwnCombos(plan, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }, onEdit = { building = it; buildingFor = -1 })
+                OwnCombos(plan, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }, onEdit = { id -> dispatch(if (id.isEmpty()) Msg.Timer.NewCombo(null) else Msg.Timer.EditOwn(id)) })
 
                 SectionLabel("Calls")
                 CallsChoice(plan.style) { dispatch(Msg.Timer.SetStyle(it)) }
@@ -434,20 +434,21 @@ internal fun BoxingSetupScreen(model: Model, setup: TimerSetup, dispatch: (Msg) 
         }
     }
 
-    if (setup.round != null) RoundSheet(setup, calls, dispatch) { round -> building = ""; buildingFor = round }
-    building?.let { id ->
-        val editing = plan.own.firstOrNull { it.id == id }
+    if (setup.sheet != null) RoundSheet(setup, calls, dispatch) { round -> dispatch(Msg.Timer.NewCombo(round)) }
+    setup.combo?.let { combo ->
+        // Which builder is open decides what Save does: see `ComboBuild`.
+        val editing = (combo as? ComboBuild.Edit)?.let { edit -> plan.own.firstOrNull { it.id == edit.id } }
+        if (combo is ComboBuild.Edit && editing == null) return@let
         ComboBuilder(
             editing = editing,
             style = plan.style,
             onListen = { dispatch(Msg.Timer.ListenMoves(it)) },
             onSave = { moves ->
-                dispatch(Msg.Timer.SaveOwn(editing?.id, moves, buildingFor.takeIf { it >= 0 }))
+                dispatch(Msg.Timer.SaveOwn(editing?.id, moves, (combo as? ComboBuild.New)?.round))
                 haptics.perform(Haptic.TAP)
-                building = null
             },
-            onDelete = editing?.let { { dispatch(Msg.Timer.DeleteOwn(it.id)); building = null } },
-            onClose = { building = null },
+            onDelete = editing?.let { { dispatch(Msg.Timer.DeleteOwn(it.id)) } },
+            onClose = { dispatch(Msg.Timer.CloseCombo) },
         )
     }
     if (voiceOpen) VoiceSheet(calls, dispatch, onClose = { voiceOpen = false }, boxing = true)
@@ -577,13 +578,13 @@ private fun StanceChoice(stance: BoxingStance, onChange: (BoxingStance) -> Unit)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> Unit, onBuild: (Int) -> Unit) {
-    val index = setup.round ?: return
+    val sheet = setup.sheet ?: return
+    val index = sheet.index
     val config = setup.config
     val plan = boxingPlan(config.boxing, config.rounds)
     val round = plan.rounds.getOrNull(index) ?: return
     val haptics = rememberHaptics()
     val sheetState = rememberFullSheetState()
-    var picking by rememberSaveable { mutableStateOf(false) }
     fun change(next: BoxingRound) {
         dispatch(Msg.Timer.EditRound(index, next))
         haptics.perform(Haptic.STEP)
@@ -624,7 +625,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                     CalmBlock("No combinations in a freestyle round. You box, the clock runs.", 196.dp)
                     CuesRow(round) { change(round.copy(cues = it)) }
                 } else {
-                    if (!build) SheetRow(pickText(round, own), "Choose the combinations of this round") { picking = true }
+                    if (!build) SheetRow(pickText(round, own), "Choose the combinations of this round") { dispatch(Msg.Timer.OpenPicks) }
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Pace", fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -668,7 +669,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                     CuesRow(round) { change(round.copy(cues = it)) }
                     BurnoutRow(round, config.work) { change(round.copy(burnout = it)) }
 
-                    ListenButton(setup.heard?.let { id -> themeCombos(BoxingTheme.MIX, own).firstOrNull { it.id == id } }?.let { shown(it, plan.style) }, round.theme.tint) {
+                    ListenButton(sheet.heard?.let { id -> themeCombos(BoxingTheme.MIX, own).firstOrNull { it.id == id } }?.let { shown(it, plan.style) }, round.theme.tint) {
                         dispatch(Msg.Timer.Listen(index))
                     }
                 }
@@ -684,16 +685,16 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
                 }
                 OutlinedButton(
                     onClick = { dispatch(Msg.Timer.CopyToAll(index)) },
-                    enabled = !setup.copied && config.rounds > 1,
+                    enabled = !sheet.copied && config.rounds > 1,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, EisenColors.Border),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EisenColors.Foreground, disabledContentColor = if (setup.copied) EisenColors.Primary else EisenColors.MutedForeground),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = EisenColors.Foreground, disabledContentColor = if (sheet.copied) EisenColors.Primary else EisenColors.MutedForeground),
                 ) {
-                    Icon(if (setup.copied) Icons.Check else CopyIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(if (sheet.copied) Icons.Check else CopyIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (setup.copied) "Copied to all ${config.rounds} rounds" else "Copy to all rounds",
+                        if (sheet.copied) "Copied to all ${config.rounds} rounds" else "Copy to all rounds",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         maxLines = 1,
@@ -708,7 +709,7 @@ private fun RoundSheet(setup: TimerSetup, calls: TimerCalls, dispatch: (Msg) -> 
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }
         }
     }
-    if (picking && !free && !build) PickSheet(round, plan.style, own, onPick = { change(round.copy(pick = it)) }, onPlay = { dispatch(Msg.Timer.PlayCombo(it)) }) { picking = false }
+    if (sheet.picks != null && !free && !build) PickSheet(round, pickChoice(round, sheet.picks), plan.style, own, haptics, dispatch)
 }
 
 /** In place of settings a round does not have: one calm line in a block of their height. */
@@ -879,30 +880,41 @@ internal fun Chip(label: String, selected: Boolean, tint: Color, modifier: Modif
 
 /**
  * The combinations of the round's theme, each with a check mark, in both styles, and a play button.
- * None checked means all. "None" starts from an empty list to check a few; it changes nothing until
- * one is checked.
+ * [choice] says what is checked (see `Picks`): none picked means all. "None" unchecks every box to check
+ * a few; the round calls all of them until one is checked.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickSheet(round: BoxingRound, style: BoxingStyle, own: List<OwnCombo>, onPick: (List<String>) -> Unit, onPlay: (String) -> Unit, onClose: () -> Unit) {
+private fun PickSheet(round: BoxingRound, choice: PickChoice, style: BoxingStyle, own: List<OwnCombo>, haptics: Haptics, dispatch: (Msg) -> Unit) {
     val sheetState = rememberFullSheetState()
-    var fromNone by rememberSaveable(round.theme) { mutableStateOf(false) }
     val all = themeCombos(round.theme, own).size
-    fun checked(id: String) = if (round.pick.isEmpty()) !fromNone else id in round.pick
-    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheetState, containerColor = EisenColors.Card) {
+    fun checked(id: String) = when (choice) {
+        PickChoice.All -> true
+        PickChoice.NoneYet -> false
+        is PickChoice.Some -> id in choice.ids
+    }
+    fun pick(msg: Msg) {
+        dispatch(msg)
+        haptics.perform(Haptic.STEP)
+    }
+    ModalBottomSheet(onDismissRequest = { dispatch(Msg.Timer.ClosePicks) }, sheetState = sheetState, containerColor = EisenColors.Card) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(round.theme.title, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = round.theme.tint, modifier = Modifier.semantics { heading() })
                     Text(
-                        if (round.pick.isEmpty()) "All $all are called" else "${round.pick.size} of $all are called",
+                        when (choice) {
+                            PickChoice.All -> "All $all are called"
+                            PickChoice.NoneYet -> "None checked yet: all $all are called"
+                            is PickChoice.Some -> "${choice.ids.size} of $all are called"
+                        },
                         Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         fontSize = 14.sp,
                         color = EisenColors.MutedForeground,
                     )
                 }
-                TextButton(onClick = { fromNone = false; onPick(emptyList()) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("All", fontWeight = FontWeight.Bold) }
-                TextButton(onClick = { fromNone = true; onPick(emptyList()) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("None", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { pick(Msg.Timer.PickAll) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("All", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { pick(Msg.Timer.PickNone) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("None", fontWeight = FontWeight.Bold) }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 8.dp)) {
                 for ((theme, combos) in comboGroups(round.theme, own)) {
@@ -918,11 +930,7 @@ private fun PickSheet(round: BoxingRound, style: BoxingStyle, own: List<OwnCombo
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .toggleable(value = on, role = Role.Checkbox) {
-                                    val next = if (round.pick.isEmpty() && fromNone) listOf(combo.id) else toggledPick(round, combo.id, own)
-                                    fromNone = false
-                                    onPick(next)
-                                }
+                                .toggleable(value = on, role = Role.Checkbox) { pick(Msg.Timer.TogglePick(combo.id)) }
                                 .heightIn(min = 60.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -939,7 +947,7 @@ private fun PickSheet(round: BoxingRound, style: BoxingStyle, own: List<OwnCombo
                                 Text(shown(combo, style), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Text(shown(combo, if (style == BoxingStyle.NUMBERS) BoxingStyle.NAMES else BoxingStyle.NUMBERS), fontSize = 13.sp, color = EisenColors.MutedForeground)
                             }
-                            IconButton(onClick = { onPlay(combo.id) }) {
+                            IconButton(onClick = { dispatch(Msg.Timer.PlayCombo(combo.id)) }) {
                                 Icon(PlayIcon, contentDescription = "Hear ${combo.names}", tint = EisenColors.Foreground, modifier = Modifier.size(18.dp))
                             }
                         }
@@ -947,7 +955,7 @@ private fun PickSheet(round: BoxingRound, style: BoxingStyle, own: List<OwnCombo
                 }
             }
             Button(
-                onClick = onClose,
+                onClick = { dispatch(Msg.Timer.ClosePicks) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 12.dp).height(56.dp),
                 shapes = pressShapes(16.dp),
             ) { Text("Done", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp) }

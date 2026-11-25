@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.restScreen
+import io.github.alexanderop.eisen.app.elm.repsQuestion
 import io.github.alexanderop.eisen.feature.workout.ExerciseProgress
 import io.github.alexanderop.eisen.app.elm.Feel
 import io.github.alexanderop.eisen.app.elm.FinishReason
@@ -180,7 +182,7 @@ class WorkoutMachineTest {
 
     @Test fun `a max-reps set with no last time asks for the count`() {
         val fresh = started().send(TapSet(3, 0))
-        assertEquals(RepsQuestion(3, 0, 8), fresh.model.repsQuestion)
+        assertEquals(RepsQuestion(3, 0, "dips", 8), fresh.model.repsQuestion)
         assertEquals(started().session, fresh.session)
         assertTrue(fresh.cmds.isEmpty())
     }
@@ -195,8 +197,8 @@ class WorkoutMachineTest {
         assertNull(logged.model.repsQuestion)
         assertEquals(rest(90, "Max set logged."), logged.model.rest)
 
-        assertEquals(RepsQuestion(3, 1, 10), logged.send(TapSet(3, 1)).model.repsQuestion)
-        assertEquals(RepsQuestion(3, 2, 8), withHistory.send(TapSet(3, 2)).model.repsQuestion)
+        assertEquals(RepsQuestion(3, 1, "dips", 10), logged.send(TapSet(3, 1)).model.repsQuestion)
+        assertEquals(RepsQuestion(3, 2, "dips", 8), withHistory.send(TapSet(3, 2)).model.repsQuestion)
     }
 
     @Test fun `logging a count starts the rest and clearing it stops it`() {
@@ -289,13 +291,13 @@ class WorkoutMachineTest {
         val last = started().workout.copy(id = "old", exercises = started().workout.exercises.map { if (it.id == "dips") it.copy(sets = listOf(12, 10, null)) else it })
         val withHistory = started(freshState(WeightUnit.KG).copy(history = listOf(last)))
         val asked = withHistory.send(WorkoutEvent.EnterReps(3, 0))
-        assertEquals(RepsQuestion(3, 0, 12), asked.model.repsQuestion)
+        assertEquals(RepsQuestion(3, 0, "dips", 12), asked.model.repsQuestion)
         assertEquals(withHistory.workout, asked.workout)
         assertNull(asked.model.rest)
-        assertEquals(RepsQuestion(3, 2, 8), withHistory.send(WorkoutEvent.EnterReps(3, 2)).model.repsQuestion)
+        assertEquals(RepsQuestion(3, 2, "dips", 8), withHistory.send(WorkoutEvent.EnterReps(3, 2)).model.repsQuestion)
         // A logged one starts at its count.
         val logged = withHistory.send(LogReps(3, 1, 9))
-        assertEquals(RepsQuestion(3, 1, 9), logged.send(WorkoutEvent.EnterReps(3, 1)).model.repsQuestion)
+        assertEquals(RepsQuestion(3, 1, "dips", 9), logged.send(WorkoutEvent.EnterReps(3, 1)).model.repsQuestion)
         // A set with a target or a timed one has its own hold.
         assertIgnored(withHistory, WorkoutEvent.EnterReps(0, 0))
         assertIgnored(withHistory.send(AddExercise("plank")), WorkoutEvent.EnterReps(4, 0))

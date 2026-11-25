@@ -264,6 +264,30 @@ sealed interface Msg {
          */
         data class SaveOwn(val id: String?, val moves: List<String>, val round: Int? = null) : Timer
 
+        /** The "My combos" tile of round [round] without any combinations (it opens the builder), or "New combination" (null). */
+        data class NewCombo(val round: Int?) : Timer
+
+        /** One of the lifter's own combinations, tapped to change its moves. */
+        data class EditOwn(val id: String) : Timer
+
+        /** The combo builder is put away without saving. */
+        data object CloseCombo : Timer
+
+        /** "Choose the combinations of this round" in the open round sheet: their list opens. */
+        data object OpenPicks : Timer
+
+        /** "Done" or a swipe down on the list of combinations. */
+        data object ClosePicks : Timer
+
+        /** "All" in the list: the round calls every combination of its theme. */
+        data object PickAll : Timer
+
+        /** "None" in the list: every box unchecked, to check a few. The round calls all of them until one is. */
+        data object PickNone : Timer
+
+        /** A combination in the list checked or unchecked. */
+        data class TogglePick(val id: String) : Timer
+
         /** "Delete" in the combo builder: the combination goes from the plan and every round, with Undo. */
         data class DeleteOwn(val id: String) : Timer
         data object UndoDeleteOwn : Timer
@@ -408,8 +432,14 @@ sealed interface Msg {
         data class SetTimer(val config: TimerConfig) : Wods
         data class SetRounds(val rounds: Int) : Wods
 
-        /** A scheme chip or the custom field. Empty: every round as the items say. */
+        /** "Same each round" (empty: every round as the items say) or a preset chip. Closes the custom field. */
         data class SetScheme(val scheme: List<Int>) : Wods
+
+        /** The "Custom" chip: its field opens with what it held last. See [WodDraft]. */
+        data object ChooseCustom : Wods
+
+        /** The custom field: [text] as typed, its numbers the scheme. */
+        data class TypeScheme(val text: String) : Wods
 
         /** An exercise from the picker, with a sensible start, see [startItem]. */
         data class AddItem(val exerciseId: String) : Wods

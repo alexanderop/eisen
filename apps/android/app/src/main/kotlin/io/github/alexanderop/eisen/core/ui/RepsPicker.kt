@@ -57,7 +57,8 @@ import kotlin.math.roundToInt
 /*
  * Picking the reps of a set straight away, like a long press on a key of the phone's keyboard: hold a
  * set and its counts pop up over it, target first (5 4 3 2 1 0). Slide to one and let go to pick it;
- * lift without sliding and the row stays for a tap. A tap outside or Back closes it.
+ * lift without sliding and the row stays for a tap. A tap outside or Back closes it, and so does the
+ * system taking the touch, without a pick. The rules are in `RepsPickPhase.kt`.
  *
  * The same row of numbers ([NumberRow]) corrects a set on the rest screen.
  */
@@ -162,56 +163,59 @@ class RepsPick(
 )
 
 /**
- * Which set's numbers are open, and the number under the finger while it slides from the set.
+ * Which set's numbers are open and where the finger is, as one [RepsPickPhase]; [repsPickAfter] decides
+ * every change. This only knows where the numbers are, to tell which one a position points at.
  * Presentation only: picking sends what a tap would, through [RepsPick.onPick].
  */
 @Stable
 class RepsPickerState {
-    var pick: RepsPick? by mutableStateOf(null)
+    var phase: RepsPickPhase<RepsPick> by mutableStateOf(RepsPickPhase.Closed)
         private set
 
+    /** The set whose numbers are open, null while closed. */
+    val pick: RepsPick? get() = phase.pick
+
     /** The number the sliding finger points at, null when it points at none or does not slide. */
-    var under: Int? by mutableStateOf(null)
-        private set
+    val under: Int? get() = (phase as? RepsPickPhase.Sliding)?.under
 
     private val keys = mutableMapOf<Int, Rect>()
     private var reach = 0f
 
-    fun open(pick: RepsPick) {
+    /** Opens [pick]'s numbers, from a hold with the finger still down ([fingerDown]) or from TalkBack. */
+    fun open(pick: RepsPick, fingerDown: Boolean) {
         keys.clear()
-        under = null
-        this.pick = pick
+        send(RepsPickEvent.Open(pick, fingerDown))
     }
 
     fun close() {
-        pick = null
-        under = null
-        keys.clear()
+        send(RepsPickEvent.Close)
     }
 
-    /** The finger slid to [at] (root). True when it came onto another number, for the tick that goes with it. */
-    fun slide(at: Offset): Boolean {
-        if (pick == null) return false
-        val number = numberAt(at)
-        if (number == under) return false
-        under = number
-        return number != null
+    /** The finger moved to [at] (root), past the touch slop when [slid]. True when it came onto another number, for the tick that goes with it. */
+    fun move(at: Offset, slid: Boolean): Boolean = send(RepsPickEvent.Move(numberAt(at), slid)).tick
+
+    /** The finger lifted at [at] (root). */
+    fun lift(at: Offset) {
+        send(RepsPickEvent.Lift(numberAt(at)))
     }
 
-    /**
-     * The finger lifted at [at] (root). After a slide it picks the number there and closes; lifted
-     * without sliding, or away from the numbers, the row stays open for a tap.
-     */
-    fun lift(at: Offset, slid: Boolean) {
-        under = null
-        if (!slid) return
-        choose(numberAt(at) ?: return)
+    /** The system took the touch: nothing is picked. */
+    fun cancel() {
+        send(RepsPickEvent.Cancel)
     }
 
+    /** A number was tapped. */
     fun choose(number: Int) {
-        val shown = pick ?: return
-        close()
-        shown.onPick(number)
+        send(RepsPickEvent.Tap(number))
+    }
+
+    private fun send(event: RepsPickEvent<RepsPick>): RepsPickStep<RepsPick> {
+        val shown = phase.pick
+        val step = repsPickAfter(phase, event)
+        phase = step.phase
+        if (step.phase == RepsPickPhase.Closed) keys.clear()
+        step.picked?.let { number -> shown?.onPick?.invoke(number) }
+        return step
     }
 
     internal fun place(number: Int, bounds: Rect, reach: Float) {
@@ -271,15 +275,11 @@ fun RepsPicker(state: RepsPickerState, modifier: Modifier = Modifier) {
                         .clip(PickerShape)
                         .background(EisenColors.Card)
                         .border(1.dp, EisenColors.Border, PickerShape)
-                        // A touch between the numbers is not a touch outside: it keeps them open.
+                        // A touch between the numbers is not a touch outside: taking its down keeps them open.
+                        // Only the down: a key calls its tap off when anything after it is consumed, and a
+                        // real finger always moves a little between down and up.
                         .pointerInput(Unit) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                do {
-                                    val event = awaitPointerEvent()
-                                    event.changes.forEach { it.consume() }
-                                } while (event.changes.any { it.pressed })
-                            }
+                            awaitEachGesture { awaitFirstDown(requireUnconsumed = false).consume() }
                         }
                         .padding(PickerPadding),
                     columns = columns,

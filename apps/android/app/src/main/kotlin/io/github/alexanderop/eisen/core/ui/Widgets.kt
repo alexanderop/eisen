@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,38 @@ import kotlinx.coroutines.delay
 private const val DISARM_AFTER_MS = 4000L
 
 /**
+ * The two taps of a destructive action, for every button that asks them: the first tap arms it, the
+ * second confirms. It disarms by itself after [DISARM_AFTER_MS]. Made by [rememberArming].
+ */
+@Stable
+internal class Arming {
+    var armed by mutableStateOf(false)
+        private set
+
+    /** A tap: arms, or confirms with [onConfirm] when armed. */
+    fun tap(onConfirm: () -> Unit) {
+        armed = !armed
+        if (!armed) onConfirm()
+    }
+
+    internal fun disarm() {
+        armed = false
+    }
+}
+
+@Composable
+internal fun rememberArming(): Arming {
+    val arming = remember { Arming() }
+    LaunchedEffect(arming.armed) {
+        if (arming.armed) {
+            delay(DISARM_AFTER_MS)
+            arming.disarm()
+        }
+    }
+    return arming
+}
+
+/**
  * A destructive action that needs two taps instead of a dialog, like the PWA's ConfirmButton.
  * The first tap arms it and changes the label. It disarms by itself after a few seconds.
  * `ghost` is the quiet form, for a list row.
@@ -50,21 +83,9 @@ internal fun ConfirmButton(
     ghost: Boolean = false,
     height: Dp = 52.dp,
 ) {
-    var armed by remember { mutableStateOf(false) }
-    LaunchedEffect(armed) {
-        if (armed) {
-            delay(DISARM_AFTER_MS)
-            armed = false
-        }
-    }
-    val onClick = {
-        if (armed) {
-            armed = false
-            onConfirm()
-        } else {
-            armed = true
-        }
-    }
+    val arming = rememberArming()
+    val armed = arming.armed
+    val onClick = { arming.tap(onConfirm) }
     val text = @Composable {
         // Read out the new label, so a screen reader user knows a second tap is needed.
         Text(
