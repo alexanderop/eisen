@@ -79,7 +79,9 @@ import io.github.alexanderop.eisen.app.elm.findExercise
 import io.github.alexanderop.eisen.app.elm.progressOf
 import io.github.alexanderop.eisen.app.elm.settings
 import io.github.alexanderop.eisen.core.isPlateLoaded
+import io.github.alexanderop.eisen.app.elm.Run
 import io.github.alexanderop.eisen.app.elm.order
+import io.github.alexanderop.eisen.app.elm.upNext
 import io.github.alexanderop.eisen.core.ui.ChoiceGroup
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Icons
@@ -310,7 +312,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
                 )
             }
         }
-        RestScreenOverlay(if (restScreen != null && resting != null) Triple(restScreen, rest, resting) else null, model, dispatch)
+        RestScreenOverlay(if (restScreen != null && resting != null) Triple(restScreen, rest, resting) else null, run, model, dispatch)
         if (hold != null && holding != null) HoldTimerScreen(hold, holding, model.now, dispatch)
         RepsPicker(picker)
     }
@@ -397,7 +399,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
  * one stays on screen while it slides away.
  */
 @Composable
-private fun RestScreenOverlay(shown: Triple<RestScreen, RestState?, ExerciseLog>?, model: Model, dispatch: (Msg) -> Unit) {
+private fun RestScreenOverlay(shown: Triple<RestScreen, RestState?, ExerciseLog>?, run: Run, model: Model, dispatch: (Msg) -> Unit) {
     val last = remember { mutableStateOf(shown) }
     if (shown != null) last.value = shown
     AnimatedVisibility(
@@ -406,7 +408,7 @@ private fun RestScreenOverlay(shown: Triple<RestScreen, RestState?, ExerciseLog>
         exit = slideOutVertically { it } + fadeOut(),
     ) {
         last.value?.let { (screen, rest, log) ->
-            RestTimerScreen(screen, rest, log, model.settings, model.now, dispatch, shown = shown != null)
+            RestTimerScreen(screen, rest, log, model.settings, model.now, dispatch, shown = shown != null, nextUp = upNext(run, log.id)?.name)
         }
     }
 }

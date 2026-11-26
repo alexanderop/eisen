@@ -227,7 +227,7 @@ sealed interface Effect {
     data class StartRest(val seconds: Int, val note: String, val exercise: Int, val set: Int) : Effect
     data object StopRest : Effect
 
-    /** Set [set] was the last open one of the exercise at [exercise]. No rest follows it. */
+    /** Set [set] of the exercise at [exercise] was the last open one of the workout. No rest follows it. */
     data class LastSet(val exercise: Int, val set: Int) : Effect
     data class Haptic(val kind: Feel) : Effect
 
@@ -412,7 +412,8 @@ private fun tapSet(run: Run, state: AppState, event: WorkoutEvent.TapSet, env: E
 /**
  * Set [set] of an exercise with a [target] logged as [reps], or cleared with null: what a tap does, and
  * what a number picked on an open set does in one step. Missed reps warn and rest longer, the set that
- * finishes the exercise with all reps feels like a success, and no rest follows the last set.
+ * finishes the exercise with all reps feels like a success. A rest follows the last set of an exercise
+ * too, before the next one; only the last set of the workout has none.
  */
 private fun logCount(run: Run, state: AppState, exercise: Int, set: Int, reps: Int?, target: Int): Transition {
     val workout = run.workout.editLog(exercise) { withReps(it, set, reps) }
@@ -422,7 +423,7 @@ private fun logCount(run: Run, state: AppState, exercise: Int, set: Int, reps: I
         else -> Feel.TAP
     }
     val rest = when {
-        reps == null || lastSetLogged(workout, exercise) -> Effect.StopRest
+        reps == null || isComplete(workout) -> Effect.StopRest
         reps == target -> Effect.StartRest(state.settings.restDone, "All reps done.", exercise, set)
         else -> Effect.StartRest(state.settings.restMissed, "Missed reps. Rest longer.", exercise, set)
     }
@@ -452,16 +453,27 @@ private fun tapHold(run: Run, state: AppState, event: WorkoutEvent.TapSet): Tran
     return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(Feel.TAP), Effect.StopRest))
 }
 
-/**
- * True when the exercise has no open set left. No rest follows its last set: the lifter
- * moves on to the next exercise, and a timer for the old one would only be in the way.
- */
+/** True when the exercise has no open set left. */
 private fun lastSetLogged(workout: Workout, exercise: Int): Boolean =
     workout.exercises[exercise].sets.all { it != null }
 
-/** [Effect.LastSet] when logging [reps] on set [set] left the exercise without an open set. */
+/**
+ * [Effect.LastSet] when logging [reps] on set [set] left the workout without an open set: nothing is
+ * left to rest for. The last set of an exercise with others still open rests like any set, since the
+ * lifter needs the break before the next exercise as much as before the next set.
+ */
 private fun lastSet(workout: Workout, exercise: Int, set: Int, reps: Int?): List<Effect> =
-    if (reps != null && lastSetLogged(workout, exercise)) listOf(Effect.LastSet(exercise, set)) else emptyList()
+    if (reps != null && isComplete(workout)) listOf(Effect.LastSet(exercise, set)) else emptyList()
+
+/**
+ * The exercise that follows the one with [id] once that has no open set left: the first open one in
+ * the order the workout screen shows. Null while [id] has an open set, or when nothing else is open.
+ */
+fun upNext(run: Run, id: String): ExerciseLog? {
+    val log = run.workout.exercises.firstOrNull { it.id == id } ?: return null
+    if (!isDone(log)) return null
+    return order(run, settling = null).firstOrNull { !it.done && it.log.id != id }?.log
+}
 
 private fun logReps(run: Run, state: AppState, event: WorkoutEvent.LogReps): Transition? {
     val log = run.workout.exercises.getOrNull(event.exercise) ?: return null
@@ -479,7 +491,7 @@ private fun logReps(run: Run, state: AppState, event: WorkoutEvent.LogReps): Tra
     // A logged one is corrected like a set with a target: its rest runs on (the same count twice changes nothing).
     if (event.reps != null && log.sets[event.set] != null) return correctReps(run, state, WorkoutEvent.CorrectReps(event.exercise, event.set, event.reps))
     val workout = run.workout.editLog(event.exercise) { withReps(it, event.set, event.reps) }
-    val rest = if (event.reps == null || lastSetLogged(workout, event.exercise)) Effect.StopRest
+    val rest = if (event.reps == null || isComplete(workout)) Effect.StopRest
     else Effect.StartRest(state.settings.restDone, "Max set logged.", event.exercise, event.set)
     return Transition(Session.Running(run.copy(workout = workout)), state, listOf(Effect.Haptic(Feel.TAP), rest) + lastSet(workout, event.exercise, event.set, event.reps))
 }
@@ -526,7 +538,7 @@ private fun logHold(run: Run, state: AppState, event: WorkoutEvent.LogHold): Tra
         else -> Feel.TAP
     }
     val rest = when {
-        lastSetLogged(workout, event.exercise) -> Effect.StopRest
+        isComplete(workout) -> Effect.StopRest
         short -> Effect.StartRest(state.settings.restMissed, "Hold cut short. Rest longer.", event.exercise, event.set)
         else -> Effect.StartRest(state.settings.restDone, "Held ${holdText(event.seconds)}.", event.exercise, event.set)
     }

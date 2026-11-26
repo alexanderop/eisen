@@ -1334,12 +1334,20 @@ class UpdateTest {
             ?: logged.takeIf { it.isNotEmpty() && random.nextBoolean() }?.let { pick(it) } ?: (exercise to set)
         val correct = { Msg.Workout(WorkoutEvent.CorrectReps(corrected.first, corrected.second, random.nextInt(8) - 1)) }
         // The next open set of the exercise with a target count closest to done, on the workout screen, so exercises
-        // get to their last set, which opens the "set done" screen. Random taps rarely get that far.
+        // get to their last set. Random taps rarely get that far.
         val open = logs.indices.filter { i -> !logs[i].timed && logs[i].targetReps != null && null in logs[i].sets }
+        // One workout in four is a finisher: the holds and the max-reps sets are logged first and half the Msgs
+        // are the next set, so it gets to the last set of the workout, which opens the "set done" screen.
+        val finisher = model.session is Session.Running && open.isNotEmpty() && (model.session.active?.id.hashCode() and 3) == 0
+        val other = logs.indices.filter { i -> (logs[i].timed || logs[i].targetReps == null) && null in logs[i].sets }
         val tapNext = {
             when {
                 open.isEmpty() -> tap()
                 !model.nav.workoutOpen -> Msg.Nav.OpenWorkout
+                finisher && other.isNotEmpty() -> other.first().let { i ->
+                    val at = logs[i].sets.indexOf(null)
+                    Msg.Workout(if (logs[i].timed) WorkoutEvent.LogHold(i, at, 30) else WorkoutEvent.LogReps(i, at, 8))
+                }
                 else -> open.minBy { i -> logs[i].sets.count { it == null } }.let { i -> Msg.Workout(WorkoutEvent.TapSet(i, logs[i].sets.indexOf(null))) }
             }
         }
@@ -1430,6 +1438,7 @@ class UpdateTest {
                 ),
             )()
         }
+        if (finisher && model.timer == null && random.nextBoolean()) return tapNext()
         // While a hold timer is open, its own Msgs come half the time, as they would from the lifter and the clock.
         if (model.hold != null && random.nextBoolean()) return pick(listOf(Msg.Hold.SkipLeadIn, Msg.Hold.Stop, Msg.Hold.Cancel, Msg.Hold.Tick, Msg.Hold.Tick))
         val choices: List<() -> Msg> = listOf(

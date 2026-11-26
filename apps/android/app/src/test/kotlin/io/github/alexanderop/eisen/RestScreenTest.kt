@@ -66,17 +66,14 @@ class RestScreenTest {
         assertEquals(RestScreen.Shown(4, 0, "plank"), held.model.restScreen)
     }
 
-    @Test fun `no rest after the last set of an exercise, so no screen with a clock`() {
+    @Test fun `the last set of an exercise rests with its screen while another exercise is open`() {
         var step = started()
         for (set in 0..3) step = step.send(WorkoutEvent.TapSet(1, set))
         assertEquals(RestScreen.Shown(1, 3, "bench"), step.model.restScreen)
         val last = step.send(WorkoutEvent.TapSet(1, 4))
-        assertNull(last.model.rest)
-        // Only the screen that rates the set, see RirTest.
-        assertEquals(RestScreen.SetDone(1, 4, "bench"), last.model.restScreen)
-        val untracked = step.send(Msg.Settings.SetTrackRir(false)).send(WorkoutEvent.TapSet(1, 4))
-        assertNull(untracked.model.rest)
-        assertNull(untracked.model.restScreen)
+        assertEquals(RestState(LATER, LATER + 90_000, "All reps done.", "bench", 4), last.model.rest)
+        assertEquals(RestScreen.Shown(1, 4, "bench"), last.model.restScreen)
+        // The last set of the workout has no rest, only the screen that rates it, see RirTest.
     }
 
     @Test fun `minimised it leaves the rest running in the bar, a tap on the bar brings it back`() {

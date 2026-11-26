@@ -157,14 +157,15 @@ class HoldTimerTest {
         assertTrue(Cmd.Beep(3) in stopped.cmds)
     }
 
-    @Test fun `no rest follows the last set of the exercise`() {
+    @Test fun `the last hold of the exercise rests before the next exercise`() {
         var step = started(holdState())
         for (set in 0..2) {
             val at = LATER + set * 200_000L
             step = step.send(WorkoutEvent.TapSet(0, set), now = at).send(Msg.Hold.SkipLeadIn, now = at).tick(at + 60_005)
         }
         assertEquals(listOf<Int?>(60, 60, 60), step.workout.exercises[0].sets)
-        assertNull(step.model.rest)
+        assertEquals("Held 1:00.", step.model.rest?.note)
+        assertEquals(2, step.model.rest?.set)
         assertEquals(listOf(Feel.SUCCESS), step.feels)
     }
 

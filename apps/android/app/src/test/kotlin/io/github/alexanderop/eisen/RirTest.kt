@@ -155,8 +155,14 @@ class RirTest {
 
     private val benchRest = RestState(LATER, LATER + 90_000, "All reps done.", "bench", 0)
 
-    /** Four sets of the bench press logged, the fifth is the last one. */
-    private fun beforeLast(state: AppState = freshState(kg)): Step = (0..3).fold(started(state)) { at, set -> at.send(WorkoutEvent.TapSet(1, set)) }
+    /** Every other exercise and four sets of the bench press logged: the fifth is the last set of the workout. */
+    private fun beforeLast(state: AppState = freshState(kg)): Step {
+        val others = started(state).workout.exercises.indices.filter { it != 1 }.fold(started(state)) { at, index ->
+            val log = at.workout.exercises[index]
+            log.sets.indices.fold(at) { step, set -> step.send(if (log.targetReps == null) WorkoutEvent.LogReps(index, set, 8) else WorkoutEvent.TapSet(index, set)) }
+        }
+        return (0..3).fold(others) { at, set -> at.send(WorkoutEvent.TapSet(1, set)) }
+    }
 
     private val setDone = RestScreen.SetDone(1, 4, "bench")
 
@@ -208,7 +214,7 @@ class RirTest {
         assertEquals(emptyList<Int?>(), cleared.workout.exercises[1].rir)
     }
 
-    @Test fun `the last set of an exercise opens the set done screen, without a rest`() {
+    @Test fun `the last set of the workout opens the set done screen, without a rest`() {
         val last = beforeLast().send(WorkoutEvent.TapSet(1, 4))
         assertNull(last.model.rest)
         assertEquals(setDone, last.model.restScreen)
@@ -221,7 +227,9 @@ class RirTest {
         assertNull(beforeLast(noScreen).send(WorkoutEvent.TapSet(1, 4)).model.restScreen)
         val noRir = freshState(kg).let { it.copy(settings = it.settings.copy(trackRir = false)) }
         assertNull(beforeLast(noRir).send(WorkoutEvent.TapSet(1, 4)).model.restScreen)
-        val dips = started().send(WorkoutEvent.LogReps(3, 0, 8)).send(WorkoutEvent.LogReps(3, 1, 8)).send(WorkoutEvent.LogReps(3, 2, 8))
+        // Dips as the last set of the workout: its last set cleared and logged again.
+        val dips = beforeLast().send(WorkoutEvent.TapSet(1, 4)).send(Msg.Rest.Minimise).send(WorkoutEvent.LogReps(3, 2, null)).send(WorkoutEvent.LogReps(3, 2, 8))
+        assertEquals(Stage.COMPLETE, stageOf(dips.workout))
         assertNull(dips.model.rest)
         assertNull(dips.model.restScreen)
     }
@@ -277,11 +285,12 @@ class RirTest {
         assertNull(last.send(Msg.Nav.CloseWorkout).model.restScreen)
         assertNull(last.send(Msg.Settings.SetTrackRir(false)).model.restScreen)
         // A hold timer opening takes its place.
-        val holding = beforeLast().send(WorkoutEvent.AddExercise("plank")).send(WorkoutEvent.TapSet(1, 4)).send(WorkoutEvent.TapSet(4, 0))
+        val holding = last.send(WorkoutEvent.AddExercise("plank")).send(WorkoutEvent.TapSet(4, 0))
         assertTrue(holding.model.hold != null)
         assertNull(holding.model.restScreen)
-        // A rest that starts takes its place too.
-        assertEquals(RestScreen.Shown(0, 0, "hackSquat"), last.send(WorkoutEvent.TapSet(0, 0)).model.restScreen)
+        // A rest that starts takes its place too: a missed rep, now that another exercise is open.
+        val missed = last.send(WorkoutEvent.AddExercise("plank")).send(WorkoutEvent.TapSet(0, 0), now = LATER + 1_000)
+        assertEquals(RestScreen.Shown(0, 0, "hackSquat"), missed.model.restScreen)
     }
 
     @Test fun `a last set rated 4+ doubles the jump of the next workout`() {

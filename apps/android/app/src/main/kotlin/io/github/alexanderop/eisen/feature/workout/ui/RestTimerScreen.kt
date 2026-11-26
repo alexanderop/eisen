@@ -142,7 +142,9 @@ private val COMPACT_HEIGHT = 700.dp
  * the end of the rest come from `update`. A swipe down, the chevron or the back gesture put it away to
  * the rest bar; "Next set" ends the rest.
  *
- * Without a [rest] it is the "set done" screen after the last set of an exercise: no clock, and "Done",
+ * [nextUp] is the exercise that follows when this was the last set of [log], named under "Up next".
+ *
+ * Without a [rest] it is the "set done" screen after the last set of the workout: no clock, and "Done",
  * a swipe down, the chevron or the back gesture close it.
  *
  * [shown] is false while the screen leaves (its exit animation still draws it). How far it is pulled is
@@ -158,6 +160,7 @@ internal fun RestTimerScreen(
     dispatch: (Msg) -> Unit,
     modifier: Modifier = Modifier,
     shown: Boolean = true,
+    nextUp: String? = null,
 ) {
     val minimiseAt = with(LocalDensity.current) { MinimiseDistance.toPx() }
     var pull by remember { mutableStateOf<RestPull>(RestPull.Still) }
@@ -194,7 +197,7 @@ internal fun RestTimerScreen(
         val rates = ratesSet(settings, log, screen.set)
         // The chips under the clock of a short phone leave the digits too little room, so lines that repeat go.
         val tight = rates && !wide && maxHeight < COMPACT_HEIGHT
-        val parts = RestParts(screen, rest, log, settings, now, compact = wide || maxHeight < COMPACT_HEIGHT, tight, dispatch)
+        val parts = RestParts(screen, rest, log, settings, now, compact = wide || maxHeight < COMPACT_HEIGHT, tight, nextUp, dispatch)
         if (wide) {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -247,6 +250,7 @@ private class RestParts(
     val compact: Boolean,
     /** Without the line over the digits (its "Rest" joins "of 1:30") and without "Up next", which the header says. */
     val tight: Boolean,
+    val nextUp: String?,
     val dispatch: (Msg) -> Unit,
 ) {
     private val rowHeight = if (compact) 32.dp else 48.dp
@@ -522,14 +526,24 @@ private class RestParts(
     /** What the button at the bottom takes, with the room above it. */
     val buttonRoom: Dp = buttonHeight + gap
 
-    /** "Up next", or "Exercise done" on the "set done" screen. */
+    /**
+     * "Up next": the next set, or the next exercise after the last set of this one (the header does not
+     * say that one, so it shows on a short phone too). "Workout done" on the "set done" screen.
+     */
     @Composable
     fun UpNext() {
         val next = log.sets.indexOfFirst { it == null }
-        if (rest == null || (next != -1 && !tight)) {
+        val text = when {
+            rest == null -> "Workout done"
+            next != -1 -> "Up next: set ${next + 1} of ${log.sets.size}".takeIf { !tight }
+            else -> nextUp?.let { "Up next: $it" }
+        }
+        if (text != null) {
             Text(
-                if (rest == null) "Exercise done" else "Up next: set ${next + 1} of ${log.sets.size}",
+                text,
                 Modifier.fillMaxWidth().padding(top = gap),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 color = EisenColors.MutedForeground,
                 fontSize = if (compact) 13.sp else 15.sp,
                 fontWeight = FontWeight.SemiBold,

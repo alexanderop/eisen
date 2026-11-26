@@ -157,7 +157,7 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
                 next = stopped
                 cmds += more
             }
-            // No rest after the last set. The screen still opens, without a clock, to rate that set.
+            // No rest after the last set of the workout. The screen still opens, without a clock, to rate that set.
             is Effect.LastSet -> {
                 val log = next.session.active?.exercises?.getOrNull(effect.exercise)
                 val settings = next.state.settings
