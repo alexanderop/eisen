@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.app.elm
 
 import io.github.alexanderop.eisen.app.state.AppState
+import io.github.alexanderop.eisen.feature.food.localDay
 import io.github.alexanderop.eisen.feature.workout.HOLD_LEAD_IN_SECONDS
 import io.github.alexanderop.eisen.feature.workout.MAX_HELD_SECONDS
 import io.github.alexanderop.eisen.feature.workout.canRate
@@ -85,6 +86,8 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     // The draft file holds the builder's draft and the ones kept from before the process ended.
     val kept = draftFile(model.wods.builder)
     if (kept != draftFile(before.wods.builder)) extra += Cmd.SaveDraft(kept)
+    // The plate file holds what is on the plate, so nothing collected is lost when the process ends.
+    if (model.food.plate != before.food.plate) extra += Cmd.SavePlate(model.food.plate)
     if (before.session is Session.Discarded && model.session !is Session.Discarded) {
         extra += Cmd.Ui(UiEvent.DismissSnackbar(DISCARD_SNACKBAR))
     }
@@ -323,8 +326,9 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
             model.activitySheet != null -> return history(Msg.History.CloseActivity, model)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
-            // The Food screen covers the tabs like the workout: its sheet goes first, then the screen.
-            model.food.day != null -> return food(if (model.food.sheet != null) Msg.Food.CloseSheet else Msg.Food.Close, model, env)
+            // A sheet over the Food tab or its add screen goes first, then the add screen, then the tab.
+            model.food.sheet != null -> return food(Msg.Food.CloseSheet, model, env)
+            model.food.add != null -> return food(Msg.Food.CloseAdd, model, env)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
             nav.tab == Tab.TIMER && model.timerSetup?.sheet != null -> return timer(Msg.Timer.CloseRound, model, env)
             nav.tab == Tab.TIMER && model.timerSetup != null -> return timer(Msg.Timer.CloseSetup, model, env)
@@ -342,18 +346,26 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             timerPage = nav.timerPage,
         )
     }
-    // The Food screen comes back on today, without the sheet that was open.
-    if (msg is Msg.Nav.Restore && msg.food && model.food.day == null) {
-        val (opened, cmds) = food(Msg.Food.Open, model.copy(nav = next), env)
-        return opened to cmds
-    }
+    // Build 24 kept the Food screen over Home: it comes back as the Food tab.
+    val shown = if (msg is Msg.Nav.Restore && msg.food) next.copy(tab = Tab.FOOD) else next
+    val food = foodWithTab(model.food, shown.tab, retapped = msg is Msg.Nav.SelectTab && msg.tab == Tab.FOOD && nav.tab == Tab.FOOD, today = localDay(env.now, env.zone))
     // Whatever comes on screen reads the clock, so Home and Progress date themselves with today even
     // when nothing ticked. Selecting the tab that shows does too. A move that changes nothing is ignored.
     return when {
-        next != nav -> model.copy(nav = next, now = env.now)
+        shown != nav || food != model.food -> model.copy(nav = shown, food = food, now = env.now, zone = if (food != model.food) env.zone else model.zone)
         msg is Msg.Nav.SelectTab -> model.copy(now = env.now)
         else -> model
     }.only()
+}
+
+/**
+ * The Food tab and its day go together: the tab opens on today (also when it is tapped while it shows), any other tab
+ * leaves no day and no sheet behind. What is on the plate stays.
+ */
+private fun foodWithTab(food: FoodModel, tab: Tab, retapped: Boolean, today: String): FoodModel = when {
+    tab == Tab.FOOD && (food.day == null || retapped) -> food.copy(day = today, sheet = null)
+    tab != Tab.FOOD && food.day != null -> food.copy(day = null, add = null, sheet = null)
+    else -> food
 }
 
 // The hold timer

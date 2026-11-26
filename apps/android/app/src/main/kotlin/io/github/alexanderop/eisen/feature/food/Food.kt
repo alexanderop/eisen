@@ -70,9 +70,12 @@ data class FoodEntry(
     val day: String,
 )
 
-/** What a day should reach. Either may be missing: no goal shows what was eaten. */
+/**
+ * What a day should reach, in kcal and grams. Each may be missing: no goal shows what was eaten. [carbs] and [fat] came
+ * after build 24; its files have neither and load as they were.
+ */
 @Serializable
-data class FoodGoal(val kcal: Int? = null, val protein: Int? = null)
+data class FoodGoal(val kcal: Int? = null, val protein: Int? = null, val carbs: Int? = null, val fat: Int? = null)
 
 // Limits: every number of the feature has its maximum here (LimitsTest sends the largest number through every Msg).
 
@@ -100,6 +103,8 @@ const val MAX_QUICK_PROTEIN = 1_000
 
 const val MAX_GOAL_KCAL = 10_000
 const val MAX_GOAL_PROTEIN = 1_000
+const val MAX_GOAL_CARBS = 2_500
+const val MAX_GOAL_FAT = 1_100
 
 const val MAX_FOOD_NAME = 60
 const val MAX_BRAND = 40
@@ -154,7 +159,39 @@ fun entryWithin(entry: FoodEntry): FoodEntry = entry.copy(
 fun goalWithin(goal: FoodGoal): FoodGoal = FoodGoal(
     kcal = goal.kcal?.takeIf { it > 0 }?.coerceAtMost(MAX_GOAL_KCAL),
     protein = goal.protein?.takeIf { it > 0 }?.coerceAtMost(MAX_GOAL_PROTEIN),
+    carbs = goal.carbs?.takeIf { it > 0 }?.coerceAtMost(MAX_GOAL_CARBS),
+    fat = goal.fat?.takeIf { it > 0 }?.coerceAtMost(MAX_GOAL_FAT),
 )
+
+/** Energy per gram: protein and carbs 4 kcal, fat 9. */
+const val KCAL_PER_GRAM_PROTEIN = 4
+const val KCAL_PER_GRAM_CARBS = 4
+const val KCAL_PER_GRAM_FAT = 9
+
+/** The share of the calories "Fill carbs and fat" gives to fat. */
+const val FAT_SHARE = 0.25
+
+/**
+ * Carbs and fat that fill a goal of [kcal] after [protein] grams, so nobody has to do the arithmetic: fat [FAT_SHARE] of
+ * the calories, the rest carbs (none when protein and fat already take it all). Null without a calorie goal.
+ */
+fun carbsAndFatFor(kcal: Int, protein: Int): Pair<Int, Int>? {
+    if (kcal <= 0) return null
+    val fat = roundKcal(kcal * FAT_SHARE / KCAL_PER_GRAM_FAT).coerceIn(0, MAX_GOAL_FAT)
+    val rest = kcal - protein.coerceAtLeast(0) * KCAL_PER_GRAM_PROTEIN - fat * KCAL_PER_GRAM_FAT
+    val carbs = roundKcal(rest.coerceAtLeast(0) / KCAL_PER_GRAM_CARBS.toDouble()).coerceIn(0, MAX_GOAL_CARBS)
+    return carbs to fat
+}
+
+/**
+ * Grams of a macro eaten against its goal, calm either way: "96 g" without a goal, "96 / 160 g" under it, and
+ * "170 / 160 g · 10 over" past it.
+ */
+fun macroText(eaten: Double, goal: Int?): String {
+    val grams = roundKcal(eaten)
+    if (goal == null) return "$grams g"
+    return if (grams > goal) "$grams / $goal g · ${grams - goal} over" else "$grams / $goal g"
+}
 
 /** [amount] of [food], logged at [at] for [day]: kcal rounded to whole ones, protein, carbs and fat to a tenth. */
 fun entryOf(food: Food, amount: Double, id: String, at: Long, day: String): FoodEntry {
@@ -214,6 +251,19 @@ private fun date(day: String): LocalDate? = runCatching { LocalDate.parse(day) }
 fun dayBefore(day: String): String = date(day)?.minusDays(1)?.toString() ?: day
 
 fun dayAfter(day: String): String = date(day)?.plusDays(1)?.toString() ?: day
+
+/** [day] moved by [days], back for a negative number. */
+fun plusDays(day: String, days: Long): String = date(day)?.plusDays(days)?.toString() ?: day
+
+/** The seven days of the week of [day], Monday first; empty for a day that is not a date. */
+fun weekOf(day: String): List<String> {
+    val at = date(day) ?: return emptyList()
+    val monday = at.minusDays((at.dayOfWeek.value - 1).toLong())
+    return (0L until 7L).map { monday.plusDays(it).toString() }
+}
+
+/** The day of the month of [day], 26 for `2026-11-26`. */
+fun dayOfMonth(day: String): Int = date(day)?.dayOfMonth ?: 0
 
 /** True for a day that is a real date and not after [today]. */
 fun isPastOrToday(day: String, today: String): Boolean {

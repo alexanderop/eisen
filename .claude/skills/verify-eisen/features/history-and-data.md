@@ -16,7 +16,8 @@ nothing.
 ## How to get to it (user POV)
 
 - History tab: `Log` and `Progress` at the top.
-- Settings tab, scrolled to `Your data`: `Save backup`, `Send backup`, `Restore backup`.
+- Settings (the gear `Settings` at the top right of Home), scrolled to `Your data`: `Save backup`, `Send backup`,
+  `Restore backup`.
 - Installing a new build over the old app.
 
 ## Driving it with eisenctl
@@ -54,7 +55,7 @@ eisenctl has "Last 12 weeks" ".*: Fran, 7:42" ".*: Boxing, 23:00" ".*: Workout A
 `Save backup`, `Send backup`, `Restore backup`.
 
 ```sh
-eisenctl tap "Settings" && eisenctl scroll down && eisenctl scroll down && eisenctl wait "Restore backup"
+eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl scroll down && eisenctl scroll down && eisenctl wait "Restore backup"
 eisenctl has "Your data" "Save backup" "Send backup" && eisenctl shot 04-data
 eisenctl doctor && eisenctl cleanup
 ```
@@ -79,7 +80,8 @@ eisenctl doctor && eisenctl cleanup
 - `Save backup` and `Restore backup` open Android's file picker, which is another app: its handles
   are not Eisen's and change with the system image. They are not mapped; a refused import is covered
   by unit tests (`UpdateTest`, `DomainTest`), not by a journey here.
-- The Settings tab is long. `Your data` needs two `scroll down`; a tap right after a swipe only
+- Settings is no tab: the gear on Home (described `Settings`) opens it, `Back` at its top or the system back goes
+  home. It is long. `Your data` needs two `scroll down`; a tap right after a swipe only
   stops the list, which is why `scroll` waits.
 - With a workout running, `Unit` in Settings reads `Finish the current workout to change it.`
 - `data-update` is only as good as the old data on the emulator. `cleanup` restores that data, so

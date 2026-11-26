@@ -92,8 +92,8 @@ fun ratesSet(settings: Settings, log: ExerciseLog, set: Int): Boolean = settings
 fun handlesBack(model: Model): Boolean =
     model.timer != null || showsWorkout(model) || showsFood(model) || (model.nav.tab == Tab.WORKOUTS && openRoutine(model) != null) || model.nav.tab != Tab.HOME
 
-/** The Food screen shows instead of the tabs, unless the workout covers it. */
-fun showsFood(model: Model): Boolean = model.food.day != null && !showsWorkout(model)
+/** The Food tab shows, unless the workout covers it. */
+fun showsFood(model: Model): Boolean = model.nav.tab == Tab.FOOD && model.food.day != null && !showsWorkout(model)
 
 /** A workout is running or waiting for an answer. Settings that would split its log are locked meanwhile. */
 fun workoutRunning(model: Model): Boolean = model.session.active != null

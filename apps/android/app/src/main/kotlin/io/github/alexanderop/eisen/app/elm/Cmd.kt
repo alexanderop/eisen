@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.app.elm
 
 import io.github.alexanderop.eisen.feature.food.FoodEntry
+import io.github.alexanderop.eisen.feature.food.PlateItem
 import io.github.alexanderop.eisen.app.state.AppState
 import io.github.alexanderop.eisen.feature.timer.TimerRun
 import io.github.alexanderop.eisen.feature.timer.TimerSession
@@ -78,6 +79,9 @@ sealed interface Cmd {
 
     /** Keeps the builder's drafts in a file of their own, so they survive the end of the process. Empty deletes it. See [draftFile]. */
     data class SaveDraft(val drafts: List<WodDraft>) : Cmd
+
+    /** Keeps what is on the plate in a file of its own, so it survives the end of the process. Empty deletes it. See [encodePlate]. */
+    data class SavePlate(val plate: List<PlateItem>) : Cmd
 
     /** Keeps the page of the Timer tab in an Android preference, see [Navigation.timerPage]. */
     data class SaveTimerPage(val page: TimerPage) : Cmd

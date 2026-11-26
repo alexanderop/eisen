@@ -101,6 +101,7 @@ object Eisen {
             savedTimer = TimerFile.read(app),
             timerPage = Prefs.timerPage(app),
             savedDrafts = DraftFile.read(app),
+            savedPlate = PlateFile.read(app),
             plainFoods = PlainFoodAsset.read(app),
             zone = ZoneId.systemDefault(),
         )
@@ -169,6 +170,7 @@ object Eisen {
                 is Cmd.PlayTimerSounds -> TimerSounds.playAll(app, cmd.sounds.map { it.at to it.sound }, cmd.fallback)
                 is Cmd.SaveTimerPage -> Prefs.saveTimerPage(app, cmd.page)
                 is Cmd.SaveDraft -> DraftFile.write(app, cmd.drafts)
+                is Cmd.SavePlate -> PlateFile.write(app, cmd.plate)
                 is Cmd.LookUpProduct -> OpenFoodFactsClient.product(app, cmd.barcode) { dispatch(Msg.Food.Looked(cmd.barcode, it)) }
                 is Cmd.SearchFoods -> OpenFoodFactsClient.search(app, cmd.query) { dispatch(Msg.Food.Searched(cmd.query, it)) }
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.

@@ -107,7 +107,9 @@
     "foodLog": [],
     "foodGoal": {
         "kcal": null,
-        "protein": null
+        "protein": null,
+        "carbs": null,
+        "fat": null
     },
     "meals": [],
     "timerPresets": [

@@ -6,6 +6,7 @@ import io.github.alexanderop.eisen.app.elm.MealRow
 import io.github.alexanderop.eisen.app.elm.MealSheet
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.Tab
 import io.github.alexanderop.eisen.app.elm.UiEvent
 import io.github.alexanderop.eisen.app.elm.canSaveMeal
 import io.github.alexanderop.eisen.app.elm.copyOffer
@@ -64,7 +65,7 @@ class MealsTest {
 
     /** Breakfast logged today: oats 80 g, skyr 450 g and a quick 100 kcal for the coffee. */
     private fun breakfast(): Step = opened()
-        .food(Msg.Food.OpenSearch).food(Msg.Food.Search("oat")).food(Msg.Food.Pick(oats.id)).food(Msg.Food.ConfirmAmount, id = "e1")
+        .food(Msg.Food.OpenAdd).food(Msg.Food.Search("oat")).food(Msg.Food.Pick(oats.id)).food(Msg.Food.ConfirmAmount, id = "p1").food(Msg.Food.LogPlate, id = "e1")
         .food(Msg.Food.Scanned("4056489000006")).food(Msg.Food.ConfirmAmount, now = morning + 1, id = "e2")
         .food(Msg.Food.OpenQuick).food(Msg.Food.SaveQuick(100, null, "Coffee"), now = morning + 2, id = "e3")
 
@@ -115,7 +116,7 @@ class MealsTest {
     // Logging one
 
     @Test fun `one tap on a meal logs each of its foods on the day shown, with Undo`() {
-        val tomorrow = saved().food(Msg.Food.Close).food(Msg.Food.Open, now = morning + 86_400_000)
+        val tomorrow = saved().food(Msg.Nav.SelectTab(Tab.HOME)).food(Msg.Food.Open, now = morning + 86_400_000)
         val added = tomorrow.food(Msg.Food.AddMeal("meal:m1"), now = morning + 86_400_000, id = "a")
         val new = added.state.foodLog.drop(3)
         assertEquals(listOf("a", "a.2"), new.map { it.id })
@@ -187,7 +188,7 @@ class MealsTest {
     @Test fun `the meal sheets close like every sheet, and need the Food screen`() {
         assertNull(saved().food(Msg.Food.OpenMeals).food(Msg.Food.CloseSheet).model.food.sheet)
         assertNull(saved().food(Msg.Food.OpenMeals).food(Msg.Food.AddMeal("meal:m1"), id = "a").model.food.sheet)
-        val closed = saved().food(Msg.Food.Close)
+        val closed = saved().food(Msg.Nav.SelectTab(Tab.HOME))
         closed.ignores(Msg.Food.OpenMeals)
         closed.ignores(Msg.Food.AddMeal("meal:m1"))
         saved().food(Msg.Food.OpenMeals).ignores(Msg.Food.OpenMeals)
@@ -196,7 +197,7 @@ class MealsTest {
     // Copy yesterday
 
     @Test fun `an empty day copies the day before, with Undo`() {
-        val tomorrow = breakfast().food(Msg.Food.Close).food(Msg.Food.Open, now = morning + 86_400_000)
+        val tomorrow = breakfast().food(Msg.Nav.SelectTab(Tab.HOME)).food(Msg.Food.Open, now = morning + 86_400_000)
         assertEquals(CopyOffer("Copy yesterday", 3, 673), copyOffer(tomorrow.model))
         val copied = tomorrow.food(Msg.Food.CopyDayBefore, now = morning + 86_400_000, id = "c")
         val new = copied.state.foodLog.drop(3)
@@ -212,7 +213,7 @@ class MealsTest {
         assertNull(copyOffer(opened().model))
         opened().ignores(Msg.Food.CopyDayBefore)
         // Two days back the button names the day.
-        val earlier = breakfast().food(Msg.Food.Close).food(Msg.Food.Open, now = morning + 2 * 86_400_000).food(Msg.Food.PreviousDay, now = morning + 2 * 86_400_000)
+        val earlier = breakfast().food(Msg.Nav.SelectTab(Tab.HOME)).food(Msg.Food.Open, now = morning + 2 * 86_400_000).food(Msg.Food.OpenDay("2026-11-27"), now = morning + 2 * 86_400_000)
         assertEquals("Copy Thu, Nov 26", copyOffer(earlier.model)?.label)
     }
 

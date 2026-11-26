@@ -6,7 +6,7 @@ description: Drive the real Eisen Android app (Kotlin, Compose) on the emulator 
 # Verify Eisen on the emulator
 
 Eisen is a workout tracker. The app is `apps/android` (the PWA in `apps/web` is frozen: do not
-verify it). A user touches five tabs: Home, Workouts, Timer, History, Settings. Unit tests cover the
+verify it). A user touches five tabs: Home, Workouts, Timer, Food, History, and Settings behind the gear on Home. Unit tests cover the
 pure program; this skill covers what they cannot: the running app, its services, its notifications
 and its saved file.
 
@@ -31,14 +31,15 @@ eisenctl launch --fresh --animations   # the same with the animation scales left
 ```
 
 - Starts the emulator (`-no-audio`) only when none is attached, and waits for it to boot.
-- Saves the emulator's current `eisen.json`, `timer-run.json` and `wod-draft.json`; `cleanup` puts
-  them back. A run never costs the emulator its data.
+- Saves the emulator's current `eisen.json`, `timer-run.json`, `wod-draft.json` and `plate.json` (what is on the
+  plate of the Food tab's add screen); `cleanup` puts them back. A run never costs the emulator its data.
 - `--fresh` clears the app's data: the app then starts with its two built-in workouts, kilograms,
   no history. Without `--fresh` you verify an **update**: the new build on old data.
 - `--state <name>` implies `--fresh`, then writes `fixtures/<name>.json` to the app's `files/`
   before it starts, so a journey that needs earlier data or a short timer does not tap it together.
-  The file's days are moved by whole weeks so its newest entry is in the last seven days; the moved
-  copy is the run's `00-fixture-<name>.json`. Each journey in `features/` says which start it needs.
+  The file's days are moved by whole weeks so its newest entry is in the last seven days; its food log
+  is moved by whole weeks so its newest day is one of the seven days before the phone's today (today
+  starts empty, the times of day stay). The moved copy is the run's `00-fixture-<name>.json`. Each journey in `features/` says which start it needs.
 - Grants the notification permission, turns system animations off (`--animations` leaves them at 1),
   wakes the screen and mutes the media volume. **The owner wants every test muted. Never raise the volume.**
   A run with the animations off is faster and steadier, and misses what only breaks while something
@@ -60,6 +61,27 @@ AVD `eisen`, booted, a run is open, the app is installed, **the installed APK is
 one built in this checkout**, the app is on screen, media is muted, no `FATAL EXCEPTION` since
 launch. Run it first whenever something looks off, and again before you report, so a crash during
 the journey cannot go unnoticed.
+
+## Release smoke
+
+```sh
+eisenctl release-smoke            # the signed release APK that is built (apps/android/app/build/outputs/apk/release)
+eisenctl release-smoke --build    # builds it first (EISEN_KEYSTORE, EISEN_KEYSTORE_PASSWORD, EISEN_VERSION_CODE,
+                                  # else ~/.eisen/eisen-release.jks and ~/.eisen/keystore-password.txt)
+eisenctl release-smoke --apk <file>
+```
+
+Every journey runs the debug build; builds 22 and 23 broke only under R8. This runs the release build: it keeps the
+debug app's files, uninstalls it (the release key is another signature), installs the release APK muted with the
+animations off, and drives it: Home, a workout started and discarded, Workouts, a timer's setup, the Food tab, its add
+screen, Scan (the scanner's own screen, or the typed barcode while Play services fetches the scanner), a typed barcode
+looked up in airplane mode ("No network": a release build reads no local answers), a new own food put on the plate and
+logged, Settings behind the gear, History › Progress. It **fails on a crash, an ANR, or a `ClassNotFoundException`,
+`NoSuchMethodException` or `ComponentDiscovery` warning of the app's process in logcat**, and on any step that does
+not show. Then, failed or not, the debug build goes back on with its files, airplane mode off, animations and font as
+found. Evidence: `verify/android/<date-time>-release/`. It needs no open run and leaves none; it stamps nothing. About
+two minutes. Proven on the R8 bug of build 23: without the keep rule in `app/proguard-rules.pro` it fails on
+`ComponentDiscovery: Could not instantiate ...CommonComponentRegistrar`.
 
 ## Drive
 
@@ -160,6 +182,11 @@ change to the state that breaks one is fixed in the same change: load it and sav
   an AMRAP stopped early, Fran in 7:42, Cindy with 14 rounds, and the lifter's own AMRAP
   `Garage burner` (10:00) with a best of 7 rounds.
 
+- `food`: fresh data, a goal of 2,400 kcal and 160 g protein, and `Skyr Natur` found before by its barcode.
+- `food-history`: the same, plus two weeks of food: eight foods, each eaten every day at its own time three hours
+  apart (Milk 01:30, Banana 04:30, Oats 07:30, Skyr 10:30, Rice 13:30, Apple 16:30, Chicken 19:30, Cottage cheese
+  22:30, Berlin time), so whatever the hour a journey runs at, one of them is "usual at this time".
+
 Every value in them is one the app's own screens can produce: they were made by sending `update`
 the messages the screens send, with wheel values from the setup's own lists.
 
@@ -167,8 +194,8 @@ the messages the screens send, with wheel values from the setup's own lists.
 
 - **Sound itself.** Muted by the owner's rule. The log says which recording was started, not how
   it sounds.
-- **A real phone**, TalkBack, Health Connect with real data, and the signed release build (the
-  emulator's app is debug-signed; a release APK cannot be installed over it).
+- **A real phone**, TalkBack and Health Connect with real data. The signed release build only through
+  `release-smoke` (a release APK cannot be installed over the debug one, so the journeys cannot run it).
 - **Two runs side by side.** There is one emulator and one app on it. Do not start a second
   emulator to work around the lock.
 - The SharedPreferences (a running rest, the Health Connect switch, the last Timer page) are not

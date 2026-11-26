@@ -16,6 +16,9 @@ import io.github.alexanderop.eisen.feature.timer.wod.Wod
 import io.github.alexanderop.eisen.feature.workout.Workout
 import io.github.alexanderop.eisen.app.state.freshState
 import io.github.alexanderop.eisen.feature.food.Food
+import io.github.alexanderop.eisen.feature.food.MAX_PLATE_ITEMS
+import io.github.alexanderop.eisen.feature.food.PlateItem
+import io.github.alexanderop.eisen.feature.food.plateItemWithin
 import java.time.ZoneId
 import java.time.ZoneOffset
 
@@ -355,7 +358,14 @@ sealed interface SchemeChoice {
     data class Custom(val scheme: List<Int>) : SchemeChoice
 }
 
-enum class Tab { HOME, WORKOUTS, TIMER, HISTORY, SETTINGS }
+/**
+ * What shows under the app's bar. [SETTINGS] is not in the bar: the gear on Home opens it, and Back goes home from it,
+ * like from any tab. The names are kept by Android when the process ends (`MainActivity`), so they do not change.
+ */
+enum class Tab { HOME, WORKOUTS, TIMER, FOOD, HISTORY, SETTINGS }
+
+/** The tabs of the bar at the bottom, in its order. */
+val BAR_TABS: List<Tab> = listOf(Tab.HOME, Tab.WORKOUTS, Tab.TIMER, Tab.FOOD, Tab.HISTORY)
 
 /** The two-way switch at the top of the History tab: the list of what was done, or the charts. */
 enum class HistoryView { LOG, PROGRESS }
@@ -456,6 +466,8 @@ data class Flags(
     val savedDrafts: List<WodDraft> = emptyList(),
     /** The plain foods of the app's asset. */
     val plainFoods: List<Food> = emptyList(),
+    /** What was on the plate when the process ended: the plate file, see [encodePlate]. */
+    val savedPlate: List<PlateItem> = emptyList(),
     /** The phone's time zone at the start. */
     val zone: ZoneId = ZoneOffset.UTC,
 )
@@ -473,6 +485,7 @@ fun init(flags: Flags): Pair<Model, List<Cmd>> {
         now = flags.now,
         plainFoods = flags.plainFoods,
         zone = flags.zone,
+        food = FoodModel(plate = flags.savedPlate.map(::plateItemWithin).take(MAX_PLATE_ITEMS)),
     )
     val cmds = mutableListOf<Cmd>()
     // The interval timer first: a run that still goes covers everything, so no rest can run under it.

@@ -287,6 +287,7 @@ internal fun data(msg: Msg.Data, model: Model, env: Env): Next = when (msg) {
             lastChanges = null,
             overlay = overlayAfter(model.overlay, OverlayEvent.Cleared),
             undo = Undo(),
+            food = model.food.copy(plate = emptyList(), add = null, sheet = null),
             dataNotice = "All data erased.",
         ) and cmds
     }

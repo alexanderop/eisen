@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
 BASE="$ROOT/verify/android"
 STATE="$BASE/.state"
-FILES="eisen.json timer-run.json wod-draft.json"
+FILES="eisen.json timer-run.json wod-draft.json plate.json"
 FIXTURES="$ROOT/.claude/skills/verify-eisen/fixtures"
 
 TAB="$(printf '\t')"
@@ -118,11 +118,17 @@ case "${1:-}" in
     if [ -n "$fixture" ]; then
       # Moved by whole weeks so its newest entry is in the last seven days: "this week" and the
       # last 12 weeks of Progress keep something to show, on the same weekdays, however old the file.
+      # The food log moves by whole weeks too, its newest day into the seven days before today (the
+      # phone's today), so today starts empty and the times of day stay what they were.
       shifted="$run/00-fixture-$(basename "$fixture")"
-      jq -c --argjson now "$(date +%s)000" '
+      today="$("$ADB" shell date +%Y-%m-%d | tr -d '\r')"
+      jq -c --argjson now "$(date +%s)000" --arg today "$today" '
         ([.. | objects | (.startedAt?, .finishedAt?) | numbers] | max // $now) as $newest
         | ((($now - $newest) / 604800000 | floor) * 604800000) as $by
         | walk(if type == "object" then with_entries(if (.key == "startedAt" or .key == "finishedAt") and (.value | type) == "number" then .value += $by else . end) else . end)
+        | ([.foodLog[]?.day] | max) as $last
+        | (if $last == null then 0 else (((($today | strptime("%Y-%m-%d") | mktime) - ($last | strptime("%Y-%m-%d") | mktime)) / 86400 | floor) as $d | 7 * ((($d - 1) / 7) | floor)) end) as $days
+        | if has("foodLog") then .foodLog |= map(.at += $days * 86400000 | .day = ((.day | strptime("%Y-%m-%d") | mktime) + $days * 86400 | strftime("%Y-%m-%d"))) else . end
       ' "$fixture" > "$shifted" || die "could not read $fixture"
       "$ADB" shell "run-as $PKG mkdir -p files" && "$ADB" shell "run-as $PKG sh -c 'cat > files/eisen.json'" < "$shifted" \
         || die "could not write $fixture into the app"
@@ -392,6 +398,101 @@ $(echo "$ignored" | cut -c1-160)"
     for sound in "$@"; do grep -q "EisenTimer: said $sound\$" "$run/logcat.txt" || missing="$missing $sound"; done
     [ -z "$missing" ] || die "not said since launch:$missing (see $run/logcat.txt)"
     ;;
+  release-smoke)
+    # The signed release build (R8) on the emulator: install it, open every tab and the main ways in, fail on a crash,
+    # an ANR or a class or method R8 took away; then the debug build and the app's files come back. Builds 22 and 23
+    # broke only under R8, and every journey runs the debug build.
+    shift; build=0; apk="$ROOT/apps/android/app/build/outputs/apk/release/app-release.apk"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --build) build=1;;
+        --apk) [ -n "${2:-}" ] || die "--apk <file>"; apk="$2"; shift;;
+        *) die "unknown option $1";;
+      esac
+      shift
+    done
+    mkdir -p "$STATE"
+    [ -f "$STATE/run" ] && die "a run is open ($(cat "$STATE/run")): finish it with 'eisenctl cleanup' first"
+    [ -n "$(device)" ] && booted || die "no booted emulator: start one with 'eisenctl launch', then 'eisenctl cleanup'"
+    if [ "$build" = 1 ]; then
+      keystore="${EISEN_KEYSTORE:-$HOME/.eisen/eisen-release.jks}"
+      [ -f "$keystore" ] || die "no keystore at $keystore (EISEN_KEYSTORE)"
+      password="${EISEN_KEYSTORE_PASSWORD:-$(cat "$HOME/.eisen/keystore-password.txt" 2>/dev/null)}"
+      [ -n "$password" ] || die "no keystore password (EISEN_KEYSTORE_PASSWORD or ~/.eisen/keystore-password.txt)"
+      (cd "$ROOT/apps/android" && EISEN_KEYSTORE="$keystore" EISEN_KEYSTORE_PASSWORD="$password" ./gradlew assembleRelease -q) || die "the release build failed"
+    fi
+    [ -f "$apk" ] || die "no release APK at $apk: build it (see SKILL.md) or pass --build"
+    [ -f "$APK" ] || (cd "$ROOT/apps/android" && ./gradlew assembleDebug -q) || die "the debug build failed, and it has to come back afterwards"
+    run="$BASE/$(date +%Y%m%d-%H%M%S)-release"; mkdir -p "$run"; echo "$run" > "$STATE/run"
+    # The debug app's files, kept here and put back into the debug build afterwards: the release build has another
+    # signature, so the debug one is uninstalled with its data.
+    mkdir -p "$STATE/backup"
+    for name in $FILES; do file_of "$name" > "$STATE/backup/$name"; [ -s "$STATE/backup/$name" ] || rm -f "$STATE/backup/$name"; done
+    for scale in window_animation_scale transition_animation_scale animator_duration_scale; do "$ADB" shell settings get global $scale | tr -d '\r' > "$STATE/$scale"; done
+    "$ADB" shell settings get system font_scale | tr -d '\r' > "$STATE/font_scale"
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    restore() {
+      "$ADB" shell cmd connectivity airplane-mode disable > /dev/null 2>&1
+      "$ADB" uninstall $PKG > /dev/null 2>&1
+      "$ADB" install "$APK" > "$run/install-debug.log" 2>&1 || echo "eisenctl: the debug build did not go back on, see $run/install-debug.log" >&2
+      "$ADB" shell "run-as $PKG mkdir -p files"
+      for name in $FILES; do [ -f "$STATE/backup/$name" ] && "$ADB" shell "run-as $PKG sh -c 'cat > files/$name'" < "$STATE/backup/$name"; done
+      "$ADB" shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
+      for scale in window_animation_scale transition_animation_scale animator_duration_scale; do [ -s "$STATE/$scale" ] && "$ADB" shell settings put global $scale "$(cat "$STATE/$scale")"; done
+      [ -s "$STATE/font_scale" ] && "$ADB" shell settings put system font_scale "$(cat "$STATE/font_scale")"
+      /bin/rm -rf "$STATE"
+      echo "evidence kept in $run"
+    }
+    fail() { echo "release-smoke: FAILED: $*" >&2; "$ADB" logcat -d -v threadtime > "$run/logcat.txt"; restore; exit 1; }
+    "$ADB" uninstall $PKG > /dev/null 2>&1
+    "$ADB" install "$apk" > "$run/install.log" 2>&1 || fail "the release APK did not install, see $run/install.log"
+    "$ADB" shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null
+    for scale in window_animation_scale transition_animation_scale animator_duration_scale; do "$ADB" shell settings put global $scale 0; done
+    # Muted, always.
+    "$ADB" shell cmd audio set-volume 3 0 > /dev/null 2>&1
+    "$ADB" shell input keyevent KEYCODE_WAKEUP
+    "$ADB" shell wm dismiss-keyguard
+    "$ADB" logcat -c
+    "$ADB" shell am start -n $PKG/.MainActivity > /dev/null
+    go() { "$self" "$@" || fail "$*"; }
+    pids=""
+    seen() { pids="$pids $("$ADB" shell pidof $PKG | tr -d '\r')"; }
+    go wait "Start workout" 30 && seen && go shot 01-home
+    # A workout started and discarded (nothing logged: no question).
+    go tap "Start workout" && go wait "Finish" && go tap "More options" && go tap "Discard workout"
+    "$self" has "Discard this workout\\?" 2> /dev/null && go tap "Discard workout"
+    go wait "Start workout" && seen
+    go tap "Workouts" && go wait "Workout A" && go shot 02-workouts
+    # A timer's setup, then back to the list.
+    go tap "Timer" && go tap "Timers" && go tap "Tabata" && go wait "Start" && go shot 03-timer-setup && go back
+    # The Food tab, its add screen, the scanner (its own screen or the typed barcode, either way put away).
+    go tap "Food" && go wait "0 kcal eaten" && go shot 04-food && go tap "\+ Add" && go wait "Search foods" && seen
+    go tap "Scan" && sleep 5 && go shot 05-scan && seen && go back && sleep 1
+    "$self" has "Look up" 2> /dev/null && go back
+    go wait "Search foods" && go shot 06-after-scan
+    # A typed barcode looked up without a network: the request, its failure and the sheet, with no answer needed. A
+    # release build reads no local answers (only debug builds do), so this is the lookup that needs no network.
+    "$ADB" shell cmd connectivity airplane-mode enable > /dev/null 2>&1
+    go tap "Type a barcode" && go wait "Look up" && go type 4006381333931 && go tap "Look up"
+    go wait "No network. Check the connection and try again." 30 && go shot 07-no-network
+    "$ADB" shell cmd connectivity airplane-mode disable > /dev/null 2>&1
+    go tap "Close" && go wait "Search foods"
+    # Where a barcode nobody knows lands: the own food form, saved and on the plate, then logged.
+    go tap "New food" && go wait "Save food" && go tap "Name" && go type "Smoke" && go back && go tap "Save food" && go wait "Add .* kcal to the plate" && go tap "Add .* kcal to the plate"
+    go wait "Log .* kcal" && go tap "Log .* kcal" && go wait "Logged 1 food" && go shot 08-logged && seen
+    # Settings behind the gear on Home, History and its Progress.
+    go tap "Home" && go wait "Start workout" && go tap "Settings" && go wait "Weights" && go shot 09-settings && go back && go wait "Start workout"
+    go tap "History" && go tap "Progress" && go wait "Finish your first workout and your progress shows up here." && go shot 10-progress && seen
+    "$ADB" logcat -d -v threadtime > "$run/logcat.txt"
+    # What breaks under R8: a crash, an ANR, a class or a method it took away, ML Kit's components not found.
+    pids="$(echo $pids | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')"
+    ours="$(awk -v pids=" $pids " 'index(pids, " " $3 " ")' "$run/logcat.txt")"
+    bad="$( { echo "$ours" | grep -E "FATAL EXCEPTION|ClassNotFoundException|NoSuchMethodException|ComponentDiscovery"; grep -E "FATAL EXCEPTION|ANR in $PKG|Process: $PKG" "$run/logcat.txt"; } | sort -u)"
+    [ -z "$bad" ] || fail "the log of the release build says:
+$(echo "$bad" | cut -c1-220 | head -20)"
+    echo "release-smoke: passed, pids $pids, log $run/logcat.txt"
+    restore
+    ;;
   adb) shift; "$ADB" "$@" ;;
   cleanup)
     [ -d "$STATE" ] || { echo "nothing to clean up"; exit 0; }
@@ -438,6 +539,9 @@ eisenctl said <sound>...                 fails unless the log has "EisenTimer: s
 eisenctl buzzed                          fails unless a vibration of the app played since launch, none dropped
 eisenctl journey <feature> [recipe]      run a feature file's recipes, stop at the first failing command;
                                          only a journey that passed stamps the sources "Verified: emulator"
+eisenctl release-smoke [--build] [--apk <file>]
+                                         the signed release APK (R8) installed instead of debug: every tab and the main
+                                         ways in, fails on a crash, an ANR or R8's missing classes; then debug is back
 eisenctl adb <args>                      plain adb
 eisenctl cleanup                         restore the emulator's app data and settings, keep the evidence
 USAGE

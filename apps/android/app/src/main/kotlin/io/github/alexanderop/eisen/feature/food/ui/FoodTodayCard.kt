@@ -21,6 +21,12 @@ import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.foodToday
+import io.github.alexanderop.eisen.app.elm.kcalHeadline
+import io.github.alexanderop.eisen.app.elm.kcalLine
+import io.github.alexanderop.eisen.feature.food.macroText
+import io.github.alexanderop.eisen.feature.food.roundKcal
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import io.github.alexanderop.eisen.core.ui.EisenCard
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Eyebrow
@@ -29,29 +35,30 @@ import io.github.alexanderop.eisen.feature.food.gramsText
 import io.github.alexanderop.eisen.feature.food.kcalText
 
 /**
- * "Food today" on Home: what is left of the goal (or what was eaten), the protein, and Scan and Add, one tap
- * from logging. A tap on the card opens the day.
+ * "Food today" on Home: the same kcal line as the Food tab, the calories and the three macros in one line, and Scan and
+ * Add, one tap from logging. A tap on the card switches to the Food tab. Below the workout, so "Start workout" stays on
+ * the first screen.
  */
 @Composable
 fun FoodTodayCard(model: Model, dispatch: (Msg) -> Unit, modifier: Modifier = Modifier) {
     val day = foodToday(model)
     val totals = day.totals
+    val goal = day.goal
     EisenCard(modifier.fillMaxWidth(), onClick = { dispatch(Msg.Food.Open) }) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Eyebrow("Food today")
-            val goal = day.goal.kcal
+            Text(kcalHeadline(day), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = EisenColors.Foreground, modifier = Modifier.semantics { heading() })
+            Text(kcalLine(totals.kcal, goal.kcal), color = EisenColors.MutedForeground)
+            val macros = listOf("P" to macroShort(totals.protein, goal.protein), "C" to macroShort(totals.carbs, goal.carbs), "F" to macroShort(totals.fat, goal.fat))
             Text(
-                if (goal == null) "${kcalText(totals.kcal)} kcal eaten"
-                else if (totals.kcal <= goal) "${kcalText(goal - totals.kcal)} left of ${kcalText(goal)} kcal"
-                else "${kcalText(totals.kcal - goal)} over ${kcalText(goal)} kcal",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (goal != null && totals.kcal > goal) EisenColors.Warn else EisenColors.Foreground,
-                modifier = Modifier.semantics { heading() },
+                macros.joinToString("  ·  ") { (letter, text) -> "$letter $text" },
+                color = EisenColors.MutedForeground,
+                // TalkBack reads the words, not the letters.
+                modifier = Modifier.clearAndSetSemantics {
+                    contentDescription = "Protein ${macroText(totals.protein, goal.protein)}, carbs ${macroText(totals.carbs, goal.carbs)}, fat ${macroText(totals.fat, goal.fat)}"
+                },
             )
-            val protein = gramsText(totals.protein).removeSuffix(" g")
-            Text("Protein $protein${day.goal.protein?.let { " / $it" } ?: ""} g", color = EisenColors.MutedForeground)
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { dispatch(Msg.Food.OpenScan) },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
@@ -69,3 +76,6 @@ fun FoodTodayCard(model: Model, dispatch: (Msg) -> Unit, modifier: Modifier = Mo
         }
     }
 }
+
+/** A macro in a few characters: "96/160", or "96 g" without a goal. */
+private fun macroShort(eaten: Double, goal: Int?): String = if (goal == null) gramsText(eaten) else "${roundKcal(eaten)}/$goal"

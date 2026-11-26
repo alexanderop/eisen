@@ -110,7 +110,10 @@ class LimitsTest {
         step.model.repsQuestion?.let { assertTrue("after $sent: the question starts at ${it.reps}", it.reps in 0..MAX_LOGGED_REPS) }
         step.model.timerSetup?.let { assertEquals("after $sent", timerConfig(it.config), it.config) }
         (step.model.food.sheet as? FoodSheet.Amount)?.let { assertTrue("after $sent: the add sheet is at ${it.amount}", it.amount in MIN_AMOUNT..MAX_AMOUNT) }
-        (step.model.food.sheet as? FoodSheet.Search)?.let { assertTrue("after $sent: the search is ${it.query.length} long", it.query.length <= MAX_FOOD_QUERY) }
+        step.model.food.add?.let { assertTrue("after $sent: the search is ${it.query.length} long", it.query.length <= MAX_FOOD_QUERY) }
+        assertTrue("after $sent: ${step.model.food.plate.size} foods on the plate", step.model.food.plate.size <= io.github.alexanderop.eisen.feature.food.MAX_PLATE_ITEMS)
+        val plate = plateOutOfLimits(step.model.food.plate)
+        assertTrue("after $sent:\n${plate.joinToString("\n")}", plate.isEmpty())
     }
 
     @Test fun `the largest number a food Msg carries is saved within its field's limit`() {
@@ -130,19 +133,29 @@ class LimitsTest {
         val savedOwn = own.send(Msg.Food.SaveOwn("x".repeat(500), heavy, heavy, heavy, heavy, heavy), id = "o1")
         assertWithin(savedOwn, "SaveOwn")
         assertWithin(savedOwn.send(Msg.Food.ConfirmAmount, id = "e3"), "SaveOwn and ConfirmAmount")
-        assertWithin(open.send(Msg.Food.OpenGoal).send(Msg.Food.SaveGoal(big, big)), "SaveGoal")
-        val search = open.send(Msg.Food.OpenSearch).send(Msg.Food.Search("s".repeat(500)))
+        assertWithin(open.send(Msg.Food.OpenGoal).send(Msg.Food.SaveGoal(big, big, big, big)), "SaveGoal")
+        val search = open.send(Msg.Food.OpenAdd).send(Msg.Food.Search("s".repeat(500)))
         assertWithin(search, "Search")
         val answered = search.send(Msg.Food.SubmitSearch).send(Msg.Food.Searched("s".repeat(MAX_FOOD_QUERY), SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(huge)))))
-        assertWithin(answered.send(Msg.Food.Pick(huge.id)).send(Msg.Food.ConfirmAmount, id = "e4"), "a search result")
+        assertWithin(answered.send(Msg.Food.Pick(huge.id)).send(Msg.Food.ConfirmAmount, id = "e4").send(Msg.Food.LogPlate, id = "e5"), "a search result")
+        // The plate at its largest: the heaviest foods and quick kcal, as many as fit, and not one more; then logged.
+        val fullPlate = (1..io.github.alexanderop.eisen.feature.food.MAX_PLATE_ITEMS + 3).fold(answered) { at, i -> at.send(Msg.Food.PlateAdd(huge.id), id = "p$i") }
+        assertEquals(io.github.alexanderop.eisen.feature.food.MAX_PLATE_ITEMS, fullPlate.model.food.plate.size)
+        assertWithin(fullPlate, "PlateAdd")
+        val quickOnPlate = answered.send(Msg.Food.OpenQuick).send(Msg.Food.SaveQuick(big, big, "q".repeat(500)), id = "pq")
+        assertWithin(quickOnPlate, "SaveQuick onto the plate")
+        assertWithin(quickOnPlate.send(Msg.Food.OpenPlateItem("pq")).send(Msg.Food.SaveQuick(big, big, "q".repeat(500))), "a quick item changed")
+        val heavyItem = fullPlate.send(Msg.Food.OpenPlateItem("p1")).send(Msg.Food.SetAmount(heavy)).send(Msg.Food.ConfirmAmount)
+        assertWithin(heavyItem, "a plate item's amount")
+        assertWithin(heavyItem.send(Msg.Food.LogPlate, id = "l1"), "LogPlate")
         // A meal of the largest entries, its amounts at the largest number, logged; and the day copied.
         val meal = logged.send(Msg.Food.NewMeal).send(Msg.Food.SaveNewMeal("m".repeat(500)), id = "m1")
         assertWithin(meal, "SaveNewMeal")
         val changed = meal.send(Msg.Food.EditMeal("meal:m1")).send(Msg.Food.SetMealAmount(0, heavy)).send(Msg.Food.SaveMeal("m".repeat(500)))
         assertWithin(changed, "SetMealAmount and SaveMeal")
         assertWithin(changed.send(Msg.Food.AddMeal("meal:m1"), id = "e5"), "AddMeal")
-        val yesterday = open.send(Msg.Food.PreviousDay).send(Msg.Food.OpenQuick).send(Msg.Food.SaveQuick(big, big, "q".repeat(500)), id = "y1")
-        val copied = yesterday.send(Msg.Food.NextDay).send(Msg.Food.CopyDayBefore, id = "c1")
+        val yesterday = open.send(Msg.Food.OpenDay(io.github.alexanderop.eisen.feature.food.dayBefore(io.github.alexanderop.eisen.app.elm.today(open.model)))).send(Msg.Food.OpenQuick).send(Msg.Food.SaveQuick(big, big, "q".repeat(500)), id = "y1")
+        val copied = yesterday.send(Msg.Food.OpenDay(io.github.alexanderop.eisen.app.elm.today(open.model))).send(Msg.Food.CopyDayBefore, id = "c1")
         assertEquals(2, copied.state.foodLog.size)
         assertWithin(copied, "CopyDayBefore")
         // As many meals as the limit allows, and not one more.
@@ -249,6 +262,10 @@ class LimitsTest {
 }
 
 /** Every number of the food log outside its limit. The random walk of `UpdateTest` checks it after every Msg too. */
+/** What on the plate is beyond a limit: each item in the limits of an entry, and of a food. */
+internal fun plateOutOfLimits(plate: List<io.github.alexanderop.eisen.feature.food.PlateItem>): List<String> =
+    plate.flatMap { item -> foodOutOfLimits(freshState(WeightUnit.KG).copy(foods = listOfNotNull(item.food), foodLog = listOf(item.entry))) }
+
 internal fun foodOutOfLimits(state: AppState): List<String> = buildList {
     for (food in state.foods) {
         if (food.kcal !in 0.0..MAX_KCAL_PER_100) add("${food.id} kcal ${food.kcal}")
@@ -276,4 +293,6 @@ internal fun foodOutOfLimits(state: AppState): List<String> = buildList {
     }
     state.foodGoal.kcal?.let { if (it !in 1..MAX_GOAL_KCAL) add("goal kcal $it") }
     state.foodGoal.protein?.let { if (it !in 1..MAX_GOAL_PROTEIN) add("goal protein $it") }
+    state.foodGoal.carbs?.let { if (it !in 1..io.github.alexanderop.eisen.feature.food.MAX_GOAL_CARBS) add("goal carbs $it") }
+    state.foodGoal.fat?.let { if (it !in 1..io.github.alexanderop.eisen.feature.food.MAX_GOAL_FAT) add("goal fat $it") }
 }

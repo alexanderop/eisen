@@ -33,6 +33,10 @@ internal fun mealAfter(msg: Msg.Food, model: Model, env: Env): Next {
             val entries = entriesOf(model.state.foodLog, day)
             if (entries.isEmpty() || meals.size >= MAX_MEALS) model.only() else sheet(MealSheet.Pick(entries.take(MAX_MEAL_ITEMS).map { it.id })).only()
         }
+        is Msg.Food.NewMealOf -> {
+            val picked = entriesOf(model.state.foodLog, day).filter { it.id in msg.ids }
+            if (picked.isEmpty() || meals.size >= MAX_MEALS) model.only() else sheet(MealSheet.Pick(picked.take(MAX_MEAL_ITEMS).map { it.id })).only()
+        }
         is Msg.Food.TogglePick -> {
             val pick = current as? MealSheet.Pick ?: return model.only()
             val order = entriesOf(model.state.foodLog, day).map { it.id }

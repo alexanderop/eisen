@@ -76,6 +76,11 @@ import io.github.alexanderop.eisen.core.ui.Eyebrow
 import io.github.alexanderop.eisen.core.ui.PillBadge
 import io.github.alexanderop.eisen.feature.share.ui.ShareWorkoutSheet
 import io.github.alexanderop.eisen.feature.food.ui.FoodTodayCard
+import io.github.alexanderop.eisen.app.elm.Tab
+import io.github.alexanderop.eisen.core.ui.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.foundation.layout.size
 
 /** One exercise of the workout on the card. [load] is "80kg", "BW" or "BW + 10kg". */
 private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val timed: Boolean, val load: String)
@@ -121,15 +126,21 @@ fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Column {
-            Eyebrow(formatDate(model.now))
-            Text(
-                "Eisen 5×5",
-                modifier = Modifier.semantics { heading() },
-                fontSize = 30.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.6).sp,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Eyebrow(formatDate(model.now))
+                Text(
+                    "Eisen 5×5",
+                    modifier = Modifier.semantics { heading() },
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.6).sp,
+                )
+            }
+            // Settings is no tab: the gear opens it, Back comes home again.
+            IconButton(onClick = { dispatch(Msg.Nav.SelectTab(Tab.SETTINGS)) }, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Gear, contentDescription = "Settings", tint = EisenColors.MutedForeground)
+            }
         }
         if (changes != null) {
             SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) })

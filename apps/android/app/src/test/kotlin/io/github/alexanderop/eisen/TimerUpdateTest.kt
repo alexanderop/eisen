@@ -456,7 +456,7 @@ class TimerUpdateTest {
     }
 
     @Test fun `Progress is a switch in History, and the Timer tab takes its place`() {
-        assertEquals(listOf(Tab.HOME, Tab.WORKOUTS, Tab.TIMER, Tab.HISTORY, Tab.SETTINGS), Tab.entries)
+        assertEquals(listOf(Tab.HOME, Tab.WORKOUTS, Tab.TIMER, Tab.FOOD, Tab.HISTORY), io.github.alexanderop.eisen.app.elm.BAR_TABS)
         val history = stepOf().send(Msg.Nav.SelectTab(Tab.HISTORY))
         assertEquals(HistoryView.LOG, history.model.nav.history)
         val progress = history.send(Msg.Nav.ShowHistory(HistoryView.PROGRESS), now = 8_000)
@@ -472,6 +472,11 @@ class TimerUpdateTest {
         assertNull(list.model.timerSetup)
         assertEquals(Tab.TIMER, list.model.nav.tab)
         assertEquals(Tab.HOME, list.send(Msg.Nav.Back).model.nav.tab)
+        // Settings is no tab of the bar: the gear on Home opens it, Back goes home, and it comes back after a restart.
+        val settings = stepOf().send(Msg.Nav.SelectTab(Tab.SETTINGS))
+        assertTrue(handlesBack(settings.model))
+        assertEquals(Tab.HOME, settings.send(Msg.Nav.Back).model.nav.tab)
+        assertEquals(Tab.SETTINGS, stepOf().send(Msg.Nav.Restore(Tab.SETTINGS, false, null)).model.nav.tab)
     }
 
     @Test fun `the wheels step 5 s up to a minute, 15 s up to five, then minutes, and keep a value off that grid`() {

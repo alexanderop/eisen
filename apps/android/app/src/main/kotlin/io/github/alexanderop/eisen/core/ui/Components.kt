@@ -155,6 +155,19 @@ object Icons {
         filled = true,
     )
     val Settings = pathIcon("Settings", "M4 6h9v2H4zM17 6h3v2h-3zM13 4.5h3v5h-3zM4 16h3v2H4zM11 16h9v2h-9zM7 14.5h3v5H7z", filled = true)
+    // A fork and a knife, filled like the other tabs.
+    val Food = pathIcon(
+        "Food",
+        "M5 3h1.5v5.5H5zM7.75 3h1.5v5.5h-1.5zM10.5 3H12v5.5h-1.5zM5 8h7v1.5a2.5 2.5 0 0 1-2.5 2.5H9.25V21h-1.5v-9H7.5A2.5 2.5 0 0 1 5 9.5z",
+        "M15.5 3C18 3 19 6 19 9.5V13h-1.75v8H15.5z",
+        filled = true,
+    )
+    // Lucide's settings: the gear that opens Settings from Home.
+    val Gear = pathIcon(
+        "Gear",
+        "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+        "M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z",
+    )
     val Minus = pathIcon("Minus", "M5 12h14")
     val Plus = pathIcon("Plus", "M5 12h14", "M12 5v14")
     val Close = pathIcon("Close", "M18 6 6 18", "m6 6 12 12")

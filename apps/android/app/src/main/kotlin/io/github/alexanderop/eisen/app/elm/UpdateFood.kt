@@ -28,6 +28,15 @@ import io.github.alexanderop.eisen.feature.food.round1
 import io.github.alexanderop.eisen.feature.food.startAmount
 import io.github.alexanderop.eisen.feature.food.underLimit
 import io.github.alexanderop.eisen.feature.food.withRequest
+import io.github.alexanderop.eisen.feature.food.entryIds
+import io.github.alexanderop.eisen.feature.food.plusDays
+import io.github.alexanderop.eisen.feature.food.weekOf
+import io.github.alexanderop.eisen.feature.food.atOfDay
+import io.github.alexanderop.eisen.feature.food.entryMinute
+import io.github.alexanderop.eisen.feature.food.plateItemOf
+import io.github.alexanderop.eisen.feature.food.plateItemOfMeal
+import io.github.alexanderop.eisen.feature.food.plateItemWithAmount
+import io.github.alexanderop.eisen.feature.food.quickPlateItem
 
 /*
  * The food log: the Food screen, its sheets, the scanner's answer and Open Food Facts. The one place the Food
@@ -45,55 +54,69 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
     val timed = model.copy(now = env.now, zone = env.zone)
     val today = localDay(env.now, env.zone)
     val open = model.food.day != null
+    val add = model.food.add
     return when (msg) {
-        Msg.Food.Open -> timed.food { it.copy(day = today, sheet = null) }.only()
-        Msg.Food.OpenAdd -> timed.food { it.copy(day = today, sheet = FoodSheet.Search()) }.only()
-        Msg.Food.OpenScan -> timed.food { it.copy(day = today, sheet = null) } and Cmd.Ui(UiEvent.ScanBarcode)
-        Msg.Food.Close -> if (!open) model.only() else timed.food { it.copy(day = null, sheet = null) }.only()
-        Msg.Food.PreviousDay -> model.food.day?.let { day -> timed.food { it.copy(day = dayBefore(day)) }.only() } ?: model.only()
-        Msg.Food.NextDay -> {
+        Msg.Food.Open -> timed.onFoodTab(today).food { it.copy(day = today, add = null, sheet = null) }.only()
+        Msg.Food.OpenAdd -> addAfter(AddEvent.Open, timed.onFoodTab(today))
+        Msg.Food.OpenScan -> timed.onFoodTab(today).food { it.copy(day = today, add = null, sheet = null) } and Cmd.Ui(UiEvent.ScanBarcode)
+        Msg.Food.CloseAdd -> addAfter(AddEvent.Close, model)
+        Msg.Food.PreviousWeek -> if (add != null) model.only() else model.food.day?.let { day -> timed.food { it.copy(day = plusDays(day, -7)) }.only() } ?: model.only()
+        // The week after, on the same weekday, or on today when that is still to come. Nothing from the week of today.
+        Msg.Food.NextWeek -> {
             val day = model.food.day ?: return model.only()
-            val next = dayAfter(day)
-            if (!isPastOrToday(next, today)) model.only() else timed.food { it.copy(day = next) }.only()
+            if (add != null || today in weekOf(day)) return model.only()
+            val next = plusDays(day, 7)
+            timed.food { it.copy(day = if (isPastOrToday(next, today)) next else today) }.only()
         }
-        Msg.Food.Scan -> if (!open) model.only() else model and Cmd.Ui(UiEvent.ScanBarcode)
-        // The scanner is another screen: its barcode comes back to the Food screen, opened again if it was left.
+        // On the add screen the scanner runs one food after the other onto the plate; on the day it opens once.
+        Msg.Food.Scan -> when {
+            add != null -> addAfter(AddEvent.Scan, timed)
+            open -> model and Cmd.Ui(UiEvent.ScanBarcode)
+            else -> model.only()
+        }
+        // The scanner is another screen: its barcode comes back to the Food tab, opened again if it was left.
         is Msg.Food.Scanned -> {
             val code = normalBarcode(msg.barcode)
-            if (code.isEmpty()) model.only() else lookupAfter(timed.food { it.copy(day = it.day ?: today) }, LookupEvent.Start(code), env)
+            if (code.isEmpty()) model.only() else lookupAfter(timed.onFoodTab(today), LookupEvent.Start(code, direct = add?.loop != null), env)
         }
-        is Msg.Food.ScanFailed -> timed.food { it.copy(day = it.day ?: today, sheet = FoodSheet.Barcode(scanNote(msg.why))) }.only()
-        Msg.Food.TypeBarcode -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Barcode()) }.only()
+        is Msg.Food.ScanFailed -> when {
+            add != null -> addAfter(AddEvent.ScanFailed(msg.why, scanNote(msg.why)), timed)
+            else -> timed.onFoodTab(today).food { it.copy(sheet = FoodSheet.Barcode(scanNote(msg.why))) }.only()
+        }
+        Msg.Food.TypeBarcode -> when {
+            add != null -> addAfter(AddEvent.Type, timed)
+            open -> timed.food { it.copy(sheet = FoodSheet.Barcode()) }.only()
+            else -> model.only()
+        }
         is Msg.Food.LookUp -> {
             val code = msg.barcode.trim()
-            if (!open || barcodeProblem(code) != null) model.only() else lookupAfter(timed, LookupEvent.Start(normalBarcode(code)), env)
+            if (!open || barcodeProblem(code) != null) model.only() else lookupAfter(timed, LookupEvent.Start(normalBarcode(code), direct = add?.loop != null), env)
         }
         is Msg.Food.Looked -> lookupAfter(model, LookupEvent.Answer(normalBarcode(msg.barcode), msg.answer), env)
         Msg.Food.Retry -> lookupAfter(timed, LookupEvent.Retry, env)
-        is Msg.Food.Pick -> {
-            val search = model.food.sheet as? FoodSheet.Search ?: return model.only()
-            val hit = (search.online as? Online.Results)?.hits?.firstOrNull { it.id == msg.foodId }
-            val found = knownFood(model, msg.foodId) ?: hit?.food
-            when {
-                found != null -> timed.food { it.copy(sheet = FoodSheet.Amount(found, startAmount(found, model.state.foodLog))) }.only()
-                // The search did not carry its calories: the product is looked up by its barcode, which has them.
-                hit != null -> lookupAfter(timed, LookupEvent.Start(hit.barcode), env)
-                else -> model.only()
-            }
-        }
+        is Msg.Food.Pick -> pickFood(timed, msg.foodId, direct = false, env)
+        is Msg.Food.PlateAdd -> pickFood(timed, msg.foodId, direct = true, env)
         is Msg.Food.SetAmount -> {
             val sheet = model.food.sheet as? FoodSheet.Amount ?: return model.only()
             val amount = if (msg.amount.isFinite()) round1(msg.amount.coerceIn(MIN_AMOUNT, MAX_AMOUNT)) else sheet.amount
             if (amount == sheet.amount) model.only() else model.food { it.copy(sheet = sheet.copy(amount = amount)) }.only()
         }
+        is Msg.Food.SetTime -> {
+            val sheet = model.food.sheet as? FoodSheet.Amount ?: return model.only()
+            val minute = msg.minute.coerceIn(0, 24 * 60 - 1)
+            if (sheet.target !is AmountFor.Entry || minute == sheet.minute) model.only() else model.food { it.copy(sheet = sheet.copy(minute = minute)) }.only()
+        }
         Msg.Food.ConfirmAmount -> confirmAmount(timed, env, today)
         is Msg.Food.OpenEntry -> {
             val entry = model.state.foodLog.firstOrNull { it.id == msg.id }
-            if (!open || entry == null) return model.only()
-            val amount = entry.amount
-            val food = entry.foodId?.let { knownFood(model, it) } ?: foodOfEntry(entry)
-            val sheet = if (amount == null || food == null) FoodSheet.Quick(entry.id) else FoodSheet.Amount(food, amount, entry.id)
-            timed.food { it.copy(sheet = sheet) }.only()
+            if (!open || add != null || entry == null) return model.only()
+            val sheet = sheetOf(model, entry, AmountFor.Entry(entry.id))
+            timed.food { it.copy(sheet = if (sheet is FoodSheet.Amount) sheet.copy(minute = entryMinute(entry, env.zone)) else sheet) }.only()
+        }
+        is Msg.Food.OpenPlateItem -> {
+            val item = model.food.plate.firstOrNull { it.entry.id == msg.id }
+            if (add == null || item == null) return model.only()
+            timed.food { it.copy(sheet = sheetOf(model, item.entry, AmountFor.OnPlate(item.entry.id), item.food)) }.only()
         }
         is Msg.Food.DeleteEntry -> deleteEntry(model, msg.id)
         Msg.Food.UndoDeleteEntry -> {
@@ -107,7 +130,8 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
             val id = model.undo.againEntry ?: return model.only()
             model.undo { it.copy(againEntry = null) }.withState { state -> state.copy(foodLog = state.foodLog.filter { it.id != id }) }.only()
         }
-        Msg.Food.OpenQuick -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Quick()) }.only()
+        // On the add screen a quick entry goes on the plate, on the day it is logged at once.
+        Msg.Food.OpenQuick -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Quick(if (add != null) AmountFor.Plate else AmountFor.Log)) }.only()
         is Msg.Food.SaveQuick -> saveQuick(timed, msg, env, today)
         is Msg.Food.NewOwn -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Own(name = msg.name.trim())) }.only()
         is Msg.Food.EditOwn ->
@@ -117,31 +141,65 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
         is Msg.Food.DeleteOwn -> {
             if (model.state.foods.none { it.id == msg.id && it.source == FoodSource.OWN }) return model.only()
             val sheet = model.food.sheet
-            val stays = sheet !is FoodSheet.Own && !(sheet is FoodSheet.Amount && sheet.food.id == msg.id && sheet.entryId == null)
-            // What was logged of it stays as it was: entries keep their own numbers.
+            val new = (sheet as? FoodSheet.Amount)?.let { it.food.id == msg.id && (it.target == AmountFor.Log || it.target == AmountFor.Plate) } == true
+            val stays = sheet !is FoodSheet.Own && !new
+            // What was logged of it, and what is on the plate, stays as it was: they keep their own numbers.
             timed.withState { state -> state.copy(foods = state.foods.filter { it.id != msg.id }) }.food { it.copy(sheet = if (stays) sheet else null) }.only()
         }
-        Msg.Food.OpenGoal -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Goal) }.only()
+        Msg.Food.OpenGoal -> if (!open || add != null) model.only() else timed.food { it.copy(sheet = FoodSheet.Goal) }.only()
         is Msg.Food.SaveGoal -> {
             if (model.food.sheet != FoodSheet.Goal) return model.only()
-            timed.withState { it.copy(foodGoal = goalWithin(FoodGoal(msg.kcal, msg.protein))) }.food { it.copy(sheet = null) }.only()
+            timed.withState { it.copy(foodGoal = goalWithin(FoodGoal(msg.kcal, msg.protein, msg.carbs, msg.fat))) }.food { it.copy(sheet = null) }.only()
         }
-        Msg.Food.OpenSearch -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Search()) }.only()
         is Msg.Food.Search -> {
-            val sheet = model.food.sheet as? FoodSheet.Search ?: return model.only()
+            if (add == null) return model.only()
             val query = msg.query.take(MAX_FOOD_QUERY)
-            if (query == sheet.query) model.only() else model.food { it.copy(sheet = sheet.copy(query = query)) }.only()
+            if (query == add.query) model.only() else model.food { it.copy(add = add.copy(query = query)) }.only()
         }
         Msg.Food.SubmitSearch -> onlineAfter(timed, OnlineEvent.Submit, env)
         is Msg.Food.Searched -> onlineAfter(model, OnlineEvent.Answer(msg.query, msg.answer), env)
         Msg.Food.OpenCredit -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Credit) }.only()
-        Msg.Food.CloseSheet -> if (model.food.sheet == null) model.only() else model.food { it.copy(sheet = null) }.only()
+        Msg.Food.CloseSheet -> if (model.food.sheet == null) model.only() else addAfter(AddEvent.SheetClosed, model.food { it.copy(sheet = null) })
         // A bar of the week: that day, never one to come.
-        is Msg.Food.OpenDay -> if (!isPastOrToday(msg.day, today)) model.only() else timed.food { it.copy(day = msg.day, sheet = null) }.only()
-        Msg.Food.OpenMeals, Msg.Food.NewMeal, is Msg.Food.TogglePick, is Msg.Food.SaveNewMeal, is Msg.Food.EditMeal,
+        is Msg.Food.OpenDay -> if (!isPastOrToday(msg.day, today)) model.only() else timed.onFoodTab(today).food { it.copy(day = msg.day, add = null, sheet = null) }.only()
+        is Msg.Food.PlateMeal -> {
+            val meal = model.state.meals.firstOrNull { it.id == msg.id }
+            if (add == null || meal == null) return model.only()
+            plateAfter(PlateEvent.Put(meal.items.zip(entryIds(env.newId(), meal.items.size), ::plateItemOfMeal)), model.food { it.copy(sheet = null) }, env)
+        }
+        is Msg.Food.RemovePlateItem -> plateAfter(PlateEvent.Remove(msg.id), model, env)
+        Msg.Food.ClearPlate -> plateAfter(PlateEvent.Clear, model, env)
+        Msg.Food.LogPlate -> plateAfter(PlateEvent.Log, timed, env)
+        Msg.Food.OpenMeals, Msg.Food.NewMeal, is Msg.Food.NewMealOf, is Msg.Food.TogglePick, is Msg.Food.SaveNewMeal, is Msg.Food.EditMeal,
         is Msg.Food.SetMealAmount, is Msg.Food.RemoveMealItem, is Msg.Food.SaveMeal, is Msg.Food.DeleteMeal,
         is Msg.Food.AddMeal, Msg.Food.CopyDayBefore, Msg.Food.UndoAdded,
         -> mealAfter(msg, timed, env)
+    }
+}
+
+/**
+ * The sheet that changes [entry] (of the log, or an item of the plate, as [target] says): its add sheet, worked out from
+ * [food] or the food it was logged of, or from its own numbers when that food is gone; quick kcal has none.
+ */
+private fun sheetOf(model: Model, entry: FoodEntry, target: AmountFor, food: Food? = null): FoodSheet {
+    val amount = entry.amount
+    val per100 = food ?: entry.foodId?.let { knownFood(model, it) } ?: foodOfEntry(entry)
+    return if (amount == null || per100 == null) FoodSheet.Quick(target) else FoodSheet.Amount(per100, amount, target)
+}
+
+/**
+ * A food of the add screen: a tap opens its add sheet for the plate, a `+` ([direct]) puts it on the plate at its usual
+ * amount. A hit of the online search without its numbers is looked up by its barcode first.
+ */
+private fun pickFood(model: Model, id: String, direct: Boolean, env: Env): Next {
+    val add = model.food.add ?: return model.only()
+    val hit = (add.online as? Online.Results)?.hits?.firstOrNull { it.id == id }
+    val found = knownFood(model, id) ?: hit?.food
+    return when {
+        found != null -> landed(model, found, direct, env)
+        // The search did not carry its calories: the product is looked up by its barcode, which has them.
+        hit != null -> lookupAfter(model, LookupEvent.Start(hit.barcode, direct), env)
+        else -> model.only()
     }
 }
 
@@ -151,6 +209,13 @@ private fun scanNote(why: ScanFailure): String = when (why) {
     ScanFailure.UNAVAILABLE -> "This phone has no scanner from Google Play services. Type the barcode instead."
     ScanFailure.FAILED -> "The scanner did not work. Type the barcode instead."
 }
+
+/**
+ * The Food tab on screen, on the day it shows or on [today] when it was not showing. The tab and its day go together:
+ * the day is null on every other tab (see `nav` in Update.kt).
+ */
+internal fun Model.onFoodTab(today: String): Model =
+    nav { it.copy(tab = Tab.FOOD) }.food { it.copy(day = it.day ?: today) }
 
 /** The day what is logged now goes to: the one the Food screen shows, else today. */
 private fun logDay(model: Model, today: String): String = model.food.day ?: today
@@ -163,7 +228,7 @@ fun foodWithBarcode(model: Model, barcode: String): Food? =
     model.state.foods.filter { it.barcode == barcode }.minByOrNull { if (it.source == FoodSource.OWN) 0 else 1 }
 
 /** [food] kept by the phone: a product of Open Food Facts once found needs no network again. Plain foods are the app's. */
-private fun Model.keeping(food: Food): Model {
+internal fun Model.keeping(food: Food): Model {
     if (food.source == FoodSource.PLAIN) return this
     val kept = foodWithin(food)
     return withState { state ->
@@ -176,15 +241,27 @@ private fun confirmAmount(model: Model, env: Env, today: String): Next {
     val sheet = model.food.sheet as? FoodSheet.Amount ?: return model.only()
     val log = model.state.foodLog
     val closed = model.food { it.copy(sheet = null) }
-    val entryId = sheet.entryId
-    if (entryId != null) {
-        val old = log.firstOrNull { it.id == entryId } ?: return closed.only()
-        val changed = entryOf(sheet.food, sheet.amount, old.id, old.at, old.day).copy(name = old.name, foodId = old.foodId, unit = old.unit)
-        return closed.withState { state -> state.copy(foodLog = state.foodLog.map { if (it.id == entryId) changed else it }) }.only()
+    return when (val target = sheet.target) {
+        AmountFor.Log -> {
+            val entry = entryOf(sheet.food, sheet.amount, env.newId(), env.now, logDay(model, today))
+            closed.keeping(sheet.food).withState { it.copy(foodLog = it.foodLog + entry) }.only()
+        }
+        AmountFor.Plate -> plateAfter(PlateEvent.Put(listOf(plateItemOf(sheet.food, sheet.amount, env.newId()))), closed, env)
+        is AmountFor.Entry -> {
+            val old = log.firstOrNull { it.id == target.id } ?: return closed.only()
+            val changed = entryOf(sheet.food, sheet.amount, old.id, timeOf(old, sheet.minute, env), old.day).copy(name = old.name, foodId = old.foodId, unit = old.unit)
+            closed.withState { state -> state.copy(foodLog = state.foodLog.map { if (it.id == target.id) changed else it }) }.only()
+        }
+        is AmountFor.OnPlate -> {
+            val item = model.food.plate.firstOrNull { it.entry.id == target.id } ?: return closed.only()
+            plateAfter(PlateEvent.Change(plateItemWithAmount(item, sheet.food, sheet.amount)), closed, env)
+        }
     }
-    val entry = entryOf(sheet.food, sheet.amount, env.newId(), env.now, logDay(model, today))
-    return closed.keeping(sheet.food).withState { it.copy(foodLog = it.foodLog + entry) }.only()
 }
+
+/** When [entry] was eaten once its time of day is set to [minute]: on its own day, so it has a time from then on. */
+private fun timeOf(entry: FoodEntry, minute: Int?, env: Env): Long =
+    if (minute == null || minute == entryMinute(entry, env.zone)) entry.at else atOfDay(entry.day, minute, env.zone) ?: entry.at
 
 private fun deleteEntry(model: Model, id: String): Next {
     val index = model.state.foodLog.indexOfFirst { it.id == id }
@@ -194,7 +271,7 @@ private fun deleteEntry(model: Model, id: String): Next {
     // A second delete replaces the first snackbar, so only the newest one can be undone.
     return model.withState { state -> state.copy(foodLog = state.foodLog.filter { it.id != id }) }
         .undo { it.copy(deletedFoodEntry = DeletedFoodEntry(entry, index)) }
-        .food { food -> if ((food.sheet as? FoodSheet.Amount)?.entryId == id || (food.sheet as? FoodSheet.Quick)?.entryId == id) food.copy(sheet = null) else food } and
+        .food { food -> if ((food.sheet as? FoodSheet.Amount)?.target == AmountFor.Entry(id) || (food.sheet as? FoodSheet.Quick)?.target == AmountFor.Entry(id)) food.copy(sheet = null) else food } and
         felt + Cmd.Ui(UiEvent.Snackbar("Deleted ${entry.name}", actionLabel = "Undo", onAction = Msg.Food.UndoDeleteEntry, millis = FOOD_UNDO_MS, tag = FOOD_SNACKBAR))
 }
 
@@ -213,14 +290,22 @@ private fun saveQuick(model: Model, msg: Msg.Food.SaveQuick, env: Env, today: St
     val sheet = model.food.sheet as? FoodSheet.Quick ?: return model.only()
     if (msg.kcal <= 0) return model.only()
     val closed = model.food { it.copy(sheet = null) }
-    val id = sheet.entryId
-    if (id != null) {
-        val old = model.state.foodLog.firstOrNull { it.id == id } ?: return closed.only()
-        val changed = quickEntry(msg.kcal, msg.protein, msg.name, old.id, old.at, old.day)
-        return closed.withState { state -> state.copy(foodLog = state.foodLog.map { if (it.id == id) changed else it }) }.only()
+    return when (val target = sheet.target) {
+        AmountFor.Log -> {
+            val entry = quickEntry(msg.kcal, msg.protein, msg.name, env.newId(), env.now, logDay(model, today))
+            closed.withState { it.copy(foodLog = it.foodLog + entry) }.only()
+        }
+        AmountFor.Plate -> plateAfter(PlateEvent.Put(listOf(quickPlateItem(msg.kcal, msg.protein, msg.name, env.newId()))), closed, env)
+        is AmountFor.Entry -> {
+            val old = model.state.foodLog.firstOrNull { it.id == target.id } ?: return closed.only()
+            val changed = quickEntry(msg.kcal, msg.protein, msg.name, old.id, timeOf(old, msg.minute, env), old.day)
+            closed.withState { state -> state.copy(foodLog = state.foodLog.map { if (it.id == target.id) changed else it }) }.only()
+        }
+        is AmountFor.OnPlate -> {
+            if (model.food.plate.none { it.entry.id == target.id }) return closed.only()
+            plateAfter(PlateEvent.Change(quickPlateItem(msg.kcal, msg.protein, msg.name, target.id)), closed, env)
+        }
     }
-    val entry = quickEntry(msg.kcal, msg.protein, msg.name, env.newId(), env.now, logDay(model, today))
-    return closed.withState { it.copy(foodLog = it.foodLog + entry) }.only()
 }
 
 private fun saveOwn(model: Model, msg: Msg.Food.SaveOwn, env: Env): Next {
@@ -246,51 +331,73 @@ private fun saveOwn(model: Model, msg: Msg.Food.SaveOwn, env: Env): Next {
             source = FoodSource.OWN,
         ),
     )
-    // Entries already logged keep their numbers; only the food changes. Then it can be logged.
+    // Entries already logged keep their numbers; only the food changes. Then it can be logged, or it goes on the plate.
     val saved = model.withState { state ->
         if (old != null) state.copy(foods = state.foods.map { if (it.id == food.id) food else it }) else state.copy(foods = state.foods + food)
     }
-    return saved.food { it.copy(sheet = FoodSheet.Amount(food, startAmount(food, saved.state.foodLog))) }.only()
+    return landed(saved, food, direct = sheet.direct, env)
+}
+
+/**
+ * Where a food goes once it is known (picked, found by its barcode, saved as an own food): without the add screen its
+ * add sheet opens to log it; on the add screen its add sheet opens for the plate, or, [direct], it goes straight onto
+ * the plate at its usual amount and a run of barcodes goes on with the next one.
+ */
+internal fun landed(model: Model, food: Food, direct: Boolean, env: Env): Next {
+    val start = startAmount(food, model.state.foodLog)
+    val add = model.food.add
+    return when {
+        add == null -> model.food { it.copy(sheet = FoodSheet.Amount(food, start)) }.only()
+        !direct -> model.food { it.copy(sheet = FoodSheet.Amount(food, start, AmountFor.Plate)) }.only()
+        else -> {
+            val (put, cmds) = plateAfter(PlateEvent.Put(listOf(plateItemOf(food, start, env.newId()))), model.food { it.copy(sheet = null) }, env)
+            // A full plate ends the run: its snackbar says why.
+            if (put.food.plate == model.food.plate) addAfter(AddEvent.SheetClosed, put).let { (ended, more) -> ended to cmds + more }
+            else addAfter(AddEvent.Landed(food.name), put).let { (next, more) -> next to cmds + more }
+        }
+    }
 }
 
 // The lookup
 
 internal sealed interface LookupEvent {
-    data class Start(val barcode: String) : LookupEvent
+    /** [direct]: what is found goes straight onto the plate. */
+    data class Start(val barcode: String, val direct: Boolean = false) : LookupEvent
     data class Answer(val barcode: String, val answer: ProductAnswer) : LookupEvent
     data object Retry : LookupEvent
 }
 
 /** The lookup after [event], with the sheet it leads to and the request it sends. The one place it changes, see [Lookup]. */
 internal fun lookupAfter(model: Model, event: LookupEvent, env: Env): Next {
-    val current = (model.food.sheet as? FoodSheet.LookingUp)?.lookup
+    val looking = model.food.sheet as? FoodSheet.LookingUp
+    val current = looking?.lookup
     fun sheet(next: FoodSheet?) = model.food { it.copy(sheet = next) }
-    fun request(code: String): Next {
-        if (!underLimit(model.food.lookups, env.now, PRODUCT_REQUESTS_PER_MINUTE)) return sheet(FoodSheet.LookingUp(Lookup.Failed(code, Failure.BUSY))).only()
-        return sheet(FoodSheet.LookingUp(Lookup.Looking(code))).food { it.copy(lookups = withRequest(it.lookups, env.now)) } and Cmd.LookUpProduct(code)
+    fun request(code: String, direct: Boolean): Next {
+        if (!underLimit(model.food.lookups, env.now, PRODUCT_REQUESTS_PER_MINUTE)) return sheet(FoodSheet.LookingUp(Lookup.Failed(code, Failure.BUSY), direct)).only()
+        return sheet(FoodSheet.LookingUp(Lookup.Looking(code), direct)).food { it.copy(lookups = withRequest(it.lookups, env.now)) } and Cmd.LookUpProduct(code)
     }
     return when (event) {
         is LookupEvent.Start -> {
             val known = foodWithBarcode(model, event.barcode)
             when {
-                known != null -> sheet(FoodSheet.Amount(known, startAmount(known, model.state.foodLog))).only()
+                known != null -> landed(model, known, event.direct, env)
                 current is Lookup.Looking && current.barcode == event.barcode -> model.only()
-                else -> request(event.barcode)
+                else -> request(event.barcode, event.direct)
             }
         }
-        LookupEvent.Retry -> if (current is Lookup.Failed) request(current.barcode) else model.only()
+        LookupEvent.Retry -> if (current is Lookup.Failed) request(current.barcode, looking.direct) else model.only()
         is LookupEvent.Answer -> {
             if (current !is Lookup.Looking || current.barcode != event.barcode) return model.only()
+            val direct = looking.direct
             when (val answer = event.answer) {
                 is ProductAnswer.Found -> {
                     val found = foodWithin(answer.food.copy(barcode = event.barcode, source = FoodSource.SCANNED))
-                    val kept = model.keeping(found)
-                    kept.food { it.copy(sheet = FoodSheet.Amount(found, startAmount(found, kept.state.foodLog))) }.only()
+                    landed(model.keeping(found), found, direct, env)
                 }
-                ProductAnswer.NotFound -> sheet(FoodSheet.Own(barcode = event.barcode, note = "Open Food Facts does not know this barcode. Add it as your own food.")).only()
-                is ProductAnswer.NoKcal -> sheet(FoodSheet.Own(barcode = event.barcode, name = answer.name, note = "Open Food Facts has no calories for this product. Add them from its label.")).only()
-                ProductAnswer.Offline -> sheet(FoodSheet.LookingUp(Lookup.Failed(event.barcode, Failure.OFFLINE))).only()
-                ProductAnswer.Busy -> sheet(FoodSheet.LookingUp(Lookup.Failed(event.barcode, Failure.BUSY))).only()
+                ProductAnswer.NotFound -> sheet(FoodSheet.Own(barcode = event.barcode, note = "Open Food Facts does not know this barcode. Add it as your own food.", direct = direct)).only()
+                is ProductAnswer.NoKcal -> sheet(FoodSheet.Own(barcode = event.barcode, name = answer.name, note = "Open Food Facts has no calories for this product. Add them from its label.", direct = direct)).only()
+                ProductAnswer.Offline -> sheet(FoodSheet.LookingUp(Lookup.Failed(event.barcode, Failure.OFFLINE), direct)).only()
+                ProductAnswer.Busy -> sheet(FoodSheet.LookingUp(Lookup.Failed(event.barcode, Failure.BUSY), direct)).only()
             }
         }
     }
@@ -308,12 +415,12 @@ const val MIN_ONLINE_QUERY = 2
 
 /** The online search after [event]. The one place it changes, see [Online]. */
 internal fun onlineAfter(model: Model, event: OnlineEvent, env: Env): Next {
-    val sheet = model.food.sheet as? FoodSheet.Search ?: return model.only()
-    fun online(next: Online) = model.food { it.copy(sheet = sheet.copy(online = next)) }
+    val add = model.food.add ?: return model.only()
+    fun online(next: Online) = model.food { it.copy(add = add.copy(online = next)) }
     return when (event) {
         OnlineEvent.Submit -> {
-            val query = sheet.query.trim()
-            val online = sheet.online
+            val query = add.query.trim()
+            val online = add.online
             when {
                 query.length < MIN_ONLINE_QUERY -> model.only()
                 online is Online.Searching && online.query == query -> model.only()
@@ -322,7 +429,7 @@ internal fun onlineAfter(model: Model, event: OnlineEvent, env: Env): Next {
             }
         }
         is OnlineEvent.Answer -> {
-            val online = sheet.online
+            val online = add.online
             if (online !is Online.Searching || online.query != event.query) return model.only()
             when (val answer = event.answer) {
                 is SearchAnswer.Found -> online(Online.Results(event.query, answer.hits.map { hit -> hit.copy(food = hit.food?.let(::foodWithin)) })).only()

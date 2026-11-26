@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.alexanderop.eisen.app.elm.AmountFor
 import io.github.alexanderop.eisen.app.elm.Failure
 import io.github.alexanderop.eisen.app.elm.FoodSheet
 import io.github.alexanderop.eisen.app.elm.Lookup
@@ -87,6 +88,9 @@ import io.github.alexanderop.eisen.feature.food.MAX_FOOD_NAME
 import io.github.alexanderop.eisen.feature.food.MAX_FOOD_QUERY
 import io.github.alexanderop.eisen.feature.food.MAX_GOAL_KCAL
 import io.github.alexanderop.eisen.feature.food.MAX_GOAL_PROTEIN
+import io.github.alexanderop.eisen.feature.food.MAX_GOAL_CARBS
+import io.github.alexanderop.eisen.feature.food.MAX_GOAL_FAT
+import io.github.alexanderop.eisen.feature.food.carbsAndFatFor
 import io.github.alexanderop.eisen.feature.food.MAX_KCAL_PER_100
 import io.github.alexanderop.eisen.feature.food.MAX_MACRO_PER_100
 import io.github.alexanderop.eisen.feature.food.MAX_QUICK_KCAL
@@ -100,6 +104,8 @@ import io.github.alexanderop.eisen.feature.food.entryOf
 import io.github.alexanderop.eisen.feature.food.gramsText
 import io.github.alexanderop.eisen.feature.food.kcalText
 import io.github.alexanderop.eisen.feature.food.numberText
+import io.github.alexanderop.eisen.feature.food.entryMinute
+import io.github.alexanderop.eisen.feature.food.minuteOfDay
 import kotlinx.coroutines.launch
 
 /** The one sheet over the Food screen, as the model says. */
@@ -108,16 +114,29 @@ internal fun FoodSheets(model: Model, dispatch: (Msg) -> Unit) {
     val close = { dispatch(Msg.Food.CloseSheet) }
     when (val sheet = model.food.sheet) {
         null -> Unit
-        is FoodSheet.Amount -> AmountSheet(sheet, dispatch, close)
-        is FoodSheet.Quick -> QuickSheet(sheet.entryId?.let { foodEntry(model, it) }, dispatch, close)
+        is FoodSheet.Amount -> AmountSheet(sheet, minuteOfDay(model.now, model.zone), dispatch, close)
+        is FoodSheet.Quick -> QuickSheet(sheet.target, changing(model, sheet.target), minuteOfDay(model.now, model.zone), model.zone, dispatch, close)
         is FoodSheet.Own -> OwnSheet(sheet, sheet.id?.let { id -> model.state.foods.firstOrNull { it.id == id } }, dispatch, close)
-        FoodSheet.Goal -> GoalSheet(model.state.foodGoal.kcal ?: 0, model.state.foodGoal.protein ?: 0, dispatch, close)
+        FoodSheet.Goal -> GoalSheet(model.state.foodGoal, dispatch, close)
         is FoodSheet.Barcode -> BarcodeSheet(sheet.note, dispatch, close)
         is FoodSheet.LookingUp -> LookupSheet(sheet.lookup, dispatch, close)
-        is FoodSheet.Search -> SearchSheet(model, sheet, dispatch, close)
         FoodSheet.Credit -> CreditSheet(close)
         is FoodSheet.Meal -> MealSheets(model, sheet.sheet, dispatch, close)
     }
+}
+
+/** The entry or the plate item a sheet for [target] changes; null for a new one. */
+private fun changing(model: Model, target: AmountFor): io.github.alexanderop.eisen.feature.food.FoodEntry? = when (target) {
+    AmountFor.Log, AmountFor.Plate -> null
+    is AmountFor.Entry -> foodEntry(model, target.id)
+    is AmountFor.OnPlate -> model.food.plate.firstOrNull { it.entry.id == target.id }?.entry
+}
+
+/** What the button of a sheet for [target] says it does with [kcal]. */
+internal fun confirmText(target: AmountFor, kcal: Int): String = when (target) {
+    AmountFor.Log -> "Add ${kcalText(kcal)} kcal"
+    AmountFor.Plate -> "Add ${kcalText(kcal)} kcal to the plate"
+    is AmountFor.Entry, is AmountFor.OnPlate -> "Save ${kcalText(kcal)} kcal"
 }
 
 /** A bottom sheet with a title and a close button, like the workout's. [full]: opens all the way, for the ones that type. */
@@ -178,14 +197,14 @@ internal fun Field(label: String, control: @Composable () -> Unit) {
 }
 
 /** "60 kcal · 11 g protein" of a food per 100. */
-private fun per100Text(food: Food): String = "${numberText(food.kcal)} kcal · ${numberText(food.protein)} g protein"
+internal fun per100Text(food: Food): String = "${numberText(food.kcal)} kcal · ${numberText(food.protein)} g protein"
 
 /**
  * The add sheet: what the food has per 100, the amount by chips (½, 1, 2 of the serving or the pack) or typed,
  * and a button that says what it adds.
  */
 @Composable
-private fun AmountSheet(sheet: FoodSheet.Amount, dispatch: (Msg) -> Unit, close: () -> Unit) {
+private fun AmountSheet(sheet: FoodSheet.Amount, now: Int, dispatch: (Msg) -> Unit, close: () -> Unit) {
     val food = sheet.food
     val adds = entryOf(food, sheet.amount, "", 0, "")
     FoodSheet(food.name, close) {
@@ -227,8 +246,11 @@ private fun AmountSheet(sheet: FoodSheet.Amount, dispatch: (Msg) -> Unit, close:
             )
         }
         Text("${gramsText(adds.protein)} protein", color = EisenColors.MutedForeground)
-        PrimaryButton("${if (sheet.entryId == null) "Add" else "Save"} ${kcalText(adds.kcal)} kcal") { dispatch(Msg.Food.ConfirmAmount) }
-        if (food.source == FoodSource.OWN && sheet.entryId == null) {
+        val target = sheet.target
+        if (target is AmountFor.Entry) TimeField(sheet.minute, now) { dispatch(Msg.Food.SetTime(it)) }
+        PrimaryButton(confirmText(target, adds.kcal)) { dispatch(Msg.Food.ConfirmAmount) }
+        if (target is AmountFor.OnPlate) SecondaryButton("Take off the plate") { dispatch(Msg.Food.RemovePlateItem(target.id)) }
+        if (food.source == FoodSource.OWN && (target == AmountFor.Log || target == AmountFor.Plate)) {
             TextButton(onClick = { dispatch(Msg.Food.EditOwn(food.id)) }, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text("Edit food", fontWeight = FontWeight.SemiBold)
             }
@@ -236,18 +258,23 @@ private fun AmountSheet(sheet: FoodSheet.Amount, dispatch: (Msg) -> Unit, close:
     }
 }
 
-/** Quick kcal for a meal out: calories, protein if known, a name if wanted. Opens with the keyboard on the calories. */
+/**
+ * Quick kcal for a meal out: calories, protein if known, a name if wanted. Opens with the keyboard on the calories.
+ * [entry]: the quick entry or plate item it changes, null for a new one, which [target] logs or puts on the plate.
+ */
 @Composable
-private fun QuickSheet(entry: io.github.alexanderop.eisen.feature.food.FoodEntry?, dispatch: (Msg) -> Unit, close: () -> Unit) {
+private fun QuickSheet(target: AmountFor, entry: io.github.alexanderop.eisen.feature.food.FoodEntry?, now: Int, zone: java.time.ZoneId, dispatch: (Msg) -> Unit, close: () -> Unit) {
     var kcal by rememberSaveable { mutableIntStateOf(entry?.kcal ?: 0) }
+    // -1: no time of its own (yet).
+    var minute by rememberSaveable { mutableIntStateOf(entry?.let { entryMinute(it, zone) } ?: -1) }
     var protein by rememberSaveable { mutableIntStateOf(entry?.protein?.toInt() ?: 0) }
     var name by rememberSaveable { mutableStateOf(entry?.name?.takeIf { it != io.github.alexanderop.eisen.feature.food.QUICK_NAME }.orEmpty()) }
     FoodSheet(if (entry == null) "Quick kcal" else "Change entry", close) {
         Field("Calories") {
-            IntStepper(value = kcal, onValueChange = { kcal = it }, label = "calories", step = 50, min = 0, max = MAX_QUICK_KCAL, format = { "${kcalText(it)} kcal" }, autoFocus = entry == null)
+            IntStepper(value = kcal, onValueChange = { kcal = it }, label = "calories", step = 50, snap = 1, min = 0, max = MAX_QUICK_KCAL, format = { "${kcalText(it)} kcal" }, autoFocus = entry == null)
         }
         Field("Protein, if you know it") {
-            IntStepper(value = protein, onValueChange = { protein = it }, label = "protein", step = 5, min = 0, max = MAX_QUICK_PROTEIN, format = { "$it g" })
+            IntStepper(value = protein, onValueChange = { protein = it }, label = "protein", step = 5, snap = 1, min = 0, max = MAX_QUICK_PROTEIN, format = { "$it g" })
         }
         OutlinedTextField(
             value = name,
@@ -257,8 +284,28 @@ private fun QuickSheet(entry: io.github.alexanderop.eisen.feature.food.FoodEntry
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
             modifier = Modifier.fillMaxWidth(),
         )
-        PrimaryButton(if (entry == null) "Add ${kcalText(kcal)} kcal" else "Save ${kcalText(kcal)} kcal", enabled = kcal > 0) {
-            dispatch(Msg.Food.SaveQuick(kcal, protein.takeIf { it > 0 }, name))
+        if (target is AmountFor.Entry) TimeField(minute.takeIf { it >= 0 }, now) { minute = it }
+        PrimaryButton(confirmText(target, kcal), enabled = kcal > 0) {
+            dispatch(Msg.Food.SaveQuick(kcal, protein.takeIf { it > 0 }, name, minute.takeIf { it >= 0 && target is AmountFor.Entry }))
+        }
+        if (target is AmountFor.OnPlate) SecondaryButton("Take off the plate") { dispatch(Msg.Food.RemovePlateItem(target.id)) }
+    }
+}
+
+/**
+ * When an entry was eaten: its hour and minute, each typed or stepped. An entry without a time of its own (filled in later
+ * for an earlier day) offers "Set a time", which starts at the time it is now.
+ */
+@Composable
+private fun TimeField(minute: Int?, now: Int, onChange: (Int) -> Unit) {
+    Field("Time") {
+        if (minute == null) {
+            SecondaryButton("Set a time") { onChange(now - now % 5) }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                IntStepper(value = minute / 60, onValueChange = { onChange(it.coerceIn(0, 23) * 60 + minute % 60) }, label = "hour", step = 1, min = 0, max = 23, format = { "%02d".format(it) })
+                IntStepper(value = minute % 60, onValueChange = { onChange(minute / 60 * 60 + it.coerceIn(0, 59)) }, label = "minute", step = 5, snap = 1, min = 0, max = 59, format = { "%02d".format(it) })
+            }
         }
     }
 }
@@ -312,28 +359,48 @@ private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Un
     }
 }
 
-/** The calories and the protein a day should reach. 0 is no goal. */
+/**
+ * The calories, protein, carbs and fat a day should reach; 0 is no goal (carbs and fat are optional). "Fill carbs and
+ * fat from the rest" works out the two from the calories left after protein, so nobody has to do the arithmetic.
+ */
 @Composable
-private fun GoalSheet(startKcal: Int, startProtein: Int, dispatch: (Msg) -> Unit, close: () -> Unit) {
-    var kcal by rememberSaveable { mutableIntStateOf(startKcal) }
-    var protein by rememberSaveable { mutableIntStateOf(startProtein) }
+private fun GoalSheet(goal: io.github.alexanderop.eisen.feature.food.FoodGoal, dispatch: (Msg) -> Unit, close: () -> Unit) {
+    var kcal by rememberSaveable { mutableIntStateOf(goal.kcal ?: 0) }
+    var protein by rememberSaveable { mutableIntStateOf(goal.protein ?: 0) }
+    var carbs by rememberSaveable { mutableIntStateOf(goal.carbs ?: 0) }
+    var fat by rememberSaveable { mutableIntStateOf(goal.fat ?: 0) }
     FoodSheet("Goal per day", close) {
         Field("Calories") {
-            IntStepper(value = kcal, onValueChange = { kcal = it }, label = "calorie goal", step = 50, min = 0, max = MAX_GOAL_KCAL, format = { if (it == 0) "None" else "${kcalText(it)} kcal" })
+            IntStepper(value = kcal, onValueChange = { kcal = it }, label = "calorie goal", step = 50, snap = 1, min = 0, max = MAX_GOAL_KCAL, format = { if (it == 0) "None" else "${kcalText(it)} kcal" })
         }
         Field("Protein") {
-            IntStepper(value = protein, onValueChange = { protein = it }, label = "protein goal", step = 5, min = 0, max = MAX_GOAL_PROTEIN, format = { if (it == 0) "None" else "$it g" })
+            IntStepper(value = protein, onValueChange = { protein = it }, label = "protein goal", step = 5, snap = 1, min = 0, max = MAX_GOAL_PROTEIN, format = { if (it == 0) "None" else "$it g" })
         }
-        PrimaryButton("Save goal") { dispatch(Msg.Food.SaveGoal(kcal, protein)) }
+        Field("Carbs (optional)") {
+            IntStepper(value = carbs, onValueChange = { carbs = it }, label = "carbs goal", step = 5, snap = 1, min = 0, max = MAX_GOAL_CARBS, format = { if (it == 0) "None" else "$it g" })
+        }
+        Field("Fat (optional)") {
+            IntStepper(value = fat, onValueChange = { fat = it }, label = "fat goal", step = 5, snap = 1, min = 0, max = MAX_GOAL_FAT, format = { if (it == 0) "None" else "$it g" })
+        }
+        val fill = carbsAndFatFor(kcal, protein)
+        if (fill != null) {
+            SecondaryButton("Fill carbs and fat from the rest") {
+                carbs = fill.first
+                fat = fill.second
+            }
+            Text("Fat a quarter of the calories, carbs the rest after protein.", color = EisenColors.MutedForeground, fontSize = 13.sp)
+        }
+        PrimaryButton("Save goal") { dispatch(Msg.Food.SaveGoal(kcal, protein, carbs, fat)) }
     }
 }
 
 /** Typing a barcode: when the scanner gave none, or from the search. */
 @Composable
 private fun BarcodeSheet(note: String?, dispatch: (Msg) -> Unit, close: () -> Unit) {
-    var code by rememberSaveable { mutableStateOf("") }
+    // A new note is a new barcode to type: after one landed on the plate the field starts empty again.
+    var code by rememberSaveable(note) { mutableStateOf("") }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(note) { focus.requestFocus() }
     val problem = barcodeProblem(code)
     FoodSheet("Type a barcode", close) {
         note?.let { Text(it, color = EisenColors.MutedForeground) }
@@ -370,108 +437,9 @@ private fun LookupSheet(lookup: Lookup, dispatch: (Msg) -> Unit, close: () -> Un
     }
 }
 
-private fun failureText(why: Failure): String = when (why) {
+internal fun failureText(why: Failure): String = when (why) {
     Failure.OFFLINE -> "No network. Check the connection and try again."
     Failure.BUSY -> "Open Food Facts is busy. Try again in a minute."
-}
-
-/**
- * The search: what the phone knows filters as it is typed, and the keyboard's search key (or the button) asks Open
- * Food Facts once. With nothing typed it offers "Again", a typed barcode, a new food and quick kcal.
- */
-@Composable
-private fun SearchSheet(model: Model, sheet: FoodSheet.Search, dispatch: (Msg) -> Unit, close: () -> Unit) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
-    val query = sheet.query
-    val local = foodResults(model)
-    val online = onlineResults(model)
-    FoodSheet("Add food", close) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { dispatch(Msg.Food.Search(it.take(MAX_FOOD_QUERY))) },
-            label = { Text("Search foods") },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Search, contentDescription = null) },
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { dispatch(Msg.Food.SubmitSearch) }),
-            modifier = Modifier.fillMaxWidth().focusRequester(focus),
-        )
-        if (query.isBlank()) {
-            val again = againItems(model)
-            if (model.state.meals.isNotEmpty()) MealChips(model.state.meals, onAdd = { dispatch(Msg.Food.AddMeal(it.id)) })
-            if (again.isNotEmpty()) AgainChips(again) { dispatch(Msg.Food.AddAgain(it.food.id, it.amount)) }
-            SecondaryButton("Type a barcode") { dispatch(Msg.Food.TypeBarcode) }
-            SecondaryButton("New food") { dispatch(Msg.Food.NewOwn()) }
-            SecondaryButton("Quick kcal") { dispatch(Msg.Food.OpenQuick) }
-            return@FoodSheet
-        }
-        if (local.isEmpty()) Text("Nothing on this phone matches “${query.trim()}”.", color = EisenColors.MutedForeground)
-        FoodList(local) { dispatch(Msg.Food.Pick(it.id)) }
-        Eyebrow("Open Food Facts")
-        when (val state = sheet.online) {
-            is Online.Searching -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator(Modifier.size(24.dp), color = EisenColors.Primary, strokeWidth = 3.dp)
-                Text("Searching for “${state.query}”…")
-            }
-            is Online.Failed -> {
-                Text(failureText(state.why), color = EisenColors.Warn)
-                SecondaryButton("Search again") { dispatch(Msg.Food.SubmitSearch) }
-            }
-            is Online.Results -> {
-                if (online.isEmpty()) Text("Nothing more found for “${state.query}”.", color = EisenColors.MutedForeground)
-                HitList(online) { dispatch(Msg.Food.Pick(it.id)) }
-                if (state.query != query.trim() && query.trim().length >= MIN_ONLINE_QUERY) SecondaryButton("Search Open Food Facts") { dispatch(Msg.Food.SubmitSearch) }
-            }
-            Online.Idle -> if (query.trim().length >= MIN_ONLINE_QUERY) SecondaryButton("Search Open Food Facts") { dispatch(Msg.Food.SubmitSearch) }
-        }
-        SecondaryButton("New food “${query.trim()}”") { dispatch(Msg.Food.NewOwn(query)) }
-    }
-}
-
-/** Foods as rows: name, brand, and the numbers per 100. A tap opens the add sheet. */
-@Composable
-private fun FoodList(foods: List<Food>, onPick: (Food) -> Unit) {
-    Column {
-        foods.forEachIndexed { index, food ->
-            if (index > 0) HorizontalDivider(color = EisenColors.Border)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .clickable(role = Role.Button) { onPick(food) }
-                    .padding(vertical = 8.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(food.name, fontWeight = FontWeight.SemiBold)
-                val brand = food.brand.takeIf { it.isNotBlank() }?.let { "$it · " }.orEmpty()
-                Text("$brand${per100Text(food)} per 100 ${food.unit.label}", color = EisenColors.MutedForeground, fontSize = 13.sp)
-            }
-        }
-    }
-}
-
-/** What Open Food Facts found: name, brand, and the numbers per 100 when the search had them. A tap opens the add sheet, or looks the product up first. */
-@Composable
-private fun HitList(hits: List<SearchHit>, onPick: (SearchHit) -> Unit) {
-    Column {
-        hits.forEachIndexed { index, hit ->
-            if (index > 0) HorizontalDivider(color = EisenColors.Border)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .clickable(role = Role.Button) { onPick(hit) }
-                    .padding(vertical = 8.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(hit.name, fontWeight = FontWeight.SemiBold)
-                val brand = hit.brand.takeIf { it.isNotBlank() }?.let { "$it · " }.orEmpty()
-                val food = hit.food
-                Text("$brand${if (food != null) "${per100Text(food)} per 100 ${food.unit.label}" else "tap to look up its calories"}", color = EisenColors.MutedForeground, fontSize = 13.sp)
-            }
-        }
-    }
 }
 
 /** Where the food data comes from, its licences, and what leaves the phone. */

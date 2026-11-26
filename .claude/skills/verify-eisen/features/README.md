@@ -11,13 +11,18 @@ lists others.
 | `boxing.md` | `--state short-timers` | 5:25 | The boxing timer with the coach: setup, run, result with punches, time left in the round |
 | `wods.md` | `--state lifter` | 2:45 | The WODs page: own WODs, benchmarks, search, a run against the best, a first run |
 | `history-and-data.md` | `--state lifter`, then the emulator's data | 0:45 | The history log, progress, the backup entry points, an update on old data |
-| `food.md` | `--state food` (five times) | 8:33 | The food log: the Home card, the day, a typed barcode (known, found, not found, no network), the add sheet, own foods, quick kcal, Again, change and delete with Undo, the goal, yesterday, the search (a hit looked up by its barcode), the credit, meals, copy yesterday, the week in Progress |
-| `layout.md` | `--state short-timers` (three times) | 17:57 | Eleven main screens (a timer's result with its chips and the history's sheet among them), the Food today card, the Food screen, its add sheet and the new meal sheet, the week of food in Progress, at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
+| `food.md` | `--state food` (six times), `--state food-history` | 11:23 | The Food tab and the Home card: the add screen and its plate (one food in two taps, a breakfast of usual foods, a run of typed barcodes: known, found, not found, no network), usual at this time, the timeline and an entry's time, the macros and the goal's fill, the week strip, yesterday, quick kcal, search, Again, change and delete with Undo, the plate kept across a restart, meals, copy yesterday, the week in Progress |
+| `layout.md` | `--state short-timers` (three times) | 20:45 | Eleven main screens (a timer's result with its chips and the history's sheet among them), Home with its gear, the Food today card, the Food tab, its add screen with a plate, an item's add sheet, the new meal sheet, the week of food in Progress, at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
 
 Not mapped yet: the Workouts tab (editing routines, the exercise picker), sharing a workout, the
 home-screen widget and shortcuts, Health Connect, the hold timer for timed exercises, the WOD
 builder's every field, own boxing combinations, saving a preset, the backup file pickers. The six files in
 a row take about 35 minutes (measured with `journey`: 29:20, plus 1:59 and 3:39 for "What was it?").
+
+The release build has no feature file: `eisenctl release-smoke` (see `SKILL.md`) installs the signed release APK
+in place of the debug one, opens every tab and the main ways in, fails on a crash, an ANR or a class R8 took away, and
+puts the debug build back. Run it after every change that touches the build, a dependency, ProGuard rules or a
+screen's way in (about 2:20 on a built APK, 3:40 with `--build`).
 
 ## Running a file
 
@@ -39,8 +44,9 @@ time. Only a journey whose every recipe passed on an APK built from the current 
   `SKILL.md`) and ends with `eisenctl doctor && eisenctl cleanup`.
 - Fresh data means: workouts "Workout A" and "Workout B", kilograms, Hack Squat 80kg, Bench Press
   80kg, Barbell Row 60kg, Dips at bodyweight, an empty history, no saved timers, no own WODs.
-- The app opens on the Home tab. The five tabs are the texts `Home`, `Workouts`, `Timer`,
-  `History`, `Settings` at the bottom, on every top-level screen.
+- The app opens on the Home tab. The five tabs are the texts `Home`, `Workouts`, `Timer`, `Food`,
+  `History` at the bottom, on every top-level screen. Settings is no tab: the gear at the top right of Home
+  (described `Settings`) opens it, and Back goes home from it.
 
 ## Driving conventions
 

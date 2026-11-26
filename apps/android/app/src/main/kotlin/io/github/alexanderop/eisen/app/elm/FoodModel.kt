@@ -3,60 +3,98 @@ package io.github.alexanderop.eisen.app.elm
 import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.MealItem
+import io.github.alexanderop.eisen.feature.food.PlateItem
 import io.github.alexanderop.eisen.feature.food.SearchHit
 
 /**
- * The Food screen: a day of what was eaten, over the tabs like the workout, with Back. [day] is the day it
- * shows (`2026-11-26`), null while it is closed. [sheet] is the one sheet over it. [lookups] and [searches]
- * are when the last requests to Open Food Facts went out, within the last minute, to keep its rate limits.
- * Nothing of it is saved: after a restart the screen and a lookup that was going are gone, the log is not.
+ * The Food tab: a day of what was eaten. [day] is the day it shows (`2026-11-26`), null on every other tab (the tab and
+ * its day change together, see `nav` in Update.kt). [add] is the add screen over it, null while it is closed. [sheet] is
+ * the one sheet over either of them. [plate] is what was collected on the add screen and not yet logged: it stays when
+ * the screen or the tab is left, and is kept in a file of its own across a restart (see [Cmd.SavePlate]). [lookups] and
+ * [searches] are when the last requests to Open Food Facts went out, within the last minute, to keep its rate limits.
+ * Only the plate is saved: after a restart the day, the screens and a lookup that was going are gone, the log is not.
  */
 data class FoodModel(
     val day: String? = null,
+    val add: AddScreen? = null,
     val sheet: FoodSheet? = null,
+    val plate: List<PlateItem> = emptyList(),
     val lookups: List<Long> = emptyList(),
     val searches: List<Long> = emptyList(),
 )
 
 /**
- * The one sheet over the Food screen. None is null. Every change of it is made in `food` (UpdateFood.kt).
+ * The add screen: the search ([query] filters what the phone knows at once, [online] is what Open Food Facts found for a
+ * submitted one), the foods usual at this time, the meals, and the plate at the bottom. It stays open while foods are
+ * collected. [loop] is a run of barcodes going straight onto the plate. [addAfter] (UpdatePlate.kt) is the one place the
+ * screen and its loop change.
  *
- *                OpenSearch, OpenQuick, OpenGoal, OpenCredit, TypeBarcode, NewOwn, OpenEntry, OpenMeals, NewMeal
+ *              OpenAdd                       Scan                  a food lands on the plate: the scanner again
+ *   ┌────────┐ ──────▶ ┌─────────────────┐ ──────▶ ┌──────────┐ ◀─┘
+ *   │ closed │         │ open, no loop   │ ◀────── │ SCANNING │ ── the scanner fails (not a cancel) ──┐
+ *   │ (null) │ ◀────── │                 │ cancel, └──────────┘                                       ▼
+ *   └────────┘         └─────────────────┘ a sheet                   ┌────────┐ ◀─┘ a food lands on the plate:
+ *    CloseAdd, Back,     ▲  │  TypeBarcode put away                  │ TYPING │      the barcode sheet again
+ *    LogPlate, another   │  └──────────────────────────────────────▶ └────────┘
+ *    tab                 └─── a sheet put away, a barcode nobody knows (its own food form) ───┘
+ */
+data class AddScreen(val query: String = "", val online: Online = Online.Idle, val loop: Loop? = null)
+
+/** A run of barcodes onto the plate: from the scanner, opened again after each food, or typed, one sheet after the other. */
+enum class Loop { SCANNING, TYPING }
+
+/** Where the amount of an add sheet or a quick entry goes. */
+sealed interface AmountFor {
+    /** A new entry, logged at once on the day shown. */
+    data object Log : AmountFor
+
+    /** A new item on the plate. */
+    data object Plate : AmountFor
+
+    /** Entry [id] of the log changes. */
+    data class Entry(val id: String) : AmountFor
+
+    /** Item [id] of the plate changes. */
+    data class OnPlate(val id: String) : AmountFor
+}
+
+/**
+ * The one sheet over the Food tab or the add screen. None is null. Every change of it is made in `food` (UpdateFood.kt).
+ *
+ *                OpenQuick, OpenGoal, OpenCredit, TypeBarcode, NewOwn, OpenEntry, OpenPlateItem, OpenMeals, NewMeal
  *   ┌──────┐ ───────────────────────────────────────────────────────────────▶ that sheet
- *   │ none │ ◀─────────────── CloseSheet, ConfirmAmount, SaveQuick, SaveGoal, DeleteOwn, AddAgain, AddMeal, Close
+ *   │ none │ ◀─────────────── CloseSheet, ConfirmAmount, SaveQuick, SaveGoal, DeleteOwn, AddAgain, AddMeal, a tab
  *   └──────┘
  *   Meal: the meals, see [MealSheet]
- *   Search ── Pick(id) ──▶ Amount          Own ── SaveOwn ──▶ Amount of the food saved
- *   Search ── Pick(id of a hit without its numbers) ──▶ LookingUp its barcode, see [Lookup]
+ *   Pick(id) on the add screen ──▶ Amount for the plate       Own ── SaveOwn ──▶ Amount of the food saved
+ *   Pick(id of a hit without its numbers) ──▶ LookingUp its barcode, see [Lookup]
  *   Amount of an own food ── EditOwn ──▶ Own(id)
- *   Scanned, LookUp, Retry: the lookup, see [Lookup]
+ *   Scanned, LookUp, Retry: the lookup, see [Lookup]; a run of barcodes onto the plate, see [AddScreen]
  */
 sealed interface FoodSheet {
     /**
-     * The add sheet of [food] with [amount] chosen, in its unit. [entryId]: the entry whose amount it changes,
-     * null for a new one.
+     * The add sheet of [food] with [amount] chosen, in its unit, and [target], where that amount goes. [minute]: the time
+     * of day an entry of the log is set to (null: it keeps the one it has, or has none).
      */
-    data class Amount(val food: Food, val amount: Double, val entryId: String? = null) : FoodSheet
+    data class Amount(val food: Food, val amount: Double, val target: AmountFor = AmountFor.Log, val minute: Int? = null) : FoodSheet
 
-    /** Quick kcal for a meal out: new, or the quick entry [entryId] changed. */
-    data class Quick(val entryId: String? = null) : FoodSheet
+    /** Quick kcal for a meal out: logged, put on the plate, or a quick entry or plate item changed. */
+    data class Quick(val target: AmountFor = AmountFor.Log) : FoodSheet
 
     /**
      * The form of an own food. [id]: the food it edits, null for a new one. [barcode] and [name]: filled in from a
-     * lookup that found nothing to log. [note]: what the form says above it, why it opened.
+     * lookup that found nothing to log. [note]: what the form says above it, why it opened. [direct]: the food goes
+     * straight onto the plate once it is saved (it came from a run of barcodes or a `+`).
      */
-    data class Own(val id: String? = null, val barcode: String? = null, val name: String = "", val note: String? = null) : FoodSheet
+    data class Own(val id: String? = null, val barcode: String? = null, val name: String = "", val note: String? = null, val direct: Boolean = false) : FoodSheet
 
     data object Goal : FoodSheet
 
-    /** Typing a barcode, from the search or after the scanner gave none; [note] says why. */
+    /** Typing a barcode, from the add screen or after the scanner gave none; [note] says why, or what landed on the plate. */
     data class Barcode(val note: String? = null) : FoodSheet
 
-    /** A barcode being looked up at Open Food Facts. */
-    data class LookingUp(val lookup: Lookup) : FoodSheet
-
-    /** The search: [query] filters what the phone knows at once, [online] is what Open Food Facts found for a submitted one. */
-    data class Search(val query: String = "", val online: Online = Online.Idle) : FoodSheet
+    /** A barcode being looked up at Open Food Facts. [direct]: what it finds goes straight onto the plate. */
+    data class LookingUp(val lookup: Lookup, val direct: Boolean = false) : FoodSheet
 
     /** Where the food data comes from, and what leaves the phone. */
     data object Credit : FoodSheet
@@ -123,14 +161,15 @@ sealed interface Lookup {
 enum class Failure { OFFLINE, BUSY }
 
 /**
- * The online part of the search. One request per submit, never per keystroke. [onlineAfter] is the one place it changes.
+ * The online part of the search on the add screen. One request per submit, never per keystroke. [onlineAfter] is the one
+ * place it changes.
  *
  *   ┌──────┐ SubmitSearch(q) ┌──────────────┐ Searched(q, Found)  ┌──────────────────┐
  *   │ Idle │ ──────────────▶ │ Searching(q) │ ──────────────────▶ │ Results(q, foods)│
  *   └──────┘                 └──────────────┘ ───────┐            └──────────────────┘
  *      ▲  Results and Failed take another submit       │ Searched(q, Offline or Busy)
  *      │                                              ▼
- *      └──── (a new search sheet) ─────────── Failed(q, why)
+ *      └──── (the add screen opened again) ─── Failed(q, why)
  *   A submit of the query being searched, of less than two letters, or an answer for another query: nothing.
  *   Over the rate limit a submit is Failed(q, BUSY) without a request.
  */
@@ -148,7 +187,7 @@ sealed interface Online {
 /** Why the scanner gave no barcode. */
 enum class ScanFailure { CANCELLED, INSTALLING, UNAVAILABLE, FAILED }
 
-/** Undo of a meal or a copied day: the entries it logged, by id. */
+/** Undo of a meal, a copied day or a logged plate: the entries it logged, by id. */
 typealias AddedEntries = List<String>
 
 /** An entry deleted from the log at [index]: Undo puts it back there. */

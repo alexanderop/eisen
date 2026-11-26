@@ -1,6 +1,30 @@
 package io.github.alexanderop.eisen.feature.food.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
+import io.github.alexanderop.eisen.app.elm.StripDay
+import io.github.alexanderop.eisen.app.elm.WeekStrip
+import io.github.alexanderop.eisen.app.elm.weekStrip
+import io.github.alexanderop.eisen.feature.food.FoodGoal
+import io.github.alexanderop.eisen.feature.food.MAX_MEALS
+import io.github.alexanderop.eisen.feature.food.TimeGroup
+import io.github.alexanderop.eisen.feature.food.clockText
+import io.github.alexanderop.eisen.feature.food.dayOfMonth
+import io.github.alexanderop.eisen.feature.food.macroText
+import io.github.alexanderop.eisen.app.elm.kcalLine
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -79,17 +103,19 @@ import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.amountText
 import io.github.alexanderop.eisen.feature.food.gramsText
 import io.github.alexanderop.eisen.feature.food.kcalText
+import io.github.alexanderop.eisen.feature.food.plateTotals
 
 private val ChevronLeft = pathIcon("ChevronLeft", "m15 18-6-6 6-6")
 private val Info = pathIcon("Info", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "M12 16v-4", "M12 8h.01")
-private val ScanIcon = pathIcon("Scan", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M7 8v8", "M11 8v8", "M14 8v8", "M17 8v8")
+internal val ScanIcon = pathIcon("Scan", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M7 8v8", "M11 8v8", "M14 8v8", "M17 8v8")
 private val RowShape = RoundedCornerShape(14.dp)
 private val OnDestructive = Color(0xFF2B0A0A)
 
 /**
- * A day of food, over the tabs like the workout, with Back: what is left of the goal, a bar for the calories and
- * one for protein, what was eaten (a swipe deletes it with Undo, a tap changes its amount), the foods to log
- * again with one tap, and Scan, Search and quick kcal at the bottom, in reach of the thumb.
+ * The Food tab: a day of food. The week strip on top (a tap opens a day, the arrows or a swipe move a week), what is left
+ * of the goal with the calories and the three macros, the day as a timeline of what was eaten together (a group opens
+ * to its entries: a tap changes one, a swipe deletes it with Undo), the meals and the foods to log again with one tap,
+ * and Scan, Add and quick kcal at the bottom, in reach of the thumb.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,9 +126,11 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
     val copy = copyOffer(model)
     // Under an open sheet the screen is out of reach, for TalkBack too.
     val covered = model.food.sheet != null
+    // Which groups of the timeline are open: presentation only, by the id of their first entry.
+    var open by rememberSaveable { mutableStateOf(emptyList<String>()) }
     Column(Modifier.fillMaxSize().background(EisenColors.Background).then(if (covered) Modifier.clearAndSetSemantics { } else Modifier)) {
         CenterAlignedTopAppBar(
-            // Between Back and three arrows a large font makes the day smaller instead of cutting it ("Yesterday", "Tue, Nov 24").
+            // A large font makes the day smaller instead of cutting it ("Yesterday", "Tue, Nov 24").
             title = {
                 Text(
                     day.title,
@@ -113,24 +141,19 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                     modifier = Modifier.semantics { heading() },
                 )
             },
-            navigationIcon = {
-                TextButton(onClick = { dispatch(Msg.Food.Close) }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Icon(ChevronLeft, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Text("Back", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                }
-            },
             actions = {
-                IconButton(onClick = { dispatch(Msg.Food.PreviousDay) }) { Icon(ChevronLeft, contentDescription = "Previous day") }
-                IconButton(onClick = { dispatch(Msg.Food.NextDay) }, enabled = day.canGoForward) { Icon(Icons.ChevronRight, contentDescription = "Next day") }
                 IconButton(onClick = { dispatch(Msg.Food.OpenCredit) }) { Icon(Info, contentDescription = "Food data") }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = EisenColors.Background),
+            // A tab: the bar of the app already keeps it clear of the status bar.
+            windowInsets = WindowInsets(0),
         )
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            weekStrip(model)?.let { strip -> item(key = "week") { WeekStripRow(strip, dispatch) } }
             item(key = "summary") { DaySummary(day, onGoal = { dispatch(Msg.Food.OpenGoal) }) }
             if (day.entries.isEmpty()) {
                 item(key = "empty") {
@@ -138,9 +161,34 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                 }
                 copy?.let { offer -> item(key = "copy") { CopyButton(offer) { dispatch(Msg.Food.CopyDayBefore) } } }
             }
-            items(day.entries, key = { it.id }) { entry ->
-                SwipeToDelete(entry.name, onDelete = { dispatch(Msg.Food.DeleteEntry(entry.id)) }, modifier = Modifier.animateItem()) {
-                    EntryRow(entry, onOpen = { dispatch(Msg.Food.OpenEntry(entry.id)) })
+            for (group in day.groups) {
+                val key = group.entries.first().id
+                val single = group.entries.singleOrNull()
+                if (single != null && group.minute != null) {
+                    item(key = "one-${single.id}") {
+                        SwipeToDelete(single.name, onDelete = { dispatch(Msg.Food.DeleteEntry(single.id)) }, modifier = Modifier.animateItem()) {
+                            EntryRow(single, time = clockText(group.minute), onOpen = { dispatch(Msg.Food.OpenEntry(single.id)) })
+                        }
+                    }
+                } else {
+                    val shown = key in open
+                    item(key = "group-$key") {
+                        GroupRow(group, shown, Modifier.animateItem()) { open = if (shown) open - key else open + key }
+                    }
+                    if (shown) {
+                        items(group.entries, key = { it.id }) { entry ->
+                            SwipeToDelete(entry.name, onDelete = { dispatch(Msg.Food.DeleteEntry(entry.id)) }, modifier = Modifier.animateItem().padding(start = 16.dp)) {
+                                EntryRow(entry, time = null, onOpen = { dispatch(Msg.Food.OpenEntry(entry.id)) })
+                            }
+                        }
+                        if (model.state.meals.size < MAX_MEALS) {
+                            item(key = "group-meal-$key") {
+                                TextButton(onClick = { dispatch(Msg.Food.NewMealOf(group.entries.map { it.id })) }, modifier = Modifier.padding(start = 16.dp).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    Text("Save these as a meal", fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if (canSaveMeal(model)) {
@@ -157,34 +205,120 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                 item(key = "again") { AgainChips(again, Modifier.padding(top = 8.dp)) { dispatch(Msg.Food.AddAgain(it.food.id, it.amount)) } }
             }
         }
+        if (model.food.plate.isNotEmpty()) PlateWaiting(plateTotals(model.food.plate), model.food.plate.size) { dispatch(Msg.Food.OpenAdd) }
         BottomActions(dispatch)
     }
     FoodSheets(model, dispatch)
 }
 
-/** The headline, the calories against the goal and the protein, and the goal's button. */
+/**
+ * The week of the day shown: a small bar per day against the goal (or against the fullest day without one), today in
+ * the colour of the app, the day shown on a tile. A tap opens a day; a day to come is not tappable. The arrows and a
+ * swipe move a week, never into the weeks to come.
+ */
 @Composable
-private fun DaySummary(day: FoodDay, onGoal: () -> Unit) {
-    EisenCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val over = day.goal.kcal?.let { day.totals.kcal > it } == true
+private fun WeekStripRow(strip: WeekStrip, dispatch: (Msg) -> Unit) {
+    val first = strip.days.first()
+    val last = strip.days.last()
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { dispatch(Msg.Food.PreviousWeek) }) { Icon(ChevronLeft, contentDescription = "Previous week") }
             Text(
-                kcalHeadline(day),
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (over) EisenColors.Warn else EisenColors.Foreground,
-                modifier = Modifier.semantics { heading() },
+                "${monthDay(first.day)} – ${if (monthOf(first.day) == monthOf(last.day)) last.date.toString() else monthDay(last.day)}",
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
+                color = EisenColors.MutedForeground,
+                fontWeight = FontWeight.SemiBold,
             )
-            Bar("Calories", day.totals.kcal.toDouble(), day.goal.kcal?.toDouble(), "${kcalText(day.totals.kcal)}${day.goal.kcal?.let { " / ${kcalText(it)}" } ?: ""} kcal")
-            Bar("Protein", day.totals.protein, day.goal.protein?.toDouble(), "${gramsText(day.totals.protein).removeSuffix(" g")}${day.goal.protein?.let { " / $it" } ?: ""} g")
-            TextButton(onClick = onGoal, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
-                Text(if (day.goal.kcal == null && day.goal.protein == null) "Set a goal" else "Change goal", fontWeight = FontWeight.SemiBold)
+            IconButton(onClick = { dispatch(Msg.Food.NextWeek) }, enabled = strip.canGoForward) { Icon(Icons.ChevronRight, contentDescription = "Next week") }
+        }
+        val scale = (strip.goalKcal ?: strip.days.maxOf { it.kcal }).coerceAtLeast(1)
+        var dragged by remember { mutableFloatStateOf(0f) }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            if (maxWidth >= StripCellWidth * strip.days.size) {
+                Row(
+                    Modifier.fillMaxWidth().pointerInput(Unit) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragged = 0f },
+                            onDragEnd = {
+                                if (dragged > 80.dp.toPx()) dispatch(Msg.Food.PreviousWeek) else if (dragged < -80.dp.toPx()) dispatch(Msg.Food.NextWeek)
+                            },
+                        ) { _, amount -> dragged += amount }
+                    },
+                ) {
+                    for (day in strip.days) StripCell(day, scale, Modifier.weight(1f)) { dispatch(Msg.Food.OpenDay(day.day)) }
+                }
+            } else {
+                // A narrow phone: each day keeps a 48 dp target and the week scrolls under the thumb; the arrows move a week.
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    for (day in strip.days) StripCell(day, scale, Modifier.width(StripCellWidth)) { dispatch(Msg.Food.OpenDay(day.day)) }
+                }
             }
         }
     }
 }
 
-/** A labelled bar: what was eaten against the goal, full and lime at the goal. Without a goal only the number. */
+@Composable
+private fun StripCell(day: StripDay, scale: Int, modifier: Modifier, onOpen: () -> Unit) {
+    val label = listOfNotNull("${day.name} ${day.date}", if (day.logged) "${kcalText(day.kcal)} kcal" else null, if (day.today) "today" else null).joinToString(", ")
+    Column(
+        modifier
+            .heightIn(min = 72.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (day.shown) EisenColors.Muted else Color.Transparent)
+            .then(if (day.future) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = "Show") { onOpen() })
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+                selected = day.shown
+            }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(day.name.take(1), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (day.today) EisenColors.Primary else EisenColors.MutedForeground)
+        Box(Modifier.width(10.dp).height(28.dp).clip(RoundedCornerShape(5.dp)).background(EisenColors.Muted), contentAlignment = Alignment.BottomCenter) {
+            val fraction = (day.kcal.toFloat() / scale).coerceIn(0f, 1f)
+            if (fraction > 0f) Box(Modifier.fillMaxWidth().fillMaxHeight(fraction).clip(RoundedCornerShape(5.dp)).background(if (day.future) EisenColors.Muted else EisenColors.Primary))
+        }
+        Text(day.date.toString(), fontSize = 13.sp, fontWeight = if (day.shown) FontWeight.Bold else FontWeight.Normal, color = if (day.future) EisenColors.MutedForeground else EisenColors.Foreground)
+    }
+}
+
+/** The narrowest a day of the week strip gets: a target of 48 dp. */
+private val StripCellWidth = 48.dp
+
+/** "Nov 23". */
+private fun monthDay(day: String): String = "${monthOf(day)} ${dayOfMonth(day)}"
+
+private fun monthOf(day: String): String =
+    runCatching { java.time.LocalDate.parse(day).month.name.take(3).lowercase().replaceFirstChar(Char::uppercase) }.getOrDefault("")
+
+/**
+ * The headline, the calories and the three macros against their goals, and the goal's button. Over a goal reads
+ * "120 over" in the same colours: nothing here warns.
+ */
+@Composable
+private fun DaySummary(day: FoodDay, onGoal: () -> Unit) {
+    EisenCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(kcalHeadline(day), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = EisenColors.Foreground, modifier = Modifier.semantics { heading() })
+            val goal = day.goal
+            val kcal = day.totals.kcal
+            Bar("Calories", kcal.toDouble(), goal.kcal?.toDouble(), kcalLine(kcal, goal.kcal))
+            // The three macros side by side, so the timeline starts on the first screen.
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MacroCell("Protein", day.totals.protein, goal.protein, Modifier.weight(1f))
+                MacroCell("Carbs", day.totals.carbs, goal.carbs, Modifier.weight(1f))
+                MacroCell("Fat", day.totals.fat, goal.fat, Modifier.weight(1f))
+            }
+            TextButton(onClick = onGoal, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                Text(if (goal == FoodGoal()) "Set a goal" else "Change goal", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** A labelled bar: what was eaten against the goal, full at the goal and past it. Without a goal only the number. */
 @Composable
 private fun Bar(label: String, value: Double, goal: Double?, text: String) {
     Column(
@@ -194,22 +328,76 @@ private fun Bar(label: String, value: Double, goal: Double?, text: String) {
         },
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = EisenColors.MutedForeground)
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = EisenColors.MutedForeground, modifier = Modifier.padding(end = 8.dp))
             Text(text, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, color = EisenColors.Foreground)
         }
         if (goal != null && goal > 0) {
             val fraction = (value / goal).toFloat().coerceIn(0f, 1f)
-            Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(EisenColors.Muted)) {
-                if (fraction > 0f) Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(if (value > goal) EisenColors.Warn else EisenColors.Primary))
+            Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(EisenColors.Muted)) {
+                if (fraction > 0f) Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(EisenColors.Primary))
             }
         }
     }
 }
 
-/** An entry: its name, its amount and its calories. A tap changes the amount. */
+/** A macro eaten against its goal: its name, "96 / 160 g" (and "10 over" past it, in the same colours), a small bar. */
 @Composable
-private fun EntryRow(entry: FoodEntry, onOpen: () -> Unit) {
+private fun MacroCell(label: String, eaten: Double, goal: Int?, modifier: Modifier) {
+    val text = macroText(eaten, goal)
+    Column(
+        modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$label $text"
+            if (goal != null && goal > 0) progressBarRangeInfo = ProgressBarRangeInfo((eaten / goal).toFloat().coerceIn(0f, 1f), 0f..1f)
+        },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(label, color = EisenColors.MutedForeground, fontSize = 14.sp)
+        val (main, over) = text.split(" · ").let { it.first() to it.getOrNull(1) }
+        Text(main, fontWeight = FontWeight.Bold, color = EisenColors.Foreground)
+        if (goal != null && goal > 0) {
+            val fraction = (eaten / goal).toFloat().coerceIn(0f, 1f)
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(EisenColors.Muted)) {
+                if (fraction > 0f) Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(EisenColors.Primary))
+            }
+        }
+        if (over != null) Text(over, color = EisenColors.MutedForeground, fontSize = 13.sp)
+    }
+}
+
+/**
+ * A group of the timeline: its time, its foods and what they add up to. A tap opens it to its entries, and closes it.
+ * The group without a time holds what was filled in later for this day.
+ */
+@Composable
+private fun GroupRow(group: TimeGroup, open: Boolean, modifier: Modifier, onToggle: () -> Unit) {
+    val time = group.minute?.let(::clockText) ?: "No time"
+    val names = group.entries.joinToString(", ") { it.name }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RowShape)
+            .background(EisenColors.Card)
+            .clickable(role = Role.Button, onClickLabel = if (open) "Hide its foods" else "Show its foods") { onToggle() }
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$time, ${counted(group.entries.size, "food")}, ${kcalText(group.totals.kcal)} kcal"
+                stateDescription = if (open) "Open" else "Closed"
+            }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(time, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground)
+        Text(names, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = EisenColors.Foreground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(kcalText(group.totals.kcal), fontWeight = FontWeight.Bold, color = EisenColors.Foreground)
+        Icon(if (open) Icons.ChevronUp else Icons.ChevronDown, contentDescription = null, tint = EisenColors.MutedForeground)
+    }
+}
+
+/** An entry: its time when it stands alone in the timeline, its name, its amount and its calories. A tap changes it. */
+@Composable
+private fun EntryRow(entry: FoodEntry, time: String?, onOpen: () -> Unit) {
     val amount = entry.amount?.let { amountText(it, entry.unit) }
     Row(
         Modifier
@@ -223,6 +411,7 @@ private fun EntryRow(entry: FoodEntry, onOpen: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (time != null) Text(time, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground)
         Column(Modifier.weight(1f)) {
             Text(entry.name, fontWeight = FontWeight.SemiBold, color = EisenColors.Foreground)
             if (amount != null) Text(amount, color = EisenColors.MutedForeground, fontSize = 14.sp)
@@ -267,11 +456,19 @@ internal fun AgainChips(items: List<AgainItem>, modifier: Modifier = Modifier, o
     }
 }
 
-/** Scan, Search and quick kcal, at the bottom where the thumb is. */
+/** A plate left on the add screen: what is on it, and a tap goes back to it. */
+@Composable
+private fun PlateWaiting(totals: io.github.alexanderop.eisen.feature.food.Totals, foods: Int, onOpen: () -> Unit) {
+    TextButton(onClick = onOpen, modifier = Modifier.fillMaxWidth().background(EisenColors.Card).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
+        Text("On the plate: ${counted(foods, "food")} · ${kcalText(totals.kcal)} kcal", fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Scan, the add screen and quick kcal, at the bottom where the thumb is. */
 @Composable
 private fun BottomActions(dispatch: (Msg) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().background(EisenColors.Card).windowInsetsPadding(WindowInsets.navigationBars).padding(horizontal = 12.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().background(EisenColors.Card).padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Button(onClick = { dispatch(Msg.Food.Scan) }, modifier = Modifier.weight(1f).height(52.dp), shapes = pressShapes(14.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
@@ -279,8 +476,8 @@ private fun BottomActions(dispatch: (Msg) -> Unit) {
             ButtonLabel("Scan", Modifier.padding(start = 6.dp))
         }
         val tonal = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground)
-        FilledTonalButton(onClick = { dispatch(Msg.Food.OpenSearch) }, modifier = Modifier.weight(1f).height(52.dp), shapes = pressShapes(14.dp), colors = tonal, contentPadding = PaddingValues(horizontal = 8.dp)) {
-            ButtonLabel("Search")
+        FilledTonalButton(onClick = { dispatch(Msg.Food.OpenAdd) }, modifier = Modifier.weight(1f).height(52.dp), shapes = pressShapes(14.dp), colors = tonal, contentPadding = PaddingValues(horizontal = 8.dp)) {
+            ButtonLabel("+ Add")
         }
         FilledTonalButton(
             onClick = { dispatch(Msg.Food.OpenQuick) },

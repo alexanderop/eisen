@@ -70,7 +70,10 @@ sealed interface Msg {
         /** The system back gesture. Only sent while [handlesBack] is true; otherwise Android closes the app. */
         data object Back : Nav
 
-        /** What the activity saved before Android ended the process. */
+        /**
+         * What the activity saved before Android ended the process. [food]: the Food screen showed, as build 24 saved
+         * it when food was a screen over Home; it comes back as the Food tab.
+         */
         data class Restore(val tab: Tab, val workoutOpen: Boolean, val routine: String?, val history: HistoryView = HistoryView.LOG, val food: Boolean = false) : Nav
     }
 
@@ -492,30 +495,30 @@ sealed interface Msg {
      * or a sheet that is not there changes nothing. What is logged goes to the day the screen shows.
      */
     sealed interface Food : Msg {
-        /** The "Food today" card on Home: the Food screen opens on today. */
+        /** The "Food today" card on Home: the Food tab opens on today. */
         data object Open : Food
 
-        /** "Scan" on the Home card: the Food screen opens on today and the scanner starts. */
+        /** "Scan" on the Home card: the Food tab opens on today and the scanner starts. */
         data object OpenScan : Food
 
-        /** "Add" on the Home card: the Food screen opens on today with the search. */
+        /** "Add" on the Home card or the Food tab: the add screen opens, on the day the Food tab shows (today from Home). */
         data object OpenAdd : Food
 
-        /** Back from the Food screen. */
-        data object Close : Food
+        /** The arrows of the week strip: the same weekday a week earlier, or a week later (never after today). */
+        data object PreviousWeek : Food
+        data object NextWeek : Food
 
-        /** The arrows: the day before, the day after (never after today). */
-        data object PreviousDay : Food
-        data object NextDay : Food
-
-        /** "Scan": the scanner starts. Answers with [Scanned] or [ScanFailed]. */
+        /**
+         * "Scan": the scanner starts. Answers with [Scanned] or [ScanFailed]. On the add screen it opens again after each
+         * food that lands on the plate, until it is cancelled (see [AddScreen]).
+         */
         data object Scan : Food
         data class Scanned(val barcode: String) : Food
 
         /** The scanner gave nothing: the barcode can be typed instead. */
         data class ScanFailed(val why: ScanFailure) : Food
 
-        /** "Type a barcode": its sheet opens. */
+        /** "Type a barcode": its sheet opens. On the add screen it opens again after each food that lands on the plate. */
         data object TypeBarcode : Food
 
         /** A typed barcode, sent with "Look up". One that cannot be a product's changes nothing. */
@@ -527,11 +530,14 @@ sealed interface Msg {
         /** "Try again" after a lookup that got no answer. */
         data object Retry : Food
 
-        /** A food in the search, the phone's or one Open Food Facts found: its add sheet opens. */
+        /** A tap on a food of the add screen, the phone's or one Open Food Facts found: its add sheet opens, for the plate. */
         data class Pick(val foodId: String) : Food
 
         /** The chips and the grams of the add sheet. Brought into the limits. */
         data class SetAmount(val amount: Double) : Food
+
+        /** The time of day of the entry whose add sheet is open, as minutes from midnight (450 is 07:30). Saved with its amount. */
+        data class SetTime(val minute: Int) : Food
 
         /** "Add 270 kcal" (or "Save" of an entry's new amount). */
         data object ConfirmAmount : Food
@@ -550,8 +556,11 @@ sealed interface Msg {
         /** "kcal": the quick entry for a meal out. */
         data object OpenQuick : Food
 
-        /** Saves a quick entry: new, or the one the sheet was opened for. No calories: nothing. */
-        data class SaveQuick(val kcal: Int, val protein: Int?, val name: String) : Food
+        /**
+         * Saves a quick entry: new, or the one the sheet was opened for, then at [minute] of its day when given. No
+         * calories: nothing.
+         */
+        data class SaveQuick(val kcal: Int, val protein: Int?, val name: String, val minute: Int? = null) : Food
 
         /** "New food" in the search: the own food form, with what was typed as its name. */
         data class NewOwn(val name: String = "") : Food
@@ -567,13 +576,10 @@ sealed interface Msg {
 
         data object OpenGoal : Food
 
-        /** 0 is no goal. */
-        data class SaveGoal(val kcal: Int, val protein: Int) : Food
+        /** Calories and grams a day should reach. 0 is no goal. */
+        data class SaveGoal(val kcal: Int, val protein: Int, val carbs: Int = 0, val fat: Int = 0) : Food
 
-        /** "Search": its sheet opens. */
-        data object OpenSearch : Food
-
-        /** Typed into the search: what the phone knows is filtered at once. No request. */
+        /** Typed into the search of the add screen: what the phone knows is filtered at once. No request. */
         data class Search(val query: String) : Food
 
         /** The keyboard's search key or "Search Open Food Facts": one request. */
@@ -595,6 +601,9 @@ sealed interface Msg {
 
         /** "Save as meal" under the entries of the day shown: a new meal of them, every one picked. */
         data object NewMeal : Food
+
+        /** "Save these as a meal" under a group of the timeline: a new meal of the day's entries, only [ids] picked. */
+        data class NewMealOf(val ids: List<String>) : Food
 
         /** An entry of the day ticked or unticked for the new meal. */
         data class TogglePick(val entryId: String) : Food
@@ -626,8 +635,31 @@ sealed interface Msg {
         /** Undo of [AddMeal] and [CopyDayBefore]: the entries they logged go again. */
         data object UndoAdded : Food
 
-        /** A bar of the week in Progress: the Food screen opens on that day. */
+        /** A bar of the week in Progress: the Food tab opens on that day. */
         data class OpenDay(val day: String) : Food
+
+        // The add screen and the plate, see [AddScreen]
+
+        /** Back or the close button of the add screen. What is on the plate stays. */
+        data object CloseAdd : Food
+
+        /** `+` on a food of the add screen ([foodId] of the phone's or of a hit online): onto the plate at its usual amount. */
+        data class PlateAdd(val foodId: String) : Food
+
+        /** `+` on a meal of the add screen: each of its foods onto the plate. */
+        data class PlateMeal(val id: String) : Food
+
+        /** A tap on an item of the plate: its amount (or its quick kcal) can change. */
+        data class OpenPlateItem(val id: String) : Food
+
+        /** An item taken off the plate. */
+        data class RemovePlateItem(val id: String) : Food
+
+        /** "Clear": the plate is emptied, nothing is logged. */
+        data object ClearPlate : Food
+
+        /** "Log 671 kcal": every item of the plate becomes an entry of the day shown, with one Undo for all of them. */
+        data object LogPlate : Food
     }
 
     /** The rest timer. Its alarms and the buttons on its notification end up here too. */

@@ -16,6 +16,9 @@ import io.github.alexanderop.eisen.app.elm.TimerPage
 import io.github.alexanderop.eisen.app.elm.WodDraft
 import io.github.alexanderop.eisen.app.elm.decodeDrafts
 import io.github.alexanderop.eisen.app.elm.encodeDrafts
+import io.github.alexanderop.eisen.app.elm.decodePlate
+import io.github.alexanderop.eisen.app.elm.encodePlate
+import io.github.alexanderop.eisen.feature.food.PlateItem
 import io.github.alexanderop.eisen.app.state.encodeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +108,35 @@ internal object DraftFile {
         writer.execute {
             runCatching {
                 val text = encodeDrafts(drafts)
+                if (text == null) {
+                    target.delete()
+                } else {
+                    val temp = File(target.parentFile, target.name + ".tmp")
+                    temp.writeText(text)
+                    if (!temp.renameTo(target)) target.writeText(text)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * What is on the plate of the add screen, in a small file next to the state, so it survives the end of the process.
+ * Not part of the state or of backups. Its shape is in `encodePlate`.
+ */
+internal object PlateFile {
+    private const val NAME = "plate.json"
+    private val writer = Executors.newSingleThreadExecutor()
+
+    fun read(context: Context): List<PlateItem> =
+        runCatching { decodePlate(File(context.filesDir, NAME).readText()) }.getOrDefault(emptyList())
+
+    /** Off the main thread, in order. An empty plate deletes the file. */
+    fun write(context: Context, plate: List<PlateItem>) {
+        val target = File(context.filesDir, NAME)
+        writer.execute {
+            runCatching {
+                val text = encodePlate(plate)
                 if (text == null) {
                     target.delete()
                 } else {

@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen
 
+import io.github.alexanderop.eisen.app.elm.AddScreen
+import io.github.alexanderop.eisen.app.elm.AmountFor
 import io.github.alexanderop.eisen.app.elm.Cmd
 import io.github.alexanderop.eisen.app.elm.Env
 import io.github.alexanderop.eisen.app.elm.Failure
@@ -25,6 +27,7 @@ import io.github.alexanderop.eisen.app.elm.kcalHeadline
 import io.github.alexanderop.eisen.app.elm.openFoodDay
 import io.github.alexanderop.eisen.app.elm.showsFood
 import io.github.alexanderop.eisen.app.elm.update
+import io.github.alexanderop.eisen.app.elm.weekStrip
 import io.github.alexanderop.eisen.app.state.AppState
 import io.github.alexanderop.eisen.app.state.freshState
 import io.github.alexanderop.eisen.core.WeightUnit
@@ -77,18 +80,35 @@ class FoodUpdateTest {
 
     // The screen
 
-    @Test fun `the card opens today, Back closes it, and it covers the tabs like the workout`() {
+    @Test fun `the card switches to the Food tab on today, and Back goes home from it like from any tab`() {
         val open = step().food(Msg.Food.Open)
+        assertEquals(Tab.FOOD, open.model.nav.tab)
         assertEquals(today, open.model.food.day)
         assertTrue(showsFood(open.model))
         assertTrue(handlesBack(open.model))
-        val closed = open.food(Msg.Food.Close)
-        assertNull(closed.model.food.day)
-        step().ignores(Msg.Food.Close)
+        val home = open.food(Msg.Nav.Back)
+        assertEquals(Tab.HOME, home.model.nav.tab)
+        assertNull(home.model.food.day)
+    }
+
+    @Test fun `the Food tab opens on today, keeps its day while it shows, and a tap on it goes back to today`() {
+        val tab = step().food(Msg.Nav.SelectTab(Tab.FOOD))
+        assertEquals(today, tab.model.food.day)
+        val yesterday = tab.food(Msg.Food.OpenDay("2026-11-25"))
+        assertEquals("2026-11-25", yesterday.model.food.day)
+        assertEquals(today, yesterday.food(Msg.Nav.SelectTab(Tab.FOOD)).model.food.day)
+        // Another tab leaves no day and no sheet behind; coming back is today again.
+        val away = yesterday.food(Msg.Food.OpenGoal).food(Msg.Nav.SelectTab(Tab.HISTORY))
+        assertNull(away.model.food.day)
+        assertNull(away.sheet)
+        assertEquals(today, away.food(Msg.Nav.SelectTab(Tab.FOOD)).model.food.day)
     }
 
     @Test fun `Add on the card opens the search, Scan starts the scanner`() {
-        assertEquals(FoodSheet.Search(), step().food(Msg.Food.OpenAdd).sheet)
+        val add = step().food(Msg.Food.OpenAdd)
+        assertEquals(AddScreen(), add.model.food.add)
+        assertEquals(Tab.FOOD, add.model.nav.tab)
+        assertNull(add.sheet)
         val scan = step().food(Msg.Food.OpenScan)
         assertEquals(today, scan.model.food.day)
         assertEquals(listOf(UiEvent.ScanBarcode), scan.uiEvents)
@@ -96,19 +116,35 @@ class FoodUpdateTest {
         step().ignores(Msg.Food.Scan)
     }
 
-    @Test fun `the arrows step through the days, never past today`() {
-        val back = opened().food(Msg.Food.PreviousDay).food(Msg.Food.PreviousDay)
-        assertEquals("2026-11-24", back.model.food.day)
-        assertEquals("2026-11-25", back.food(Msg.Food.NextDay).model.food.day)
-        opened().ignores(Msg.Food.NextDay)
-        assertEquals(false, openFoodDay(opened().model)!!.canGoForward)
-        assertEquals(true, openFoodDay(back.model)!!.canGoForward)
-        step().ignores(Msg.Food.PreviousDay)
-        step().ignores(Msg.Food.NextDay)
+    @Test fun `the week strip shows the week of the day, today marked, the days to come not tappable, and its arrows move a week`() {
+        val logged = opened().food(Msg.Food.OpenDay("2026-11-24")).food(Msg.Food.OpenQuick).food(Msg.Food.SaveQuick(1200, null, ""), id = "q")
+            .food(Msg.Food.OpenGoal).food(Msg.Food.SaveGoal(2400, 160))
+        val strip = weekStrip(logged.model)!!
+        assertEquals(listOf("2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26", "2026-11-27", "2026-11-28", "2026-11-29"), strip.days.map { it.day })
+        assertEquals(listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), strip.days.map { it.name })
+        assertEquals(listOf(0, 1200, 0, 0, 0, 0, 0), strip.days.map { it.kcal })
+        assertEquals(listOf("2026-11-26"), strip.days.filter { it.today }.map { it.day })
+        assertEquals(listOf("2026-11-24"), strip.days.filter { it.shown }.map { it.day })
+        assertEquals(listOf("2026-11-27", "2026-11-28", "2026-11-29"), strip.days.filter { it.future }.map { it.day })
+        assertEquals(2400, strip.goalKcal)
+        assertEquals(false, strip.canGoForward)
+        // A tap on a day of it opens that day; a day to come does nothing.
+        logged.ignores(Msg.Food.OpenDay("2026-11-27"))
+        // A week back and forth on the same weekday; never into the days to come.
+        val back = logged.food(Msg.Food.PreviousWeek).food(Msg.Food.PreviousWeek)
+        assertEquals("2026-11-10", back.model.food.day)
+        assertEquals(true, weekStrip(back.model)!!.canGoForward)
+        assertEquals("2026-11-17", back.food(Msg.Food.NextWeek).model.food.day)
+        logged.ignores(Msg.Food.NextWeek)
+        // From last Friday a week on is still to come: today instead.
+        assertEquals(today, opened().food(Msg.Food.OpenDay("2026-11-20")).food(Msg.Food.NextWeek).model.food.day)
+        step().ignores(Msg.Food.PreviousWeek)
+        step().ignores(Msg.Food.NextWeek)
+        assertNull(weekStrip(step().model))
     }
 
     @Test fun `Back closes the sheet first, then the screen`() {
-        val searching = opened().food(Msg.Food.OpenSearch)
+        val searching = opened().food(Msg.Food.OpenGoal)
         val sheetGone = searching.food(Msg.Nav.Back)
         assertNull(sheetGone.sheet)
         assertEquals(today, sheetGone.model.food.day)
@@ -122,8 +158,11 @@ class FoodUpdateTest {
         // The process ends: only the file is kept.
         val (restarted, _) = init(Flags(looking.state, null, false, Notifications(granted = true, asked = true), now = noon + 60_000))
         assertEquals(FoodModel(), restarted.food)
+        // Build 24 saved the Food screen over Home; it comes back as the Food tab, as one saved by this build does.
         val back = Step(restarted).food(Msg.Nav.Restore(Tab.HOME, workoutOpen = false, routine = null, food = true), now = noon + 61_000)
         assertEquals(today, back.model.food.day)
+        assertEquals(Tab.FOOD, back.model.nav.tab)
+        assertEquals(back.model.food, Step(restarted).food(Msg.Nav.Restore(Tab.FOOD, workoutOpen = false, routine = null), now = noon + 61_000).model.food)
         assertNull(back.sheet)
         // The answer of the request the dead process sent never comes; one that did would change nothing.
         back.ignores(Msg.Food.Looked("3017620422003", ProductAnswer.Found(nutella)))
@@ -207,27 +246,32 @@ class FoodUpdateTest {
 
     // The add sheet and the log
 
-    @Test fun `a picked food opens at its start amount, the chips and grams stay in limits, and Add logs it on the day shown`() {
-        val picked = opened().food(Msg.Food.OpenSearch).food(Msg.Food.Search("oat")).food(Msg.Food.Pick(oats.id))
-        assertEquals(FoodSheet.Amount(oats, 80.0), picked.sheet)
+    @Test fun `a picked food opens at its start amount for the plate, the chips and grams stay in limits, and the plate logs it on the day shown`() {
+        val picked = opened().food(Msg.Food.OpenAdd).food(Msg.Food.Search("oat")).food(Msg.Food.Pick(oats.id))
+        assertEquals(FoodSheet.Amount(oats, 80.0, AmountFor.Plate), picked.sheet)
         assertEquals(MAX_AMOUNT, (picked.food(Msg.Food.SetAmount(Double.MAX_VALUE)).sheet as FoodSheet.Amount).amount, 0.0)
         assertEquals(1.0, (picked.food(Msg.Food.SetAmount(-5.0)).sheet as FoodSheet.Amount).amount, 0.0)
         picked.ignores(Msg.Food.SetAmount(80.0))
-        val yesterday = opened().food(Msg.Food.PreviousDay).food(Msg.Food.OpenSearch).food(Msg.Food.Search("oat")).food(Msg.Food.Pick(oats.id))
-        val added = yesterday.food(Msg.Food.SetAmount(40.0)).food(Msg.Food.ConfirmAmount, id = "e1")
-        assertNull(added.sheet)
+        val yesterday = opened().food(Msg.Food.OpenDay("2026-11-25")).food(Msg.Food.OpenAdd).food(Msg.Food.Search("oat")).food(Msg.Food.Pick(oats.id))
+        val plated = yesterday.food(Msg.Food.SetAmount(40.0)).food(Msg.Food.ConfirmAmount, id = "p1")
+        assertNull(plated.sheet)
+        assertEquals(emptyList<Any>(), plated.state.foodLog)
+        val added = plated.food(Msg.Food.LogPlate, id = "e1")
         val entry = added.state.foodLog.single()
         assertEquals(entryOf(oats, 40.0, "e1", noon, "2026-11-25"), entry)
         // A plain food is the app's: it is not kept.
         assertEquals(listOf(skyr), added.state.foods)
         opened().ignores(Msg.Food.ConfirmAmount)
         opened().ignores(Msg.Food.Pick(oats.id))
+        // Without the add screen a known barcode's add sheet logs at once.
+        val logged = opened().food(Msg.Food.Scanned("4056489000006")).food(Msg.Food.ConfirmAmount, id = "e2")
+        assertEquals(listOf(270), logged.state.foodLog.map { it.kcal })
     }
 
     @Test fun `a tap on an entry changes its amount and keeps the rest of it`() {
         val logged = opened().food(Msg.Food.Scanned("4056489000006")).food(Msg.Food.ConfirmAmount, id = "e1")
         val opened = logged.food(Msg.Food.OpenEntry("e1"), now = noon + 60_000)
-        assertEquals(FoodSheet.Amount(skyr, 450.0, "e1"), opened.sheet)
+        assertEquals(FoodSheet.Amount(skyr, 450.0, AmountFor.Entry("e1"), minute = 12 * 60), opened.sheet)
         val changed = opened.food(Msg.Food.SetAmount(225.0)).food(Msg.Food.ConfirmAmount, now = noon + 70_000).state.foodLog.single()
         assertEquals(entryOf(skyr, 225.0, "e1", noon, today), changed)
         logged.ignores(Msg.Food.OpenEntry("gone"))
@@ -271,7 +315,7 @@ class FoodUpdateTest {
         assertNull(entry.foodId)
         assertEquals(40.0, entry.protein, 0.0)
         val edit = saved.food(Msg.Food.OpenEntry("q1"))
-        assertEquals(FoodSheet.Quick("q1"), edit.sheet)
+        assertEquals(FoodSheet.Quick(AmountFor.Entry("q1")), edit.sheet)
         val changed = edit.food(Msg.Food.SaveQuick(900, null, "Burger")).state.foodLog.single()
         assertEquals(Triple("q1", "Burger", 900), Triple(changed.id, changed.name, changed.kcal))
         opened().ignores(Msg.Food.SaveQuick(500, null, ""))
@@ -280,13 +324,13 @@ class FoodUpdateTest {
     // Own foods
 
     @Test fun `an own food is saved from its form and opens to be logged`() {
-        val form = opened().food(Msg.Food.OpenSearch).food(Msg.Food.Search("Protein bread")).food(Msg.Food.NewOwn("Protein bread "))
+        val form = opened().food(Msg.Food.OpenAdd).food(Msg.Food.Search("Protein bread")).food(Msg.Food.NewOwn("Protein bread "))
         assertEquals(FoodSheet.Own(name = "Protein bread"), form.sheet)
         form.ignores(Msg.Food.SaveOwn(" ", 250.0, 20.0, null, null, null))
         val saved = form.food(Msg.Food.SaveOwn("Protein bread", 250.0, 20.0, 0.0, 3.0, 50.0), id = "b1")
         val bread = saved.state.foods.last()
         assertEquals(Food("own:b1", "Protein bread", kcal = 250.0, protein = 20.0, fat = 3.0, serving = 50.0, source = FoodSource.OWN), bread)
-        assertEquals(FoodSheet.Amount(bread, 50.0), saved.sheet)
+        assertEquals(FoodSheet.Amount(bread, 50.0, AmountFor.Plate), saved.sheet)
     }
 
     @Test fun `a lookup that found nothing keeps its barcode on the own food, which the next scan finds`() {
@@ -339,7 +383,7 @@ class FoodUpdateTest {
     // The search
 
     @Test fun `typing filters what the phone knows at once and sends nothing`() {
-        val typed = opened().food(Msg.Food.OpenSearch).food(Msg.Food.Search("sky"))
+        val typed = opened().food(Msg.Food.OpenAdd).food(Msg.Food.Search("sky"))
         assertTrue(typed.cmds.isEmpty())
         assertEquals(listOf(skyr), foodResults(typed.model))
         assertEquals(listOf(oats), foodResults(typed.food(Msg.Food.Search("oats")).model))
@@ -347,45 +391,47 @@ class FoodUpdateTest {
     }
 
     @Test fun `a submit asks Open Food Facts once, and its answer fills the results`() {
-        val typed = opened().food(Msg.Food.OpenSearch).food(Msg.Food.Search("nutella "))
+        val typed = opened().food(Msg.Food.OpenAdd).food(Msg.Food.Search("nutella "))
         val sent = typed.food(Msg.Food.SubmitSearch)
         assertEquals(listOf(Cmd.SearchFoods("nutella")), sent.cmds)
-        assertEquals(Online.Searching("nutella"), (sent.sheet as FoodSheet.Search).online)
+        assertEquals(Online.Searching("nutella"), sent.model.food.add!!.online)
         sent.ignores(Msg.Food.SubmitSearch)
         sent.ignores(Msg.Food.Searched("skyr", SearchAnswer.Found(listOf(hitOf(nutella)))))
         val found = sent.food(Msg.Food.Searched("nutella", SearchAnswer.Found(listOf(hitOf(nutella)))))
-        assertEquals(Online.Results("nutella", listOf(hitOf(nutella))), (found.sheet as FoodSheet.Search).online)
-        assertEquals(Online.Failed("nutella", Failure.OFFLINE), (sent.food(Msg.Food.Searched("nutella", SearchAnswer.Offline)).sheet as FoodSheet.Search).online)
-        assertEquals(Online.Failed("nutella", Failure.BUSY), (sent.food(Msg.Food.Searched("nutella", SearchAnswer.Busy)).sheet as FoodSheet.Search).online)
-        // A result opens its add sheet and is kept once it is logged.
+        assertEquals(Online.Results("nutella", listOf(hitOf(nutella))), found.model.food.add!!.online)
+        assertEquals(Online.Failed("nutella", Failure.OFFLINE), sent.food(Msg.Food.Searched("nutella", SearchAnswer.Offline)).model.food.add!!.online)
+        assertEquals(Online.Failed("nutella", Failure.BUSY), sent.food(Msg.Food.Searched("nutella", SearchAnswer.Busy)).model.food.add!!.online)
+        // A result opens its add sheet for the plate and is kept once the plate is logged.
         val picked = found.food(Msg.Food.Pick(nutella.id))
-        assertEquals(FoodSheet.Amount(nutella, 400.0), picked.sheet)
-        assertTrue(nutella in picked.food(Msg.Food.ConfirmAmount).state.foods)
-        opened().food(Msg.Food.OpenSearch).food(Msg.Food.Search("n")).ignores(Msg.Food.SubmitSearch)
+        assertEquals(FoodSheet.Amount(nutella, 400.0, AmountFor.Plate), picked.sheet)
+        val plated = picked.food(Msg.Food.ConfirmAmount)
+        assertTrue(nutella !in plated.state.foods)
+        assertTrue(nutella in plated.food(Msg.Food.LogPlate).state.foods)
+        opened().food(Msg.Food.OpenAdd).food(Msg.Food.Search("n")).ignores(Msg.Food.SubmitSearch)
     }
 
     @Test fun `a hit the search found without its calories is looked up by its barcode when it is picked`() {
         val bare = SearchHit("4337185761638", "Skyr natur", "K Classic", food = null)
-        val found = opened().food(Msg.Food.OpenSearch).food(Msg.Food.Search("skyr")).food(Msg.Food.SubmitSearch)
+        val found = opened().food(Msg.Food.OpenAdd).food(Msg.Food.Search("skyr")).food(Msg.Food.SubmitSearch)
             .food(Msg.Food.Searched("skyr", SearchAnswer.Found(listOf(bare, hitOf(nutella)))))
         val looking = found.food(Msg.Food.Pick(bare.id))
         assertEquals(FoodSheet.LookingUp(Lookup.Looking("4337185761638")), looking.sheet)
         assertEquals(listOf(Cmd.LookUpProduct("4337185761638")), looking.cmds)
         val kClassic = Food("off:4337185761638", "Skyr natur", "K-Classic", "4337185761638", kcal = 64.0, protein = 11.0, pack = 500.0, source = FoodSource.SCANNED)
-        assertEquals(FoodSheet.Amount(kClassic, 500.0), looking.food(Msg.Food.Looked("4337185761638", ProductAnswer.Found(kClassic))).sheet)
+        assertEquals(FoodSheet.Amount(kClassic, 500.0, AmountFor.Plate), looking.food(Msg.Food.Looked("4337185761638", ProductAnswer.Found(kClassic))).sheet)
         // One the phone knows by now needs no request.
-        val known = opened(freshState(WeightUnit.KG).copy(foods = listOf(kClassic))).food(Msg.Food.OpenSearch).food(Msg.Food.Search("x")).food(Msg.Food.SubmitSearch)
+        val known = opened(freshState(WeightUnit.KG).copy(foods = listOf(kClassic))).food(Msg.Food.OpenAdd).food(Msg.Food.Search("x")).food(Msg.Food.SubmitSearch)
             .food(Msg.Food.Searched("x", SearchAnswer.Found(listOf(bare)))).food(Msg.Food.Pick(bare.id))
-        assertEquals(FoodSheet.Amount(kClassic, 500.0), known.sheet)
+        assertEquals(FoodSheet.Amount(kClassic, 500.0, AmountFor.Plate), known.sheet)
         assertTrue(known.cmds.none { it is Cmd.LookUpProduct })
         found.ignores(Msg.Food.Pick("off:0000000000000"))
     }
 
     @Test fun `over the rate limit of the search a submit waits without a request`() {
-        var at = opened().food(Msg.Food.OpenSearch)
+        var at = opened().food(Msg.Food.OpenAdd)
         repeat(SEARCH_REQUESTS_PER_MINUTE) { i -> at = at.food(Msg.Food.Search("q$i"), now = noon + i).food(Msg.Food.SubmitSearch, now = noon + i) }
         val over = at.food(Msg.Food.Search("more")).food(Msg.Food.SubmitSearch, now = noon + 20_000)
-        assertEquals(Online.Failed("more", Failure.BUSY), (over.sheet as FoodSheet.Search).online)
+        assertEquals(Online.Failed("more", Failure.BUSY), over.model.food.add!!.online)
         assertTrue(over.cmds.isEmpty())
     }
 
@@ -423,7 +469,7 @@ class FoodUpdateTest {
         assertEquals(today, step().food(Msg.Food.OpenDay(today)).model.food.day)
         step().ignores(Msg.Food.OpenDay("2026-11-27"))
         step().ignores(Msg.Food.OpenDay("not a day"))
-        // Back goes to where the bar was.
+        assertEquals(Tab.FOOD, opened.model.nav.tab)
         assertNull(opened.food(Msg.Nav.Back).model.food.day)
     }
 

@@ -47,6 +47,7 @@ class FixturesTest {
         "short-timers" to ::shortTimers,
         "lifter" to ::lifter,
         "food" to ::food,
+        "food-history" to ::foodHistory,
     )
 
     @Test fun `every fixture loads, is at the current version, and saving it again changes nothing`() {
@@ -121,6 +122,29 @@ class FixturesTest {
         assertEquals(FoodSource.SCANNED, scanned.source)
         assertEquals(null, scanned.barcode?.let(::barcodeProblem))
         assertTrue("no pack for the chips", scanned.pack != null)
+    }
+
+    /**
+     * The food fixture with two weeks of history: eight foods, each eaten every day at its own time, three hours apart
+     * (01:30, 04:30, ... 22:30 in Berlin), so whatever the hour a journey runs at, one of them is "usual at this time".
+     * Every entry has its own time and is what the add sheet logs of its food at its usual amount.
+     */
+    private fun foodHistory(state: AppState) {
+        val log = state.foodLog
+        assertEquals(freshState(WeightUnit.KG).copy(foods = state.foods, foodGoal = state.foodGoal, foodLog = log), state)
+        assertEquals(FoodGoal(2400, 160), state.foodGoal)
+        val berlin = java.time.ZoneId.of("Europe/Berlin")
+        assertTrue("an entry without a time of its own", log.all { io.github.alexanderop.eisen.feature.food.hasTime(it, berlin) })
+        val times = log.groupBy { io.github.alexanderop.eisen.feature.food.minuteOfDay(it.at, berlin) }
+        assertEquals((0 until 8).map { 90 + it * 180 }, times.keys.sorted())
+        for ((_, entries) in times) {
+            assertEquals("one food per time", 1, entries.map { it.foodId }.toSet().size)
+            assertTrue("fewer than 14 days", entries.map { it.day }.toSet().size >= 14)
+        }
+        // Moved so its newest day is in the last week, its oldest is still within the weeks "usual at this time" looks back.
+        val days = log.map { java.time.LocalDate.parse(it.day) }.toSet()
+        val span = java.time.temporal.ChronoUnit.DAYS.between(days.min(), days.max())
+        assertTrue("the history spans $span days", span in 13..(io.github.alexanderop.eisen.feature.food.USUAL_DAYS - 8).toLong())
     }
 
     /** A saved timer whose numbers the setup's wheels can show: nothing a lifter could not have saved. */

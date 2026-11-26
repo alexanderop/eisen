@@ -43,11 +43,13 @@ import io.github.alexanderop.eisen.app.elm.HistoryView
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.Tab
+import io.github.alexanderop.eisen.app.elm.BAR_TABS
 import io.github.alexanderop.eisen.app.elm.UiEvent
 import io.github.alexanderop.eisen.app.elm.handlesBack
 import io.github.alexanderop.eisen.app.elm.showsWorkout
 import io.github.alexanderop.eisen.app.elm.showsFood
 import io.github.alexanderop.eisen.feature.food.ui.FoodScreen
+import io.github.alexanderop.eisen.feature.food.ui.AddFoodScreen
 import io.github.alexanderop.eisen.feature.food.platform.BarcodeScanner
 import io.github.alexanderop.eisen.app.elm.ScanFailure
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -79,6 +81,7 @@ private const val SAVED_TAB = "tab"
 private const val SAVED_WORKOUT_OPEN = "workoutOpen"
 private const val SAVED_ROUTINE = "routine"
 private const val SAVED_HISTORY = "history"
+/** Build 24 kept the Food screen over Home under this key; read so such a saved state comes back on the Food tab. */
 private const val SAVED_FOOD = "food"
 
 /**
@@ -133,7 +136,6 @@ class MainActivity : ComponentActivity() {
         outState.putBoolean(SAVED_WORKOUT_OPEN, nav.workoutOpen)
         outState.putString(SAVED_ROUTINE, nav.routine)
         outState.putString(SAVED_HISTORY, nav.history.name)
-        outState.putBoolean(SAVED_FOOD, Eisen.model.food.day != null)
     }
 }
 
@@ -142,6 +144,7 @@ private val Tab.label: String
         Tab.HOME -> "Home"
         Tab.WORKOUTS -> "Workouts"
         Tab.TIMER -> "Timer"
+        Tab.FOOD -> "Food"
         Tab.HISTORY -> "History"
         Tab.SETTINGS -> "Settings"
     }
@@ -151,6 +154,7 @@ private val Tab.icon: ImageVector
         Tab.HOME -> Icons.Home
         Tab.WORKOUTS -> Icons.Workouts
         Tab.TIMER -> Icons.Timer
+        Tab.FOOD -> Icons.Food
         Tab.HISTORY -> Icons.History
         Tab.SETTINGS -> Icons.Settings
     }
@@ -178,12 +182,9 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
         return
     }
 
-    // The Food screen covers the tabs like the workout. It shows the app's snackbars itself, above its buttons.
-    if (showsFood(model)) {
-        Box(Modifier.fillMaxSize()) {
-            FoodScreen(model, dispatch)
-            SnackbarHost(Eisen.snackbars.host, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
-        }
+    // The add screen covers the tabs like the workout: the plate at its bottom, the app's snackbars above it.
+    if (showsFood(model) && model.food.add != null) {
+        AddFoodScreen(model, dispatch) { SnackbarHost(Eisen.snackbars.host) }
         return
     }
 
@@ -191,10 +192,11 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
     val screens = rememberSaveableStateHolder()
     Scaffold(
         containerColor = EisenColors.Background,
-        snackbarHost = { SnackbarHost(Eisen.snackbars.host) },
+        // On the Food tab above its Scan and Add, which a snackbar with Undo must not cover.
+        snackbarHost = { SnackbarHost(Eisen.snackbars.host, Modifier.padding(bottom = if (showsFood(model)) 72.dp else 0.dp)) },
         bottomBar = {
             NavigationBar(containerColor = EisenColors.Card) {
-                for (item in Tab.entries) {
+                for (item in BAR_TABS) {
                     NavigationBarItem(
                         selected = tab == item,
                         onClick = { dispatch(Msg.Nav.SelectTab(item)) },
@@ -227,6 +229,7 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
                     Tab.HOME -> HomeScreen(model, dispatch)
                     Tab.WORKOUTS -> WorkoutsScreen(model, dispatch)
                     Tab.TIMER -> TimerScreen(model, dispatch)
+                    Tab.FOOD -> FoodScreen(model, dispatch)
                     Tab.HISTORY -> HistoryScreen(model, dispatch)
                     Tab.SETTINGS -> SettingsScreen(model, dispatch)
                 }

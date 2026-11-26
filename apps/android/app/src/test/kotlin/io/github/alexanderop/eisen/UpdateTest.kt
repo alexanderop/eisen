@@ -30,6 +30,7 @@ import io.github.alexanderop.eisen.app.elm.WorkoutEvent
 import io.github.alexanderop.eisen.app.elm.active
 import io.github.alexanderop.eisen.app.elm.AddTarget
 import io.github.alexanderop.eisen.app.elm.BACKUP_RESTORED
+import io.github.alexanderop.eisen.app.elm.AmountFor
 import io.github.alexanderop.eisen.app.elm.Cmd
 import io.github.alexanderop.eisen.app.elm.Cue
 import io.github.alexanderop.eisen.app.elm.Model
@@ -996,6 +997,10 @@ class UpdateTest {
         var mealsAdded = 0
         var daysCopied = 0
         var foodSynced = 0
+        var platesLogged = 0
+        var plated = 0
+        var plateEdits = 0
+        var runs = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -1318,13 +1323,16 @@ class UpdateTest {
             openFoodDay(after.model)?.let { day ->
                 assertEquals(where, log.filter { it.day == day.day }.sortedBy { it.at }, day.entries)
                 assertEquals(where, day.entries.sumOf { it.kcal }, day.totals.kcal)
+                // The timeline holds every entry of the day once, and its groups add up to the day.
+                assertEquals(where, day.entries.map { it.id }.sorted(), day.groups.flatMap { group -> group.entries.map { it.id } }.sorted())
+                assertEquals(where, day.totals.kcal, day.groups.sumOf { it.totals.kcal })
                 assertTrue(where, isPastOrToday(day.day, localDay(now, java.time.ZoneOffset.UTC)))
             }
             val today = foodToday(after.model)
             assertEquals(where, log.filter { it.day == today.day }.sumOf { it.kcal }, today.totals.kcal)
             // An entry never changes but by its own sheet: editing or deleting its food leaves it as it was.
             val sheetBefore = step.model.food.sheet
-            val edited = (sheetBefore as? FoodSheet.Amount)?.entryId ?: (sheetBefore as? FoodSheet.Quick)?.entryId
+            val edited = ((sheetBefore as? FoodSheet.Amount)?.target ?: (sheetBefore as? FoodSheet.Quick)?.target as? AmountFor.Entry)?.let { (it as? AmountFor.Entry)?.id }
             for (entry in log) {
                 val old = step.state.foodLog.firstOrNull { it.id == entry.id } ?: continue
                 if (old != entry) {
@@ -1381,13 +1389,42 @@ class UpdateTest {
             // A sheet lies only over the Food screen, and Open Food Facts gets no more than its limits allow.
             if (after.model.food.sheet != null) assertNotNull(where, after.model.food.day)
             after.cmds.filterIsInstance<Cmd.LookUpProduct>().forEach { cmd ->
-                assertEquals(where, FoodSheet.LookingUp(Lookup.Looking(cmd.barcode)), after.model.food.sheet)
+                assertEquals(where, Lookup.Looking(cmd.barcode), (after.model.food.sheet as? FoodSheet.LookingUp)?.lookup)
                 lookups++
             }
             after.cmds.filterIsInstance<Cmd.SearchFoods>().forEach { cmd ->
-                assertEquals(where, Online.Searching(cmd.query), (after.model.food.sheet as? FoodSheet.Search)?.online)
+                assertEquals(where, Online.Searching(cmd.query), after.model.food.add?.online)
                 searches++
             }
+            // The plate. Logging it adds exactly its items, on the day shown, after what was there, and empties it.
+            val plateBefore = step.model.food.plate
+            val plate = after.model.food.plate
+            if (msg == Msg.Food.LogPlate && log != step.state.foodLog) {
+                assertEquals(where, step.state.foodLog, log.take(step.state.foodLog.size))
+                val added = log.drop(step.state.foodLog.size)
+                assertEquals(where, plateBefore.map { it.entry.copy(id = "", at = 0, day = "") }, added.map { it.copy(id = "", at = 0, day = "") })
+                assertTrue(where, added.all { it.day == step.model.food.day && it.at == now })
+                assertEquals(where, emptyList<Any>(), plate)
+                platesLogged++
+            }
+            // Nothing but Log, Clear and taking an item off makes the plate smaller (and a Reset, which erases all).
+            val gone = plateBefore.map { it.entry.id } - plate.map { it.entry.id }.toSet()
+            if (gone.isNotEmpty()) {
+                assertTrue("$where took $gone off the plate", msg == Msg.Food.LogPlate || msg == Msg.Food.ClearPlate || msg == Msg.Data.Reset || msg is Msg.Food.RemovePlateItem && gone == listOf(msg.id))
+            }
+            if (plate.size > plateBefore.size) plated++
+            if (plate.size == plateBefore.size && plate != plateBefore) plateEdits++
+            // The plate stays in its limits, and its file is written exactly when it changed, with it.
+            assertTrue(where, plate.size <= io.github.alexanderop.eisen.feature.food.MAX_PLATE_ITEMS)
+            assertEquals(where, plate.size, plate.map { it.entry.id }.toSet().size)
+            assertTrue("$where: ${plateOutOfLimits(plate)}", plateOutOfLimits(plate).isEmpty())
+            assertEquals(where, if (plate != plateBefore) listOf(Cmd.SavePlate(plate)) else emptyList<Cmd>(), after.cmds.filterIsInstance<Cmd.SavePlate>())
+            // The add screen only lies over the Food tab, and a sheet for the plate only over the add screen.
+            if (after.model.food.add != null) assertNotNull(where, after.model.food.day)
+            val target = (after.model.food.sheet as? FoodSheet.Amount)?.target ?: (after.model.food.sheet as? FoodSheet.Quick)?.target
+            if (target == AmountFor.Plate || target is AmountFor.OnPlate) assertNotNull(where, after.model.food.add)
+            if (target is AmountFor.OnPlate) assertTrue(where, plate.any { it.entry.id == target.id })
+            if (after.model.food.add?.loop != null && step.model.food.add?.loop == null) runs++
             assertTrue(where, after.model.food.lookups.count { now - it < 60_000 } <= PRODUCT_REQUESTS_PER_MINUTE)
             assertTrue(where, after.model.food.searches.count { now - it < 60_000 } <= SEARCH_REQUESTS_PER_MINUTE)
             if (log.size > step.state.foodLog.size && msg is Msg.Food) foodLogged++
@@ -1397,7 +1434,7 @@ class UpdateTest {
             if (after.model != step.model) changed++
             return Walk(after, opened)
         }
-        for (seed in 1L..320L) {
+        for (seed in 1L..480L) {
             val random = java.util.Random(seed)
             // The chips of "What was it?" come from a dice of their own, slipped in between the walk's Msgs, so
             // the walk itself stays the one it was and reaches what it reached before.
@@ -1463,6 +1500,10 @@ class UpdateTest {
         assertTrue("only $mealsAdded meals were added", mealsAdded >= 20)
         assertTrue("only $daysCopied days were copied", daysCopied >= 5)
         assertTrue("only $foodSynced food changes went to Health Connect", foodSynced >= 5)
+        assertTrue("only $platesLogged plates were logged", platesLogged >= 20)
+        assertTrue("only $plated foods went on the plate", plated >= 100)
+        assertTrue("only $plateEdits items of the plate were changed", plateEdits >= 10)
+        assertTrue("only $runs runs of barcodes started", runs >= 20)
     }
 
     /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
@@ -1517,8 +1558,10 @@ class UpdateTest {
         val foodId = pick(foods.map { it.id } + "gone")
         val entryId = pick(log.map { it.id } + "gone")
         val sheet = model.food.sheet
+        val add = model.food.add
         val looking = ((sheet as? FoodSheet.LookingUp)?.lookup as? Lookup.Looking)?.barcode
-        val searching = ((sheet as? FoodSheet.Search)?.online as? Online.Searching)?.query
+        val searching = (add?.online as? Online.Searching)?.query
+        val plateId = pick(model.food.plate.map { it.entry.id } + "gone")
         val found = Food("off:${pick(barcodes)}", pick(listOf("Skyr", "", "x".repeat(90))), "Brand", null, pick(listOf(60.0, 539.0, 1e12, -4.0)), pick(listOf(11.0, 400.0)), source = FoodSource.SCANNED, pack = pick(listOf(null, 450.0, 1e9)), unit = pick(FoodUnit.entries))
         // The Food screen covers the history's sheet "What was it?": it opens now and then, and is closed as often.
         if (model.food.day == null) return if (food.nextInt(4) != 0) null else pick(listOf(Msg.Food.Open, Msg.Food.Open, Msg.Food.OpenAdd, Msg.Food.OpenScan, Msg.Food.ScanFailed(pick(ScanFailure.entries)), Msg.Food.Scanned(pick(barcodes))))
@@ -1527,11 +1570,25 @@ class UpdateTest {
             return Msg.Food.Looked(looking, pick(listOf(ProductAnswer.Found(found), ProductAnswer.Found(found), ProductAnswer.NotFound, ProductAnswer.NoKcal("Cornedbeef"), ProductAnswer.Offline, ProductAnswer.Busy)))
         }
         // An open sheet is used most of the time, as the lifter would: an amount chosen and added, a quick entry saved.
-        if (sheet is FoodSheet.Amount && food.nextInt(3) > 0) return pick(listOf(Msg.Food.SetAmount(pick(listOf(12.5, 80.0, 225.0, 450.0, 1e9))), Msg.Food.ConfirmAmount))
-        if (sheet is FoodSheet.Quick && food.nextInt(3) > 0) return Msg.Food.SaveQuick(pick(listOf(0, 500, 850, Int.MAX_VALUE)), pick(listOf(null, 40)), pick(listOf("", "Pizza")))
-        if (sheet is FoodSheet.Search && searching == null && food.nextInt(3) > 0) {
-            val results = (sheet.online as? Online.Results)?.hits.orEmpty().map { it.id }
-            return pick(listOf(Msg.Food.Search(pick(listOf("", "sky", "oats", "nutella", "z".repeat(90)))), Msg.Food.SubmitSearch, Msg.Food.SubmitSearch, Msg.Food.Pick(pick(results + foods.map { it.id } + "gone"))))
+        if (sheet is FoodSheet.Amount && food.nextInt(3) > 0) return pick(listOf(Msg.Food.SetAmount(pick(listOf(12.5, 80.0, 225.0, 450.0, 1e9))), Msg.Food.SetTime(pick(listOf(0, 450, 1439))), Msg.Food.ConfirmAmount))
+        if (sheet is FoodSheet.Quick && food.nextInt(3) > 0) return Msg.Food.SaveQuick(pick(listOf(0, 500, 850, Int.MAX_VALUE)), pick(listOf(null, 40)), pick(listOf("", "Pizza")), pick(listOf(null, 0, 720, Int.MIN_VALUE)))
+        // The add screen is used most of the time while it is open: the search, `+`, the plate.
+        if (add != null && sheet == null && searching == null && food.nextInt(3) > 0) {
+            val results = (add.online as? Online.Results)?.hits.orEmpty().map { it.id }
+            val ids = results + foods.map { it.id } + model.plainFoods.map { it.id } + "gone"
+            return pick(
+                listOf(
+                    Msg.Food.Search(pick(listOf("", "sky", "oats", "nutella", "z".repeat(90)))), Msg.Food.SubmitSearch, Msg.Food.Pick(pick(ids)),
+                    Msg.Food.PlateAdd(pick(ids)), Msg.Food.PlateAdd(pick(ids)), Msg.Food.PlateAdd(pick(ids)), Msg.Food.PlateMeal(pick(model.state.meals.map { it.id } + "gone")),
+                    Msg.Food.OpenPlateItem(plateId), Msg.Food.RemovePlateItem(plateId), Msg.Food.LogPlate, Msg.Food.LogPlate, Msg.Food.ClearPlate,
+                    Msg.Food.Scan, Msg.Food.TypeBarcode, Msg.Food.OpenQuick, Msg.Food.CloseAdd,
+                ),
+            )
+        }
+        // A run of barcodes: the scanner answers, or a barcode is typed.
+        if (add?.loop != null && food.nextInt(2) == 0) {
+            return if (add.loop == io.github.alexanderop.eisen.app.elm.Loop.SCANNING) pick(listOf(Msg.Food.Scanned(pick(barcodes)), Msg.Food.Scanned(pick(barcodes)), Msg.Food.ScanFailed(pick(ScanFailure.entries))))
+            else pick(listOf(Msg.Food.LookUp(pick(barcodes)), Msg.Food.LookUp(pick(barcodes)), Msg.Food.CloseSheet))
         }
         // The meals' sheet is used most of the time while it is open.
         val meals = model.state.meals
@@ -1560,12 +1617,13 @@ class UpdateTest {
         val hit = io.github.alexanderop.eisen.feature.food.SearchHit(pick(barcodes.take(4)), "Skyr", "Brand", null)
         if (searching != null && food.nextInt(3) > 0) return Msg.Food.Searched(searching, pick(listOf(SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(found), hit)), SearchAnswer.Offline, SearchAnswer.Busy)))
         val choices: List<() -> Msg> = listOf(
-            { Msg.Food.Close }, { Msg.Food.Close }, { Msg.Food.Close }, { Msg.Food.PreviousDay }, { Msg.Food.NextDay }, { Msg.Food.Scan },
+            { Msg.Nav.SelectTab(pick(listOf(Tab.HOME, Tab.HISTORY))) }, { Msg.Nav.SelectTab(Tab.HISTORY) }, { Msg.Nav.Back }, { Msg.Food.PreviousWeek }, { Msg.Food.NextWeek }, { Msg.Food.Scan },
             { Msg.Food.Scanned(pick(barcodes)) }, { Msg.Food.Scanned(pick(barcodes)) }, { Msg.Food.ScanFailed(pick(ScanFailure.entries)) },
             { Msg.Food.TypeBarcode }, { Msg.Food.LookUp(pick(barcodes)) }, { Msg.Food.Retry },
             { Msg.Food.Looked(pick(barcodes), ProductAnswer.Found(found)) },
             { Msg.Food.Pick(pick(foods.map { it.id } + found.id + "gone")) },
-            { Msg.Food.SetAmount(pick(listOf(0.0, 12.5, 225.0, 450.0, 1e9, -3.0))) },
+            { Msg.Food.SetAmount(pick(listOf(0.0, 12.5, 225.0, 450.0, 1e9, -3.0))) }, { Msg.Food.SetTime(pick(listOf(-5, 0, 450, 1439, Int.MAX_VALUE))) },
+            { Msg.Food.NewMealOf(listOf(entryId, pick(log.map { it.id } + "gone"))) },
             { Msg.Food.ConfirmAmount }, { Msg.Food.ConfirmAmount }, { Msg.Food.ConfirmAmount },
             { Msg.Food.OpenEntry(entryId) }, { Msg.Food.OpenEntry(entryId) },
             { Msg.Food.DeleteEntry(entryId) }, { Msg.Food.UndoDeleteEntry },
@@ -1574,8 +1632,10 @@ class UpdateTest {
             { Msg.Food.NewOwn(pick(listOf("", "Bread"))) }, { Msg.Food.EditOwn(pick(foods.filter { it.source == FoodSource.OWN }.map { it.id } + "gone")) },
             { Msg.Food.SaveOwn(pick(listOf("", "Bread", "y".repeat(90))), pick(listOf(250.0, 1e9)), pick(listOf(9.0, 1e9)), pick(listOf(null, 0.0, 40.0)), pick(listOf(null, 3.0)), pick(listOf(null, 0.0, 50.0, 1e9))) },
             { Msg.Food.DeleteOwn(pick(foods.filter { it.source == FoodSource.OWN }.map { it.id } + "gone")) },
-            { Msg.Food.OpenGoal }, { Msg.Food.SaveGoal(pick(listOf(0, 2400, Int.MAX_VALUE)), pick(listOf(0, 160, Int.MAX_VALUE))) },
-            { Msg.Food.OpenSearch }, { Msg.Food.Search(pick(listOf("", "s", "sky", "oats", "z".repeat(90)))) }, { Msg.Food.SubmitSearch },
+            { Msg.Food.OpenGoal }, { Msg.Food.SaveGoal(pick(listOf(0, 2400, Int.MAX_VALUE)), pick(listOf(0, 160, Int.MAX_VALUE)), pick(listOf(0, 289, Int.MAX_VALUE)), pick(listOf(0, 67, -1))) },
+            { Msg.Food.OpenAdd }, { Msg.Food.OpenAdd }, { Msg.Food.Search(pick(listOf("", "s", "sky", "oats", "z".repeat(90)))) }, { Msg.Food.SubmitSearch },
+            { Msg.Food.CloseAdd }, { Msg.Food.PlateAdd(foodId) }, { Msg.Food.OpenPlateItem(plateId) }, { Msg.Food.RemovePlateItem(plateId) },
+            { Msg.Food.ClearPlate }, { Msg.Food.LogPlate },
             { Msg.Food.Searched(pick(listOf("sky", "oats")), SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(found)))) },
             { Msg.Food.OpenCredit }, { Msg.Food.CloseSheet },
             { Msg.Food.NewMeal }, { Msg.Food.NewMeal }, { Msg.Food.OpenMeals }, { Msg.Food.EditMeal(mealId) },
@@ -1583,6 +1643,9 @@ class UpdateTest {
             { Msg.Food.CopyDayBefore }, { Msg.Food.CopyDayBefore }, { Msg.Food.DeleteMeal(mealId) },
             { Msg.Food.TogglePick(entryId) }, { Msg.Food.SaveNewMeal("Dinner") }, { Msg.Food.SaveMeal("Dinner") },
             { Msg.Food.OpenDay(pick(listOf("2026-11-20", "1970-01-01", "2999-01-01", "not a day"))) },
+            // A day of the week strip: yesterday and today come most often, as from the strip.
+            { Msg.Food.OpenDay(dayBefore(io.github.alexanderop.eisen.app.elm.today(model))) }, { Msg.Food.OpenDay(io.github.alexanderop.eisen.app.elm.today(model)) },
+            { Msg.Food.OpenDay(dayBefore(io.github.alexanderop.eisen.app.elm.today(model))) }, { Msg.Food.OpenDay(io.github.alexanderop.eisen.app.elm.today(model)) },
         )
         return pick(choices)()
     }

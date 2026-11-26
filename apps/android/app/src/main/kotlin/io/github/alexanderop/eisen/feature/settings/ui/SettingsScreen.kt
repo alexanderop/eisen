@@ -261,12 +261,17 @@ fun SettingsScreen(model: Model, dispatch: (Msg) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // No tab of the bar is Settings: Back is here too, as on the system's gesture, and goes home.
+        TextButton(onClick = { dispatch(Msg.Nav.Back) }, modifier = Modifier.padding(start = 4.dp, top = 4.dp).heightIn(min = 48.dp)) {
+            Icon(Icons.Back, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text("Back", modifier = Modifier.padding(start = 6.dp), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        }
         Text(
             "Settings",
             fontSize = 30.sp,
             fontWeight = FontWeight.ExtraBold,
             letterSpacing = (-0.6).sp,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp).semantics { heading() },
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).semantics { heading() },
         )
 
         Section("Weights", first = true) {

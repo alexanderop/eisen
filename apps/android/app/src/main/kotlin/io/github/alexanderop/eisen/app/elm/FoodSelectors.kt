@@ -5,6 +5,13 @@ import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.FoodGoal
 import io.github.alexanderop.eisen.feature.food.SearchHit
+import io.github.alexanderop.eisen.feature.food.PlateItem
+import io.github.alexanderop.eisen.feature.food.TimeGroup
+import io.github.alexanderop.eisen.feature.food.timeline
+import io.github.alexanderop.eisen.feature.food.weekOf
+import io.github.alexanderop.eisen.feature.food.dayOfMonth
+import io.github.alexanderop.eisen.feature.food.commonFoods
+import io.github.alexanderop.eisen.feature.food.usualAt
 import io.github.alexanderop.eisen.feature.food.Totals
 import io.github.alexanderop.eisen.feature.food.again
 import io.github.alexanderop.eisen.feature.food.dayAfter
@@ -38,12 +45,14 @@ data class FoodDay(
     val totals: Totals,
     val goal: FoodGoal,
     val canGoForward: Boolean,
+    /** The entries grouped by when they were eaten, see [timeline]. */
+    val groups: List<TimeGroup> = emptyList(),
 )
 
 fun foodDay(model: Model, day: String): FoodDay {
     val now = today(model)
     val entries = entriesOf(model.state.foodLog, day)
-    return FoodDay(day, dayTitle(day, now), entries, totalsOf(entries), model.state.foodGoal, isPastOrToday(dayAfter(day), now))
+    return FoodDay(day, dayTitle(day, now), entries, totalsOf(entries), model.state.foodGoal, isPastOrToday(dayAfter(day), now), timeline(entries, model.zone))
 }
 
 /** The day the Food screen shows, while it is open. */
@@ -58,24 +67,48 @@ fun knownFoods(model: Model): List<Food> = model.state.foods + model.plainFoods
 /** "Again": the foods logged most often lately, with their last amount. */
 fun againItems(model: Model): List<AgainItem> = again(model.state.foodLog, { knownFood(model, it) }, model.now)
 
-/** What the search finds on the phone for what is typed, best first. */
+/**
+ * What the add screen offers while nothing is typed: the foods usually logged around this time of day, the other ones
+ * logged lately, and for a phone that has logged nothing yet a few common plain foods. Each with its usual amount.
+ */
+data class AddSuggestions(val usual: List<AgainItem>, val recent: List<AgainItem>, val common: List<AgainItem>)
+
+fun addSuggestions(model: Model): AddSuggestions {
+    val usual = usualAt(model.state.foodLog, { knownFood(model, it) }, model.now, model.zone)
+    val ids = usual.map { it.food.id }.toSet()
+    val recent = againItems(model).filter { it.food.id !in ids }
+    val common = if (usual.isEmpty() && recent.isEmpty()) commonFoods(model.plainFoods, model.state.foodLog) else emptyList()
+    return AddSuggestions(usual, recent, common)
+}
+
+/** What the search of the add screen finds on the phone for what is typed, best first. */
 fun foodResults(model: Model): List<Food> {
-    val search = model.food.sheet as? FoodSheet.Search ?: return emptyList()
-    return searchFoods(knownFoods(model), search.query, model.state.foodLog)
+    val add = model.food.add ?: return emptyList()
+    return searchFoods(knownFoods(model), add.query, model.state.foodLog)
 }
 
 /** What Open Food Facts found that the phone does not already list. */
 fun onlineResults(model: Model): List<SearchHit> {
-    val results = ((model.food.sheet as? FoodSheet.Search)?.online as? Online.Results)?.hits ?: return emptyList()
+    val results = (model.food.add?.online as? Online.Results)?.hits ?: return emptyList()
     val local = foodResults(model).map { it.id }.toSet()
     return results.filter { it.id !in local }
 }
+
+/** The item of the plate that holds [foodId], if one does: its row on the add screen shows it is on the plate. */
+fun plateItemOfFood(model: Model, foodId: String): PlateItem? = model.food.plate.firstOrNull { it.entry.foodId == foodId }
 
 /** The headline of a day: what is left of the goal, how far over it, or what was eaten without one. */
 fun kcalHeadline(day: FoodDay): String {
     val goal = day.goal.kcal ?: return "${kcalText(day.totals.kcal)} kcal eaten"
     val left = goal - day.totals.kcal
     return if (left >= 0) "${kcalText(left)} kcal left" else "${kcalText(-left)} kcal over"
+}
+
+/** The calories against their goal, calm either way: "1,160 / 2,400 kcal", "2,520 / 2,400 kcal · 120 over", "1,160 kcal". */
+fun kcalLine(kcal: Int, goal: Int?): String = when {
+    goal == null -> "${kcalText(kcal)} kcal"
+    kcal > goal -> "${kcalText(kcal)} / ${kcalText(goal)} kcal · ${kcalText(kcal - goal)} over"
+    else -> "${kcalText(kcal)} / ${kcalText(goal)} kcal"
 }
 
 /** "Copy yesterday" on an empty day: what the day before holds. [label] is the button's text. */
@@ -97,6 +130,26 @@ fun canSaveMeal(model: Model): Boolean = openFoodDay(model)?.entries?.isNotEmpty
 /** The name a new meal starts with, by the hour it is made at, see [mealName]. */
 fun suggestedMealName(model: Model): String =
     mealName(java.time.Instant.ofEpochMilli(model.now).atZone(model.zone).hour, model.state.meals.map { it.name })
+
+/**
+ * A day of the week strip over the Food tab: its calories, whether anything was logged, whether it is today, still to
+ * come (not tappable) or the day shown.
+ */
+data class StripDay(val day: String, val name: String, val date: Int, val kcal: Int, val logged: Boolean, val today: Boolean, val future: Boolean, val shown: Boolean)
+
+/** The week of the day shown, Monday first, against the calorie goal. [canGoForward]: a later week has a day that is not to come. */
+data class WeekStrip(val days: List<StripDay>, val goalKcal: Int?, val canGoForward: Boolean)
+
+/** The week strip of the Food tab, or null while the tab does not show. */
+fun weekStrip(model: Model): WeekStrip? {
+    val shown = model.food.day ?: return null
+    val now = today(model)
+    val days = weekOf(shown).map { day ->
+        val entries = entriesOf(model.state.foodLog, day)
+        StripDay(day, weekdayName(day), dayOfMonth(day), totalsOf(entries).kcal, entries.isNotEmpty(), day == now, !isPastOrToday(day, now), day == shown)
+    }
+    return WeekStrip(days, model.state.foodGoal.kcal, days.none { it.today || it.future })
+}
 
 /** How many days the week of food in Progress shows, today the last. */
 const val FOOD_WEEK_DAYS = 7

@@ -10,16 +10,18 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
 - `layout-visible` every screen shows what it is for: its title or main action, its controls, the tabs.
 - `layout-targets` nothing on a screen can be tapped on less than 48 dp either way (`eisenctl small`).
 - `layout-food` the "Food today" card under the workout, which never pushes "Start workout" off the first screen,
-  the Food screen with its buttons, the add sheet with its chips, grams and "Add" button, the sheet of a new meal
-  ("Save as meal"), and the Food section of History › Progress with its seven bars, each a tap target.
+  the Food tab with its week strip, its summary (calories, protein, carbs, fat) and its buttons, the add screen with
+  its common foods and the plate pinned at the bottom, the add sheet of an item of the plate with its chips, grams and
+  "Save" button, the sheet of a new meal ("Save as meal"), and the Food section of History › Progress with its seven
+  bars, each a tap target. Settings is reached by the gear on Home.
 - `layout-rest-clock` the rest screen's countdown keeps its room and stays at least three times as tall as
   the text beside it; what is below it scrolls, "Next set" stays at the bottom.
 
 ## How to get to it (user POV)
 
 Android Settings › Display › Font size, or `eisenctl font <scale>` (put back by `cleanup`). The screens:
-Home, the "Food today" card below the workout, the Food screen and the add sheet of a plain food (Banana), the new meal
-sheet of it once added, the week of food in History › Progress, a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
+Home with the gear to Settings, the "Food today" card below the workout, the Food tab, the add screen with a banana on
+its plate, the add sheet of that item of the plate, the new meal sheet of it once logged, the week of food in History › Progress, a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
 running, a boxing run, the WOD builder, History, Settings, the result of an interval timer with its chips
 "What was it?", and the sheet with the same chips over History's log.
 
@@ -34,15 +36,22 @@ screens and checks each with `visible` (the handles on screen, not cut off, tapp
 ```sh
 eisenctl launch --state short-timers
 eisenctl font 1.0
-eisenctl visible "Start workout" "Home" "Workouts" "Timer" "History" "Settings" && eisenctl small && eisenctl shot 11-home
-for i in 1 2 3 4; do eisenctl has "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Start workout" "Settings" "Home" "Workouts" "Timer" "Food" "History" && eisenctl small && eisenctl shot 11-home
+for i in 1 2 3 4; do eisenctl visible "FOOD TODAY" "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small && eisenctl shot 11b-home-food
-eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 11c-food
-eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
-eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 11d-add-sheet
-eisenctl tap "Add 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl tap "Save as meal" && eisenctl wait "Save meal"
-eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 11e-meal-sheet
-eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
+eisenctl tap "FOOD TODAY" && eisenctl wait "0 kcal eaten" && eisenctl visible "Today" "Previous week" ".*, today" "Food data" "0 kcal eaten" "Scan" "\+ Add" "Quick kcal" "Food" && eisenctl small && eisenctl shot 11c-food
+for i in 1 2 3; do eisenctl visible "Set a goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Set a goal" "Carbs 0 g" "Fat 0 g" && eisenctl small
+eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl visible "Back" "Add food" "Search foods" "Scan" "COMMON FOODS" "Put Oats, rolled on the plate" && eisenctl small && eisenctl shot 11d-add
+for i in 1 2 3; do eisenctl visible "Put Banana on the plate" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl visible "Plate, 1 food · 105 kcal" "Clear" "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl small && eisenctl shot 11e-add-plate
+eisenctl tap "Plate, 1 food · 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl visible "Banana, 118 g, 105 kcal" "Log 105 kcal" && eisenctl small
+eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 11f-plate-item
+eisenctl tap "Save 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
+for i in 1 2 3 4; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Save as meal" && eisenctl wait "Save meal"
+eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 11g-meal-sheet
+eisenctl tap "Close" && eisenctl wait "Save as meal" && eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 12-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
 eisenctl texts | awk -F'\t' '/^text=[0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); clock = c[5] - c[3] } /^text=of [0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); body = c[5] - c[3] } END { exit !(clock >= 3 * body) }'
@@ -62,7 +71,7 @@ eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" &
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 18-history
 eisenctl tap "Progress" && eisenctl wait "Last 7 days" && for i in 1 2 3; do eisenctl has "Avg kcal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "Food" "Last 7 days" "[A-Z][a-z]{2}, 105 kcal, 1 g protein" "Avg kcal" "105" && eisenctl small && eisenctl shot 18b-progress-food && eisenctl scroll up && eisenctl tap "Log"
-eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 19-settings
+eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Back" "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 19-settings && eisenctl back && eisenctl wait "Start workout"
 eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 20-timer-result
 sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Log" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl visible "What was it\?" "Boxing" "Running" "Done" "Close" && eisenctl small && eisenctl shot 20b-history-sheet
@@ -75,15 +84,22 @@ eisenctl doctor && eisenctl cleanup
 ```sh
 eisenctl launch --state short-timers
 eisenctl font 1.3
-eisenctl visible "Start workout" "Home" "Workouts" "Timer" "History" "Settings" && eisenctl small && eisenctl shot 21-home
-for i in 1 2 3 4; do eisenctl has "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Start workout" "Settings" "Home" "Workouts" "Timer" "Food" "History" && eisenctl small && eisenctl shot 21-home
+for i in 1 2 3 4; do eisenctl visible "FOOD TODAY" "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small && eisenctl shot 21b-home-food
-eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 21c-food
-eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
-eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 21d-add-sheet
-eisenctl tap "Add 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl tap "Save as meal" && eisenctl wait "Save meal"
-eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 21e-meal-sheet
-eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
+eisenctl tap "FOOD TODAY" && eisenctl wait "0 kcal eaten" && eisenctl visible "Today" "Previous week" ".*, today" "Food data" "0 kcal eaten" "Scan" "\+ Add" "Quick kcal" "Food" && eisenctl small && eisenctl shot 21c-food
+for i in 1 2 3; do eisenctl visible "Set a goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Set a goal" "Carbs 0 g" "Fat 0 g" && eisenctl small
+eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl visible "Back" "Add food" "Search foods" "Scan" "COMMON FOODS" "Put Oats, rolled on the plate" && eisenctl small && eisenctl shot 21d-add
+for i in 1 2 3; do eisenctl visible "Put Banana on the plate" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl visible "Plate, 1 food · 105 kcal" "Clear" "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl small && eisenctl shot 21e-add-plate
+eisenctl tap "Plate, 1 food · 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl visible "Banana, 118 g, 105 kcal" "Log 105 kcal" && eisenctl small
+eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 21f-plate-item
+eisenctl tap "Save 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
+for i in 1 2 3 4; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Save as meal" && eisenctl wait "Save meal"
+eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 21g-meal-sheet
+eisenctl tap "Close" && eisenctl wait "Save as meal" && eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 22-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
 eisenctl texts | awk -F'\t' '/^text=[0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); clock = c[5] - c[3] } /^text=of [0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); body = c[5] - c[3] } END { exit !(clock >= 3 * body) }'
@@ -103,7 +119,7 @@ eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" &
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 28-history
 eisenctl tap "Progress" && eisenctl wait "Last 7 days" && for i in 1 2 3; do eisenctl has "Avg kcal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "Food" "Last 7 days" "[A-Z][a-z]{2}, 105 kcal, 1 g protein" "Avg kcal" "105" && eisenctl small && eisenctl shot 28b-progress-food && eisenctl scroll up && eisenctl tap "Log"
-eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 29-settings
+eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Back" "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 29-settings && eisenctl back && eisenctl wait "Start workout"
 eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 30-timer-result
 sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Log" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl visible "What was it\?" "Boxing" "Running" "Done" "Close" && eisenctl small && eisenctl shot 30b-history-sheet
@@ -116,15 +132,22 @@ eisenctl doctor && eisenctl cleanup
 ```sh
 eisenctl launch --state short-timers
 eisenctl font 2.0
-eisenctl visible "Start workout" "Home" "Workouts" "Timer" "History" "Settings" && eisenctl small && eisenctl shot 31-home
-for i in 1 2 3 4; do eisenctl has "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Start workout" "Settings" "Home" "Workouts" "Timer" "Food" "History" && eisenctl small && eisenctl shot 31-home
+for i in 1 2 3 4; do eisenctl visible "FOOD TODAY" "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small && eisenctl shot 31b-home-food
-eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 31c-food
-eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
-eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 31d-add-sheet
-eisenctl tap "Add 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl tap "Save as meal" && eisenctl wait "Save meal"
-eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 31e-meal-sheet
-eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
+eisenctl tap "FOOD TODAY" && eisenctl wait "0 kcal eaten" && eisenctl visible "Today" "Previous week" ".*, today" "Food data" "0 kcal eaten" "Scan" "\+ Add" "Quick kcal" "Food" && eisenctl small && eisenctl shot 31c-food
+for i in 1 2 3; do eisenctl visible "Set a goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Set a goal" "Carbs 0 g" "Fat 0 g" && eisenctl small
+eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl visible "Back" "Add food" "Search foods" "Scan" "COMMON FOODS" "Put Oats, rolled on the plate" && eisenctl small && eisenctl shot 31d-add
+for i in 1 2 3; do eisenctl visible "Put Banana on the plate" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl visible "Plate, 1 food · 105 kcal" "Clear" "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl small && eisenctl shot 31e-add-plate
+eisenctl tap "Plate, 1 food · 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl visible "Banana, 118 g, 105 kcal" "Log 105 kcal" && eisenctl small
+eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 31f-plate-item
+eisenctl tap "Save 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
+for i in 1 2 3 4; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Save as meal" && eisenctl wait "Save meal"
+eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 31g-meal-sheet
+eisenctl tap "Close" && eisenctl wait "Save as meal" && eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 32-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
 eisenctl texts | awk -F'\t' '/^text=[0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); clock = c[5] - c[3] } /^text=of [0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); body = c[5] - c[3] } END { exit !(clock >= 3 * body) }'
@@ -144,7 +167,7 @@ eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" &
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 38-history
 eisenctl tap "Progress" && eisenctl wait "Last 7 days" && for i in 1 2 3; do eisenctl has "Avg kcal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "Food" "Last 7 days" "[A-Z][a-z]{2}, 105 kcal, 1 g protein" "Avg kcal" "105" && eisenctl small && eisenctl shot 38b-progress-food && eisenctl scroll up && eisenctl tap "Log"
-eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 39-settings
+eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Back" "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 39-settings && eisenctl back && eisenctl wait "Start workout"
 eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 40-timer-result
 sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Log" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl visible "What was it\?" "Boxing" "Running" "Done" "Close" && eisenctl small && eisenctl shot 40b-history-sheet
@@ -159,7 +182,10 @@ eisenctl doctor && eisenctl cleanup
 - `small` measures the clickable node a tap reaches, not the drawn shape: a Material button drawn 40 dp
   tall takes touches on 48 dp, and that is what it counts. Nodes cut by the edge of a list are left out.
 - The Home card sits below the workout: `Start workout` is checked on the first screen, the card after scrolling
-  to it. The Food screen covers the tabs like the workout; `back` leaves it for Home.
+  to it. The Food tab is a tab: the bar stays; its add screen covers the tabs like the workout, with the plate at its
+  bottom. Settings is no tab: the gear on Home (`Settings`) opens it, `back` returns home.
+- The week strip's seven days take the width of the phone: on the emulator's 411 dp each is 54 dp wide; on a 320 dp
+  phone each is 43 dp wide, under the 48 dp the recipes ask for (a known gap, not checked by the recipes).
 - The awk line on the rest screen compares the heights of the countdown's text and of "of 1:30" as
   uiautomator reports them.
 - `font` changes a system setting; `cleanup` puts back the scale the run found. A run that stops half-way

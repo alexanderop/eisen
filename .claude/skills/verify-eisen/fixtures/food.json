@@ -122,7 +122,9 @@
     "foodLog": [],
     "foodGoal": {
         "kcal": 2400,
-        "protein": 160
+        "protein": 160,
+        "carbs": null,
+        "fat": null
     },
     "meals": [],
     "timerPresets": [],
