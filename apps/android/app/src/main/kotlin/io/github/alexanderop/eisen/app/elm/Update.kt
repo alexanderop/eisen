@@ -90,8 +90,9 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     }
     if (model.state !== before.state && model.state != before.state) {
         extra += Cmd.Save(model.state)
-        val followed = model.state.history !== before.state.history || model.state.timerSessions !== before.state.timerSessions
-        if (model.health.enabled && followed) extra += healthFollows(before.state, model.state)
+        val followed = model.state.history !== before.state.history || model.state.timerSessions !== before.state.timerSessions ||
+            (model.health.food && model.state.foodLog !== before.state.foodLog)
+        if (model.health.enabled && followed) extra += healthFollows(before.state, model.state, food = model.health.food)
         val surfaces = refreshHomeSurfaces(model.state)
         if (surfaces != refreshHomeSurfaces(before.state)) extra += surfaces
     }
@@ -101,9 +102,10 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
 /**
  * Health Connect follows the history: a new or edited workout is written, a deleted one removed.
  * A finished workout is new in the history, so it is written here too. So is a restored backup.
- * Finished interval timers are followed the same way.
+ * Finished interval timers are followed the same way, and, when [food] may be written, the food log: a new or changed
+ * entry is written as a nutrition record, a deleted one removed.
  */
-internal fun healthFollows(before: AppState, after: AppState): List<Cmd> {
+internal fun healthFollows(before: AppState, after: AppState, food: Boolean = false): List<Cmd> {
     val old = before.history.associateBy { it.id }
     val now = after.history.map { it.id }.toSet()
     val oldTimers = before.timerSessions.associateBy { it.id }
@@ -111,9 +113,13 @@ internal fun healthFollows(before: AppState, after: AppState): List<Cmd> {
     val removed = before.history.map { it.id }.filter { it !in now } + before.timerSessions.map { it.id }.filter { it !in nowTimers }
     val changed = after.history.filter { old[it.id] != it }
     val changedTimers = after.timerSessions.filter { oldTimers[it.id] != it }
+    val oldEntries = if (food) before.foodLog.associateBy { it.id } else emptyMap()
+    val nowEntries = if (food) after.foodLog.map { it.id }.toSet() else emptySet()
+    val removedEntries = if (food) before.foodLog.map { it.id }.filter { it !in nowEntries } else emptyList()
+    val changedEntries = if (food) after.foodLog.filter { oldEntries[it.id] != it } else emptyList()
     return buildList {
-        if (removed.isNotEmpty()) add(Cmd.Health(HealthJob.Delete(removed)))
-        if (changed.isNotEmpty() || changedTimers.isNotEmpty()) add(Cmd.Health(HealthJob.Upsert(changed, changedTimers)))
+        if (removed.isNotEmpty() || removedEntries.isNotEmpty()) add(Cmd.Health(HealthJob.Delete(removed, removedEntries)))
+        if (changed.isNotEmpty() || changedTimers.isNotEmpty() || changedEntries.isNotEmpty()) add(Cmd.Health(HealthJob.Upsert(changed, changedTimers, changedEntries)))
     }
 }
 

@@ -7,13 +7,18 @@ import io.github.alexanderop.eisen.feature.food.PRODUCT_FIELDS
 import io.github.alexanderop.eisen.feature.food.ProductAnswer
 import io.github.alexanderop.eisen.feature.food.SEARCH_PAGE_SIZE
 import io.github.alexanderop.eisen.feature.food.SearchAnswer
+import io.github.alexanderop.eisen.feature.food.countryTag
 import io.github.alexanderop.eisen.feature.food.productAnswer
 import io.github.alexanderop.eisen.feature.food.searchAnswer
+import io.github.alexanderop.eisen.feature.food.searchFields
+import io.github.alexanderop.eisen.feature.food.searchLangs
+import io.github.alexanderop.eisen.feature.food.searchQuery
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
@@ -28,6 +33,7 @@ import java.util.concurrent.Executors
  */
 object OpenFoodFactsClient {
     private const val BASE = "https://world.openfoodfacts.org"
+    private const val SEARCH = "https://search.openfoodfacts.org/search"
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 15_000
 
@@ -44,13 +50,19 @@ object OpenFoodFactsClient {
         }
     }
 
-    /** Answers on a background thread. The full-text search of API v1, the one Open Food Facts has for it. */
+    /**
+     * Answers on a background thread. Search-a-licious, the full-text search Open Food Facts documents for it: the
+     * phone's language first, and only products sold in the phone's country (Germany for a phone set to Germany).
+     */
     fun search(context: Context, query: String, done: (SearchAnswer) -> Unit) {
         requests.execute {
-            val terms = URLEncoder.encode(query, Charsets.UTF_8)
-            val url = "$BASE/cgi/search.pl?search_terms=$terms&search_simple=1&action=process&json=1&page_size=$SEARCH_PAGE_SIZE&fields=$PRODUCT_FIELDS"
+            val locale = Locale.getDefault()
+            val lang = locale.language
+            val country = runCatching { Locale.Builder().setRegion(locale.country).build().getDisplayCountry(Locale.ENGLISH) }.getOrNull()?.let(::countryTag)
+            fun encode(value: String) = URLEncoder.encode(value, Charsets.UTF_8)
+            val url = "$SEARCH?q=${encode(searchQuery(query, country))}&langs=${encode(searchLangs(lang))}&page_size=$SEARCH_PAGE_SIZE&fields=${encode(searchFields(lang))}"
             val (status, body) = local(context, "search", query.trim().lowercase()) ?: get(url)
-            done(searchAnswer(status, body))
+            done(searchAnswer(status, body, lang))
         }
     }
 

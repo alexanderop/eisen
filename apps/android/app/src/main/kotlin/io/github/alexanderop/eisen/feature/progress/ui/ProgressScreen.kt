@@ -63,7 +63,11 @@ import io.github.alexanderop.eisen.core.holdText
 import io.github.alexanderop.eisen.feature.workout.setText
 import kotlin.math.roundToInt
 import io.github.alexanderop.eisen.feature.progress.weekStreak
+import io.github.alexanderop.eisen.app.elm.FOOD_WEEK_DAYS
+import io.github.alexanderop.eisen.app.elm.FoodWeek
 import io.github.alexanderop.eisen.app.elm.Model
+import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.foodWeek
 import io.github.alexanderop.eisen.app.elm.exercises
 import io.github.alexanderop.eisen.app.elm.progressOf
 import io.github.alexanderop.eisen.core.ui.ChoiceGroup
@@ -90,11 +94,11 @@ private val SERIES_COLORS = listOf(
 private val Gutter = Modifier.padding(horizontal = 16.dp)
 
 /**
- * Reads the model and sends nothing: the range, the picked exercise and the crosshair only change
- * what is drawn, so they stay local.
+ * Reads the model: the range, the picked exercise and the crosshair only change what is drawn, so they stay local.
+ * It sends one Msg: a bar of the week of food opens that day's Food screen.
  */
 @Composable
-fun ProgressScreen(model: Model, title: Boolean = true) {
+fun ProgressScreen(model: Model, dispatch: (Msg) -> Unit, title: Boolean = true) {
     val state = model.state
     val unit = state.settings.unit
     // Fixed while the screen is open, like the web view, so the calendar does not shift under a finger.
@@ -118,15 +122,18 @@ fun ProgressScreen(model: Model, title: Boolean = true) {
             )
         }
 
+        val week = foodWeek(model.copy(now = now))
         if (state.history.isEmpty() && state.timerSessions.isEmpty()) {
             Section(Gutter) {
                 Text("Finish your first workout and your progress shows up here.", color = EisenColors.MutedForeground)
             }
+            week?.let { FoodSection(it, dispatch) }
             return@Column
         }
 
         // A day with an interval timer is a training day. Volume and records stay with the workouts.
         Consistency(state.history, state.timerSessions, now)
+        week?.let { FoodSection(it, dispatch) }
         if (state.history.isEmpty()) return@Column
 
         var range by rememberSaveable { mutableStateOf(Range.THREE_MONTHS) }
@@ -159,6 +166,22 @@ private fun Consistency(history: List<Workout>, timers: List<TimerSession>, now:
                 Stat("This week", counts.last().toString()),
                 Stat("Weeks in a row", streak.toString()),
                 Stat("Per week", String.format(Locale.ROOT, "%.1f", perWeek)),
+            ),
+        )
+    }
+}
+
+/** The last seven days of food: bars against the goal, the averages over the days logged, the days the protein goal was reached. */
+@Composable
+private fun FoodSection(week: FoodWeek, dispatch: (Msg) -> Unit) {
+    Section(Gutter) {
+        SectionHead("Food", "Last $FOOD_WEEK_DAYS days")
+        FoodWeekBars(week) { day -> dispatch(Msg.Food.OpenDay(day)) }
+        Stats(
+            listOf(
+                Stat("Avg kcal", week.averageKcal?.let { "%,d".format(Locale.US, it) } ?: "–", "per day logged"),
+                Stat("Avg protein", week.averageProtein?.let { "$it g" } ?: "–", "per day logged"),
+                Stat("Protein goal", week.proteinDays?.let { "$it of $FOOD_WEEK_DAYS" } ?: "–", if (week.proteinDays == null) "none set" else "days reached"),
             ),
         )
     }

@@ -158,7 +158,7 @@ fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
         ViewSwitch(model.nav.history) { dispatch(Msg.Nav.ShowHistory(it)) }
         when (model.nav.history) {
             HistoryView.LOG -> HistoryLog(model, dispatch)
-            HistoryView.PROGRESS -> ProgressScreen(model, title = false)
+            HistoryView.PROGRESS -> ProgressScreen(model, dispatch, title = false)
         }
     }
 }

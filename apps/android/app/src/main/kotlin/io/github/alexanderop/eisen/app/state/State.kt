@@ -42,6 +42,9 @@ import io.github.alexanderop.eisen.feature.food.FoodGoal
 import io.github.alexanderop.eisen.feature.food.entryWithin
 import io.github.alexanderop.eisen.feature.food.foodWithin
 import io.github.alexanderop.eisen.feature.food.goalWithin
+import io.github.alexanderop.eisen.feature.food.MAX_MEALS
+import io.github.alexanderop.eisen.feature.food.Meal
+import io.github.alexanderop.eisen.feature.food.mealWithin
 
 @Serializable
 data class Settings(
@@ -94,6 +97,11 @@ data class AppState(
     val foodLog: List<FoodEntry> = emptyList(),
     /** The calories and protein a day should reach; either may be missing. */
     val foodGoal: FoodGoal = FoodGoal(),
+    /**
+     * The lifter's meals: named lists of foods with their amounts, each logged in one tap. Older files have no such
+     * field and older builds ignore it: no migration.
+     */
+    val meals: List<Meal> = emptyList(),
     /** Saved interval timers, in the order the Timer tab shows them. */
     val timerPresets: List<TimerPreset> = emptyList(),
     /** Finished interval timers, newest first. */
@@ -184,7 +192,7 @@ private const val REASON_LENGTH = 140
 /** The state of a stored state or a backup of any version. Null when [loadState] has none. */
 fun decodeState(json: String): AppState? = (loadState(json) as? Loaded.Ok)?.state
 
-/** What a file holds that has limits of its own: the WODs, boxing plans with one round per round, and the foods, what was eaten and the goal. */
+/** What a file holds that has limits of its own: the WODs, boxing plans with one round per round, and the foods, what was eaten, the goal and the meals. */
 private fun inLimits(state: AppState): AppState {
     fun boxing(config: TimerConfig) = if (config.mode == TimerMode.BOXING) timerConfig(config) else config
     return state.copy(
@@ -195,6 +203,7 @@ private fun inLimits(state: AppState): AppState {
         foods = state.foods.map(::foodWithin).distinctBy { it.id },
         foodLog = state.foodLog.map(::entryWithin).distinctBy { it.id },
         foodGoal = goalWithin(state.foodGoal),
+        meals = state.meals.mapNotNull(::mealWithin).distinctBy { it.id }.take(MAX_MEALS),
     )
 }
 

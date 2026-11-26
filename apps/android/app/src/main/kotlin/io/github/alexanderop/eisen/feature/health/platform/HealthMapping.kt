@@ -15,7 +15,10 @@ import io.github.alexanderop.eisen.feature.share.repsText
 import io.github.alexanderop.eisen.feature.workout.rirSuffix
 import io.github.alexanderop.eisen.feature.timer.sessionSummary
 import io.github.alexanderop.eisen.feature.timer.timerSummary
+import io.github.alexanderop.eisen.feature.food.FoodEntry
 import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 
@@ -174,4 +177,45 @@ fun exerciseTypeOf(activity: Activity): Int = when (activity) {
     Activity.ROWING -> ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE
     Activity.BIKE -> ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY
     Activity.RUNNING -> ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
+}
+
+/** Everything a nutrition record is built from: one food entry. Kept free of Android so it can be unit tested. */
+data class NutritionFields(
+    val start: Instant,
+    val startOffset: ZoneOffset,
+    val end: Instant,
+    val endOffset: ZoneOffset,
+    val kcal: Double,
+    /** Null for a quick entry whose protein was not typed: unknown, not none. */
+    val protein: Double?,
+    val carbs: Double?,
+    val fat: Double?,
+    val name: String,
+)
+
+/** How long a nutrition record lasts: Health Connect needs its end after its start, and a bite has no length of its own. */
+const val NUTRITION_RECORD_MILLIS = 60_000L
+
+/**
+ * The nutrition record of [entry]: its calories, protein, carbs and fat as logged, under its name, the meal type left
+ * unknown. It starts when the entry was logged when that was on the entry's day; an entry filled in later for an
+ * earlier day (or copied onto one) starts at noon of that day, so Health Connect counts it on the day it was eaten.
+ * Null for an entry whose day is not a date (a hand-edited backup).
+ */
+fun nutritionFields(entry: FoodEntry, zone: ZoneId): NutritionFields? {
+    val day = runCatching { LocalDate.parse(entry.day) }.getOrNull() ?: return null
+    val logged = Instant.ofEpochMilli(entry.at)
+    val start = if (logged.atZone(zone).toLocalDate() == day) logged else day.atTime(LocalTime.NOON).atZone(zone).toInstant()
+    val end = start.plusMillis(NUTRITION_RECORD_MILLIS)
+    return NutritionFields(
+        start = start,
+        startOffset = zone.rules.getOffset(start),
+        end = end,
+        endOffset = zone.rules.getOffset(end),
+        kcal = entry.kcal.toDouble(),
+        protein = entry.protein.takeIf { it > 0 || entry.foodId != null },
+        carbs = entry.carbs,
+        fat = entry.fat,
+        name = entry.name,
+    )
 }

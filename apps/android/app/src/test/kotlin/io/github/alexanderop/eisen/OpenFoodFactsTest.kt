@@ -8,6 +8,11 @@ import io.github.alexanderop.eisen.feature.food.PRODUCT_FIELDS
 import io.github.alexanderop.eisen.feature.food.ProductAnswer
 import io.github.alexanderop.eisen.feature.food.SEARCH_PAGE_SIZE
 import io.github.alexanderop.eisen.feature.food.SearchAnswer
+import io.github.alexanderop.eisen.feature.food.SearchHit
+import io.github.alexanderop.eisen.feature.food.countryTag
+import io.github.alexanderop.eisen.feature.food.searchFields
+import io.github.alexanderop.eisen.feature.food.searchLangs
+import io.github.alexanderop.eisen.feature.food.searchQuery
 import io.github.alexanderop.eisen.feature.food.entryOf
 import io.github.alexanderop.eisen.feature.food.foodWithin
 import io.github.alexanderop.eisen.feature.food.parsePlainFoods
@@ -23,7 +28,8 @@ import java.io.File
 /**
  * Reading what Open Food Facts answers, against real answers saved in `src/test/resources/off` (API v2 with the
  * app's `fields=`, fetched on 2026-11-26): a product, a drink per 100 ml, a product without calories, a barcode
- * it does not know, and a search.
+ * it does not know; and two searches of Search-a-licious (fetched on 2026-11-26 with the app's query): "skyr" in
+ * Germany (`search/skyr.json`, whose hits carry no calories) and worldwide (`search/skyr-world.json`, most with them).
  */
 class OpenFoodFactsTest {
     private fun saved(path: String): String = File("src/test/resources/off/$path").readText()
@@ -99,13 +105,56 @@ class OpenFoodFactsTest {
         assertEquals("Lidl", (productAnswer("3017620422003", 200, nameless) as ProductAnswer.Found).food.name)
     }
 
-    @Test fun `a search gives the products with a name and their calories, one page`() {
-        val answer = searchAnswer(200, saved("search/skyr.json")) as SearchAnswer.Found
-        assertTrue(answer.foods.size in 1..SEARCH_PAGE_SIZE)
-        assertTrue(answer.foods.all { it.name.isNotBlank() && it.kcal > 0 && it.source == FoodSource.SCANNED && it.id == "off:${it.barcode}" })
-        val skyr = answer.foods.first { it.barcode == "3329770077003" }
-        assertEquals("Skyr nature 0%", skyr.name)
-        assertEquals(57.0, skyr.kcal, 0.0)
+    @Test fun `a search gives its hits with a name, with their numbers where it has them, one page`() {
+        val world = (searchAnswer(200, saved("search/skyr-world.json")) as SearchAnswer.Found).hits
+        assertTrue(world.size in 1..SEARCH_PAGE_SIZE)
+        assertTrue(world.all { it.name.isNotBlank() && it.id == "off:${it.barcode}" })
+        // One hit has no name at all: it is left out.
+        assertTrue(world.none { it.barcode == "13206994" })
+        val citron = world.first { it.barcode == "0049606042434" }
+        assertEquals("Skyr citron", citron.name)
+        val food = citron.food!!
+        assertEquals(Triple(89.0, 8.9, 140.0), Triple(food.kcal, food.protein, food.serving))
+        assertEquals(FoodSource.SCANNED to "off:0049606042434", food.source to food.id)
+        // Brands come as tags: "skyr".
+        assertEquals("Skyr", citron.brand)
+        assertTrue(world.count { it.food != null } >= 10)
+    }
+
+    @Test fun `a search in Germany finds German products, which are looked up for their numbers`() {
+        val germany = (searchAnswer(200, saved("search/skyr.json"), lang = "de") as SearchAnswer.Found).hits
+        assertTrue(germany.size in 10..SEARCH_PAGE_SIZE)
+        // Search-a-licious leaves `nutriments` out of these hits: each is looked up by its barcode when picked.
+        assertTrue(germany.all { it.food == null })
+        assertEquals(SearchHit("4337185761638", "Skyr natur", "K Classic", null), germany.first { it.barcode == "4337185761638" })
+        assertEquals("Ehrmann", germany.first { it.barcode == "4002971296808" }.brand)
+        // The product that hit is, by its barcode, has them.
+        val product = (productAnswer("4337185761638", 200, saved("product/4337185761638.json")) as ProductAnswer.Found).food
+        assertEquals(Triple("Skyr natur", 64.0, 500.0), Triple(product.name, product.kcal, product.pack))
+    }
+
+    @Test fun `a refused search finds nothing, a page that is not theirs is no network`() {
+        val refused = """{"debug":{},"errors":[{"title":"QueryCheckError","status":400}]}"""
+        assertEquals(SearchAnswer.Found(emptyList()), searchAnswer(400, refused))
+        assertEquals(SearchAnswer.Offline, searchAnswer(200, "<html>Hotel wifi login</html>"))
+        assertEquals(SearchAnswer.Busy, searchAnswer(429, null))
+    }
+
+    @Test fun `the query keeps the words typed, without the syntax of the search, and the phone's country`() {
+        assertEquals("skyr natur countries:\"en:germany\"", searchQuery("  skyr  natur ", "en:germany"))
+        assertEquals("Ben Jerry's Cookie and Dough", searchQuery("Ben & Jerry's: Cookie AND Dough", null))
+        assertEquals("k classic skyr", searchQuery("k-classic (skyr)*", null))
+        assertEquals("", searchQuery("**", "en:germany"))
+        assertEquals("en:germany", countryTag("Germany"))
+        assertEquals("en:united-states", countryTag("United States"))
+        assertEquals("en:united-kingdom", countryTag(" United Kingdom "))
+        assertEquals(null, countryTag(""))
+        assertEquals("de,en", searchLangs("de"))
+        assertEquals("en", searchLangs("en"))
+        assertEquals("en", searchLangs(""))
+        assertTrue(searchFields("de").split(',').containsAll(listOf("product_name_de", "nutriments", "brands", "product_quantity")))
+        assertEquals(searchFields("en"), searchFields("zz-bad"))
+        assertTrue(searchFields("x;y").split(',').none { it.startsWith("product_name_x") })
     }
 
     @Test fun `the fields asked for include the quantity, without which the pack is left out`() {

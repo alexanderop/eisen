@@ -151,4 +151,46 @@ class HealthMappingTest {
         assertEquals(ExerciseSegment.EXERCISE_SEGMENT_TYPE_PLANK, segmentTypeFor("sidePlank"))
         assertNull(segmentTypeFor("hollowHold"))
     }
+
+    // Food
+
+    private val entry = io.github.alexanderop.eisen.feature.food.FoodEntry(
+        "e1", "off:4056489000006", "Skyr Natur", 450.0, kcal = 270, protein = 49.5, carbs = 18.0, fat = 0.9, at = start, day = "2026-11-21",
+    )
+
+    @Test fun `a food entry is a nutrition record of its numbers and its name, at the time it was logged`() {
+        val fields = io.github.alexanderop.eisen.feature.health.platform.nutritionFields(entry, berlin)!!
+        assertEquals(Instant.ofEpochMilli(start), fields.start)
+        assertEquals(Instant.ofEpochMilli(start + 60_000), fields.end)
+        assertEquals(ZoneOffset.ofHours(1), fields.startOffset)
+        assertEquals(270.0, fields.kcal, 0.0)
+        assertEquals(49.5, fields.protein!!, 0.0)
+        assertEquals(18.0, fields.carbs!!, 0.0)
+        assertEquals(0.9, fields.fat!!, 0.0)
+        assertEquals("Skyr Natur", fields.name)
+    }
+
+    @Test fun `an entry filled in later for an earlier day counts at noon of that day`() {
+        val later = entry.copy(day = "2026-11-19")
+        val fields = io.github.alexanderop.eisen.feature.health.platform.nutritionFields(later, berlin)!!
+        assertEquals(java.time.ZonedDateTime.parse("2026-11-19T12:00:00+01:00[Europe/Berlin]").toInstant(), fields.start)
+        assertTrue(fields.end.isAfter(fields.start))
+    }
+
+    @Test fun `a quick entry without protein has none written, unknown instead of zero, and a broken day has no record`() {
+        val quick = entry.copy(foodId = null, name = "Quick kcal", amount = null, protein = 0.0, carbs = null, fat = null)
+        val fields = io.github.alexanderop.eisen.feature.health.platform.nutritionFields(quick, berlin)!!
+        assertNull(fields.protein)
+        assertNull(fields.carbs)
+        // A food with no protein (a cola) has 0 g, which is known.
+        assertEquals(0.0, io.github.alexanderop.eisen.feature.health.platform.nutritionFields(entry.copy(protein = 0.0), berlin)!!.protein!!, 0.0)
+        assertNull(io.github.alexanderop.eisen.feature.health.platform.nutritionFields(entry.copy(day = "not a day"), berlin))
+    }
+
+    @Test fun `every number of an entry in its limits fits what Health Connect accepts`() {
+        // NutritionRecord takes up to 100,000 kcal of energy and 100,000 g of each mass (connect-client 1.1.0).
+        assertTrue(io.github.alexanderop.eisen.feature.food.MAX_ENTRY_KCAL <= 100_000)
+        assertTrue(io.github.alexanderop.eisen.feature.food.MAX_QUICK_KCAL <= 100_000)
+        assertTrue(io.github.alexanderop.eisen.feature.food.MAX_ENTRY_GRAMS <= 100_000.0)
+    }
 }

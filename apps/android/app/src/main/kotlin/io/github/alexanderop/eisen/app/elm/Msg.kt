@@ -587,6 +587,47 @@ sealed interface Msg {
 
         /** A sheet is put away: its close button, a swipe down, a tap beside it or Back. */
         data object CloseSheet : Food
+
+        // Meals, see [MealSheet]
+
+        /** "Edit meals": the meals, each to change or delete. */
+        data object OpenMeals : Food
+
+        /** "Save as meal" under the entries of the day shown: a new meal of them, every one picked. */
+        data object NewMeal : Food
+
+        /** An entry of the day ticked or unticked for the new meal. */
+        data class TogglePick(val entryId: String) : Food
+
+        /** Saves the new meal of the picked entries as [name]. A blank name or nothing picked: nothing. */
+        data class SaveNewMeal(val name: String) : Food
+
+        /** A meal in the list: its sheet to change it opens. */
+        data class EditMeal(val id: String) : Food
+
+        /** The amount of item [index] of the meal being changed. A quick item has none: nothing. */
+        data class SetMealAmount(val index: Int, val amount: Double) : Food
+
+        /** Item [index] taken out of the meal being changed. */
+        data class RemoveMealItem(val index: Int) : Food
+
+        /** Saves the meal being changed as [name]. Entries already logged of it keep their numbers. */
+        data class SaveMeal(val name: String) : Food
+
+        /** Deletes a meal. Entries already logged of it keep their numbers. */
+        data class DeleteMeal(val id: String) : Food
+
+        /** A chip of the meals: one tap logs each of its foods on the day shown, with Undo. */
+        data class AddMeal(val id: String) : Food
+
+        /** "Copy yesterday" on an empty day: what was eaten the day before, logged on this one, with Undo. */
+        data object CopyDayBefore : Food
+
+        /** Undo of [AddMeal] and [CopyDayBefore]: the entries they logged go again. */
+        data object UndoAdded : Food
+
+        /** A bar of the week in Progress: the Food screen opens on that day. */
+        data class OpenDay(val day: String) : Food
     }
 
     /** The rest timer. Its alarms and the buttons on its notification end up here too. */
@@ -640,10 +681,17 @@ sealed interface Msg {
     sealed interface Health : Msg {
         /** The switch: off at once, on only with Health Connect's permission. */
         data object Toggle : Health
-        data class PermissionChecked(val purpose: PermissionCheck, val granted: Boolean) : Health
+        /** [granted]: workouts may be written. [food]: food may be written too (`WRITE_NUTRITION`, asked since food came). */
+        data class PermissionChecked(val purpose: PermissionCheck, val granted: Boolean, val food: Boolean = false) : Health
 
-        /** The answer of Health Connect's permission screen. */
-        data class PermissionResult(val granted: Boolean) : Health
+        /** The answer of Health Connect's permission screen: workouts, and food. */
+        data class PermissionResult(val granted: Boolean, val food: Boolean = false) : Health
+
+        /** "Write food too" in Settings, shown while sync is on without the permission for food: Health Connect asks. */
+        data object AllowFood : Health
+
+        /** A write of food found its permission taken away. Workouts go on. */
+        data object FoodRevoked : Health
 
         /** Health Connect's permission screen could not be opened. */
         data object PermissionRequestFailed : Health
@@ -651,8 +699,8 @@ sealed interface Msg {
         /** Writes the whole history once. */
         data object SyncPast : Health
 
-        /** Null when Health Connect could not be reached. */
-        data class SyncedPast(val count: Int?) : Health
+        /** [count]: workouts and timers written, null when Health Connect could not be reached. [foods]: food entries written. */
+        data class SyncedPast(val count: Int?, val foods: Int = 0) : Health
 
         /** A write found the permission taken away. */
         data object Revoked : Health
@@ -693,7 +741,8 @@ sealed interface AddTarget {
 }
 
 /** Why Health Connect's permission is checked, so the answer goes to the right place. */
-enum class PermissionCheck { STARTUP, TOGGLE }
+/** Why the permission is checked: at the start, for the switch, or because the Health Connect rows came on screen. */
+enum class PermissionCheck { STARTUP, TOGGLE, ROWS }
 
 const val ROUTINE_NAME_LENGTH = 30
 const val EXERCISE_NAME_LENGTH = 40

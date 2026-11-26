@@ -81,6 +81,10 @@ import io.github.alexanderop.eisen.feature.timer.countsRoundsByTap
 import io.github.alexanderop.eisen.app.elm.FoodSheet
 import io.github.alexanderop.eisen.app.elm.Lookup
 import io.github.alexanderop.eisen.app.elm.Online
+import io.github.alexanderop.eisen.app.elm.MealSheet
+import io.github.alexanderop.eisen.feature.food.mealItemOf
+import io.github.alexanderop.eisen.feature.food.entriesOf
+import io.github.alexanderop.eisen.feature.food.dayBefore
 import io.github.alexanderop.eisen.app.elm.ScanFailure
 import io.github.alexanderop.eisen.app.elm.foodToday
 import io.github.alexanderop.eisen.app.elm.openFoodDay
@@ -841,9 +845,12 @@ class UpdateTest {
     @Test fun `turning sync on asks Health Connect only when it is not allowed yet`() {
         val checking = stepOf().send(Msg.Health.Toggle)
         assertEquals(listOf(Cmd.Health(HealthJob.CheckPermission(PermissionCheck.TOGGLE))), checking.cmds)
-        val on = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true))
+        val on = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true, food = true))
         assertTrue(on.model.health.enabled)
+        assertTrue(on.model.health.food)
         assertEquals(listOf(Cmd.SaveHealthEnabled(true)), on.cmds)
+        // Allowed for workouts before food came: Health Connect asks, for food.
+        assertEquals(listOf(UiEvent.RequestHealthPermission), checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true, food = false)).uiEvents)
 
         val asking = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = false))
         assertEquals(listOf(UiEvent.RequestHealthPermission), asking.uiEvents)
@@ -862,6 +869,55 @@ class UpdateTest {
         assertFalse(on.send(Msg.Health.PermissionChecked(PermissionCheck.STARTUP, granted = false)).model.health.enabled)
         assertIgnored(on, Msg.Health.PermissionChecked(PermissionCheck.STARTUP, granted = true))
         assertFalse(on.send(Msg.Health.Revoked).model.health.enabled)
+    }
+
+    @Test fun `food follows the log into Health Connect only once food may be written`() {
+        val old = HealthModel(enabled = true)
+        val open = stepOf().let { it.copy(model = it.model.copy(health = old, now = LATER)) }.send(Msg.Food.Open).send(Msg.Food.OpenQuick)
+        val logged = open.send(Msg.Food.SaveQuick(500, 30, "Pizza"), id = "q1")
+        assertTrue("only the workouts' permission: no food written", logged.cmds.none { it is Cmd.Health })
+        val allowed = open.copy(model = open.model.copy(health = old.copy(food = true)))
+        val written = allowed.send(Msg.Food.SaveQuick(500, 30, "Pizza"), id = "q1")
+        val entry = written.state.foodLog.single()
+        assertTrue(Cmd.Health(HealthJob.Upsert(emptyList(), emptyList(), listOf(entry))) in written.cmds)
+        val changed = written.send(Msg.Food.OpenEntry("q1")).send(Msg.Food.SaveQuick(600, 30, "Pizza"))
+        assertTrue(Cmd.Health(HealthJob.Upsert(emptyList(), emptyList(), changed.state.foodLog)) in changed.cmds)
+        val deleted = written.send(Msg.Food.DeleteEntry("q1"))
+        assertTrue(Cmd.Health(HealthJob.Delete(emptyList(), listOf("q1"))) in deleted.cmds)
+        // Undo writes it again; Sync past covers the log.
+        assertTrue(Cmd.Health(HealthJob.Upsert(emptyList(), emptyList(), listOf(entry))) in deleted.send(Msg.Food.UndoDeleteEntry).cmds)
+        assertEquals(listOf(Cmd.Health(HealthJob.SyncPast(emptyList(), emptyList(), listOf(entry)))), written.send(Msg.Health.SyncPast).cmds)
+        assertEquals("0 workouts and 1 food synced.", written.send(Msg.Health.SyncPast).send(Msg.Health.SyncedPast(0, 1)).model.health.notice)
+        // Sync off: nothing at all.
+        val off = allowed.copy(model = allowed.model.copy(health = HealthModel(enabled = false, food = true)))
+        assertTrue(off.send(Msg.Food.SaveQuick(500, 30, "Pizza")).cmds.none { it is Cmd.Health })
+    }
+
+    @Test fun `a lifter who allowed only workouts is asked for food in Settings, never at the start`() {
+        // At the start the permission is checked, not asked for: workouts stay on, food is noted as missing.
+        val (started, cmds) = init(Flags(freshState(), savedRest = null, healthEnabled = true, notifications = Notifications(true, true)))
+        assertTrue(Cmd.Health(HealthJob.CheckPermission(PermissionCheck.STARTUP)) in cmds)
+        val checked = Step(started).send(Msg.Health.PermissionChecked(PermissionCheck.STARTUP, granted = true, food = false))
+        assertTrue(checked.model.health.enabled)
+        assertFalse(checked.model.health.food)
+        assertTrue(checked.uiEvents.isEmpty())
+        // The Health rows check again when they show; "Write food too" asks.
+        assertEquals(listOf(Cmd.Health(HealthJob.CheckAvailability), Cmd.Health(HealthJob.CheckPermission(PermissionCheck.ROWS))), checked.send(Msg.Health.RowsShown).cmds)
+        val asking = checked.send(Msg.Health.AllowFood)
+        assertEquals(listOf(UiEvent.RequestHealthPermission), asking.uiEvents)
+        val yes = asking.send(Msg.Health.PermissionResult(granted = true, food = true))
+        assertTrue(yes.model.health.food && yes.model.health.enabled)
+        assertIgnored(yes, Msg.Health.AllowFood)
+        // A no keeps the workouts on.
+        val no = asking.send(Msg.Health.PermissionResult(granted = true, food = false))
+        assertTrue(no.model.health.enabled)
+        assertFalse(no.model.health.food)
+        assertEquals("Health Connect did not allow Eisen to write food. Workouts are still synced.", no.model.health.notice)
+        // Allowed in Health Connect's own settings meanwhile: the rows see it.
+        assertTrue(checked.send(Msg.Health.PermissionChecked(PermissionCheck.ROWS, granted = true, food = true)).model.health.food)
+        assertFalse(yes.send(Msg.Health.FoodRevoked).model.health.food)
+        assertTrue(yes.send(Msg.Health.FoodRevoked).model.health.enabled)
+        assertIgnored(stepOf(), Msg.Health.AllowFood)
     }
 
     @Test fun `syncing past workouts runs once at a time and says how it went`() {
@@ -935,6 +991,11 @@ class UpdateTest {
         var foodsEdited = 0
         var lookups = 0
         var searches = 0
+        var mealsSaved = 0
+        var mealsChanged = 0
+        var mealsAdded = 0
+        var daysCopied = 0
+        var foodSynced = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -1275,6 +1336,45 @@ class UpdateTest {
                 assertEquals(where, step.state.foodLog, log)
                 if (after.state.foods != step.state.foods) foodsEdited++
             }
+            // Making, changing or deleting a meal never changes the log.
+            if (msg is Msg.Food.SaveNewMeal || msg is Msg.Food.SaveMeal || msg is Msg.Food.DeleteMeal || msg is Msg.Food.SetMealAmount || msg is Msg.Food.RemoveMealItem) {
+                assertEquals(where, step.state.foodLog, log)
+                if (after.state.meals.size > step.state.meals.size) mealsSaved++
+                if (after.state.meals != step.state.meals && msg !is Msg.Food.SaveNewMeal) mealsChanged++
+            }
+            // Only the meal Msgs change the meals; a backup or a Reset brings or clears them.
+            if (msg !is Msg.Food && msg !is Msg.Data) assertEquals(where, step.state.meals, after.state.meals)
+            // A meal adds exactly its items, on the day shown, after what was there.
+            if (msg is Msg.Food.AddMeal && log != step.state.foodLog) {
+                val meal = step.state.meals.first { it.id == msg.id }
+                assertEquals(where, step.state.foodLog, log.take(step.state.foodLog.size))
+                val added = log.drop(step.state.foodLog.size)
+                assertEquals(where, meal.items, added.map(::mealItemOf))
+                assertTrue(where, added.all { it.day == step.model.food.day })
+                mealsAdded++
+            }
+            // A copied day adds exactly the entries of the day before, to an empty day.
+            if (msg == Msg.Food.CopyDayBefore && log != step.state.foodLog) {
+                val day = step.model.food.day ?: ""
+                assertEquals(where, emptyList<Any>(), step.state.foodLog.filter { it.day == day })
+                val added = log.drop(step.state.foodLog.size)
+                assertEquals(where, entriesOf(step.state.foodLog, dayBefore(day)).map { it.copy(id = "", at = 0, day = "") }, added.map { it.copy(id = "", at = 0, day = "") })
+                daysCopied++
+            }
+            // Health Connect follows the food log exactly while sync is on and food may be written.
+            val health = after.cmds.filterIsInstance<Cmd.Health>().map { it.job }
+            val foodWritten = health.filterIsInstance<HealthJob.Upsert>().flatMap { it.food } + health.filterIsInstance<HealthJob.SyncPast>().flatMap { it.food }
+            val foodRemoved = health.filterIsInstance<HealthJob.Delete>().flatMap { it.food }
+            if (after.model.health.enabled && step.model.health.food && after.model.health.food && msg !is Msg.Health) {
+                val before = step.state.foodLog.associateBy { it.id }
+                assertEquals(where, log.filter { before[it.id] != it }, foodWritten)
+                assertEquals(where, step.state.foodLog.map { it.id }.filter { id -> log.none { it.id == id } }, foodRemoved)
+                if (foodWritten.isNotEmpty()) foodSynced++
+            } else if (msg !is Msg.Health && (!step.model.health.food || !step.model.health.enabled)) {
+                assertEquals(where, emptyList<Any>(), foodWritten + foodRemoved)
+            }
+            // Ids stay unique, whatever logged them.
+            assertEquals(where, log.size, log.map { it.id }.toSet().size)
             // No number of the food log beyond its limit.
             val broken = foodOutOfLimits(after.state)
             assertTrue("$where: $broken", broken.isEmpty())
@@ -1358,6 +1458,11 @@ class UpdateTest {
         assertTrue("only $foodsEdited own foods were edited or deleted", foodsEdited >= 10)
         assertTrue("only $lookups barcodes were looked up", lookups >= 30)
         assertTrue("only $searches searches were sent", searches >= 20)
+        assertTrue("only $mealsSaved meals were saved", mealsSaved >= 20)
+        assertTrue("only $mealsChanged meals were changed or deleted", mealsChanged >= 20)
+        assertTrue("only $mealsAdded meals were added", mealsAdded >= 20)
+        assertTrue("only $daysCopied days were copied", daysCopied >= 5)
+        assertTrue("only $foodSynced food changes went to Health Connect", foodSynced >= 5)
     }
 
     /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
@@ -1396,6 +1501,15 @@ class UpdateTest {
      */
     private fun foodMsg(model: Model, food: java.util.Random): Msg? {
         if (food.nextInt(if (model.food.day == null) 6 else 2) != 0) return null
+        // Now and then Health Connect's side of food, from this dice so the walk's own Msgs stay the ones they were.
+        if (food.nextInt(25) == 0) {
+            return when (food.nextInt(4)) {
+                0 -> Msg.Health.PermissionChecked(PermissionCheck.entries[food.nextInt(PermissionCheck.entries.size)], food.nextBoolean(), food.nextBoolean())
+                1 -> Msg.Health.PermissionResult(food.nextBoolean(), food.nextBoolean())
+                2 -> Msg.Health.AllowFood
+                else -> Msg.Health.FoodRevoked
+            }
+        }
         fun <T> pick(items: List<T>): T = items[food.nextInt(items.size)]
         val foods = model.state.foods
         val log = model.state.foodLog
@@ -1416,13 +1530,35 @@ class UpdateTest {
         if (sheet is FoodSheet.Amount && food.nextInt(3) > 0) return pick(listOf(Msg.Food.SetAmount(pick(listOf(12.5, 80.0, 225.0, 450.0, 1e9))), Msg.Food.ConfirmAmount))
         if (sheet is FoodSheet.Quick && food.nextInt(3) > 0) return Msg.Food.SaveQuick(pick(listOf(0, 500, 850, Int.MAX_VALUE)), pick(listOf(null, 40)), pick(listOf("", "Pizza")))
         if (sheet is FoodSheet.Search && searching == null && food.nextInt(3) > 0) {
-            val results = (sheet.online as? Online.Results)?.foods.orEmpty().map { it.id }
+            val results = (sheet.online as? Online.Results)?.hits.orEmpty().map { it.id }
             return pick(listOf(Msg.Food.Search(pick(listOf("", "sky", "oats", "nutella", "z".repeat(90)))), Msg.Food.SubmitSearch, Msg.Food.SubmitSearch, Msg.Food.Pick(pick(results + foods.map { it.id } + "gone"))))
+        }
+        // The meals' sheet is used most of the time while it is open.
+        val meals = model.state.meals
+        val mealId = pick(meals.map { it.id } + "gone")
+        val mealSheet = (sheet as? FoodSheet.Meal)?.sheet
+        if (mealSheet != null && food.nextInt(3) > 0) {
+            val dayEntries = log.filter { it.day == model.food.day }.map { it.id }
+            val rows = (mealSheet as? MealSheet.Edit)?.rows?.size ?: 0
+            return when (mealSheet) {
+                is MealSheet.Pick -> pick(listOf(Msg.Food.TogglePick(pick(dayEntries + "gone")), Msg.Food.SaveNewMeal(pick(listOf("", "Breakfast", "b".repeat(90)))), Msg.Food.SaveNewMeal("Lunch")))
+                MealSheet.All -> pick(listOf(Msg.Food.EditMeal(mealId), Msg.Food.AddMeal(mealId), Msg.Food.DeleteMeal(mealId)))
+                is MealSheet.Edit -> pick(
+                    listOf(
+                        Msg.Food.SetMealAmount(food.nextInt(rows + 2) - 1, pick(listOf(1.0, 40.0, 225.0, 1e9, Double.NaN))),
+                        Msg.Food.RemoveMealItem(food.nextInt(rows + 2) - 1),
+                        Msg.Food.SaveMeal(pick(listOf("", "Big breakfast"))),
+                        Msg.Food.DeleteMeal(pick(listOf(mealSheet.id, mealId))),
+                    ),
+                )
+            }
         }
         if (sheet is FoodSheet.Own && food.nextInt(3) > 0) {
             return pick(listOf(Msg.Food.SaveOwn(pick(listOf("", "Bread", "y".repeat(90))), pick(listOf(250.0, 1e9)), pick(listOf(9.0, 1e9)), pick(listOf(null, 0.0, 40.0)), pick(listOf(null, 3.0)), pick(listOf(null, 0.0, 50.0, 1e9))), Msg.Food.DeleteOwn(sheet.id ?: "gone")))
         }
-        if (searching != null && food.nextInt(3) > 0) return Msg.Food.Searched(searching, pick(listOf(SearchAnswer.Found(listOf(found)), SearchAnswer.Offline, SearchAnswer.Busy)))
+        // A hit comes with its numbers, or without them (the search index leaves them out for many products).
+        val hit = io.github.alexanderop.eisen.feature.food.SearchHit(pick(barcodes.take(4)), "Skyr", "Brand", null)
+        if (searching != null && food.nextInt(3) > 0) return Msg.Food.Searched(searching, pick(listOf(SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(found), hit)), SearchAnswer.Offline, SearchAnswer.Busy)))
         val choices: List<() -> Msg> = listOf(
             { Msg.Food.Close }, { Msg.Food.Close }, { Msg.Food.Close }, { Msg.Food.PreviousDay }, { Msg.Food.NextDay }, { Msg.Food.Scan },
             { Msg.Food.Scanned(pick(barcodes)) }, { Msg.Food.Scanned(pick(barcodes)) }, { Msg.Food.ScanFailed(pick(ScanFailure.entries)) },
@@ -1440,8 +1576,13 @@ class UpdateTest {
             { Msg.Food.DeleteOwn(pick(foods.filter { it.source == FoodSource.OWN }.map { it.id } + "gone")) },
             { Msg.Food.OpenGoal }, { Msg.Food.SaveGoal(pick(listOf(0, 2400, Int.MAX_VALUE)), pick(listOf(0, 160, Int.MAX_VALUE))) },
             { Msg.Food.OpenSearch }, { Msg.Food.Search(pick(listOf("", "s", "sky", "oats", "z".repeat(90)))) }, { Msg.Food.SubmitSearch },
-            { Msg.Food.Searched(pick(listOf("sky", "oats")), SearchAnswer.Found(listOf(found))) },
+            { Msg.Food.Searched(pick(listOf("sky", "oats")), SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(found)))) },
             { Msg.Food.OpenCredit }, { Msg.Food.CloseSheet },
+            { Msg.Food.NewMeal }, { Msg.Food.NewMeal }, { Msg.Food.OpenMeals }, { Msg.Food.EditMeal(mealId) },
+            { Msg.Food.AddMeal(mealId) }, { Msg.Food.AddMeal(mealId) }, { Msg.Food.UndoAdded },
+            { Msg.Food.CopyDayBefore }, { Msg.Food.CopyDayBefore }, { Msg.Food.DeleteMeal(mealId) },
+            { Msg.Food.TogglePick(entryId) }, { Msg.Food.SaveNewMeal("Dinner") }, { Msg.Food.SaveMeal("Dinner") },
+            { Msg.Food.OpenDay(pick(listOf("2026-11-20", "1970-01-01", "2999-01-01", "not a day"))) },
         )
         return pick(choices)()
     }

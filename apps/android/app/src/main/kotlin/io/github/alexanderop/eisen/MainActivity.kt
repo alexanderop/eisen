@@ -249,7 +249,7 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
         dispatch(Msg.Rest.NotificationPermission(granted))
     }
     val health = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
-        dispatch(Msg.Health.PermissionResult(granted.containsAll(HealthSync.PERMISSIONS)))
+        dispatch(Msg.Health.PermissionResult(HealthSync.WRITE_PERMISSION in granted, HealthSync.FOOD_PERMISSION in granted))
     }
     LaunchedEffect(Unit) {
         Eisen.uiEvents.collect { event ->

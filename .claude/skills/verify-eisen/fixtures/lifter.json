@@ -976,6 +976,14 @@
             ]
         }
     ],
+    "pickedReps": false,
+    "foods": [],
+    "foodLog": [],
+    "foodGoal": {
+        "kcal": null,
+        "protein": null
+    },
+    "meals": [],
     "timerPresets": [],
     "timerSessions": [
         {
@@ -1299,12 +1307,5 @@
                 }
             ]
         }
-    ],
-    "pickedReps": false,
-    "foods": [],
-    "foodLog": [],
-    "foodGoal": {
-        "kcal": null,
-        "protein": null
-    }
+    ]
 }

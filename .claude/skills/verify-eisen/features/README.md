@@ -11,8 +11,8 @@ lists others.
 | `boxing.md` | `--state short-timers` | 5:25 | The boxing timer with the coach: setup, run, result with punches, time left in the round |
 | `wods.md` | `--state lifter` | 2:45 | The WODs page: own WODs, benchmarks, search, a run against the best, a first run |
 | `history-and-data.md` | `--state lifter`, then the emulator's data | 0:45 | The history log, progress, the backup entry points, an update on old data |
-| `food.md` | `--state food` (four times) | 5:39 | The food log: the Home card, the day, a typed barcode (known, found, not found, no network), the add sheet, own foods, quick kcal, Again, change and delete with Undo, the goal, yesterday, the search, the credit |
-| `layout.md` | `--state short-timers` (three times) | 16:19 | Eleven main screens (a timer's result with its chips and the history's sheet among them), the Food today card, the Food screen and its add sheet, at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
+| `food.md` | `--state food` (five times) | 8:33 | The food log: the Home card, the day, a typed barcode (known, found, not found, no network), the add sheet, own foods, quick kcal, Again, change and delete with Undo, the goal, yesterday, the search (a hit looked up by its barcode), the credit, meals, copy yesterday, the week in Progress |
+| `layout.md` | `--state short-timers` (three times) | 17:57 | Eleven main screens (a timer's result with its chips and the history's sheet among them), the Food today card, the Food screen, its add sheet and the new meal sheet, the week of food in Progress, at font scale 1.0, 1.3 and 2.0: what must show, and nothing tapped on under 48 dp |
 
 Not mapped yet: the Workouts tab (editing routines, the exercise picker), sharing a workout, the
 home-screen widget and shortcuts, Health Connect, the hold timer for timed exercises, the WOD

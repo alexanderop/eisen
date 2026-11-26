@@ -60,7 +60,11 @@ import androidx.compose.ui.unit.sp
 import io.github.alexanderop.eisen.app.elm.FoodDay
 import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
+import io.github.alexanderop.eisen.app.elm.CopyOffer
 import io.github.alexanderop.eisen.app.elm.againItems
+import io.github.alexanderop.eisen.app.elm.canSaveMeal
+import io.github.alexanderop.eisen.app.elm.copyOffer
+import io.github.alexanderop.eisen.core.counted
 import io.github.alexanderop.eisen.app.elm.kcalHeadline
 import io.github.alexanderop.eisen.app.elm.openFoodDay
 import io.github.alexanderop.eisen.core.ui.EisenCard
@@ -92,6 +96,8 @@ private val OnDestructive = Color(0xFF2B0A0A)
 fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
     val day = openFoodDay(model) ?: return
     val again = againItems(model)
+    val meals = model.state.meals
+    val copy = copyOffer(model)
     // Under an open sheet the screen is out of reach, for TalkBack too.
     val covered = model.food.sheet != null
     Column(Modifier.fillMaxSize().background(EisenColors.Background).then(if (covered) Modifier.clearAndSetSemantics { } else Modifier)) {
@@ -130,11 +136,22 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                 item(key = "empty") {
                     Text("Nothing logged on this day yet.", color = EisenColors.MutedForeground, modifier = Modifier.padding(vertical = 12.dp))
                 }
+                copy?.let { offer -> item(key = "copy") { CopyButton(offer) { dispatch(Msg.Food.CopyDayBefore) } } }
             }
             items(day.entries, key = { it.id }) { entry ->
                 SwipeToDelete(entry.name, onDelete = { dispatch(Msg.Food.DeleteEntry(entry.id)) }, modifier = Modifier.animateItem()) {
                     EntryRow(entry, onOpen = { dispatch(Msg.Food.OpenEntry(entry.id)) })
                 }
+            }
+            if (canSaveMeal(model)) {
+                item(key = "save-meal") {
+                    TextButton(onClick = { dispatch(Msg.Food.NewMeal) }, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        Text("Save as meal", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            if (meals.isNotEmpty()) {
+                item(key = "meals") { MealChips(meals, Modifier.padding(top = 8.dp), onEdit = { dispatch(Msg.Food.OpenMeals) }) { dispatch(Msg.Food.AddMeal(it.id)) } }
             }
             if (again.isNotEmpty()) {
                 item(key = "again") { AgainChips(again, Modifier.padding(top = 8.dp)) { dispatch(Msg.Food.AddAgain(it.food.id, it.amount)) } }
@@ -211,6 +228,22 @@ private fun EntryRow(entry: FoodEntry, onOpen: () -> Unit) {
             if (amount != null) Text(amount, color = EisenColors.MutedForeground, fontSize = 14.sp)
         }
         Text(kcalText(entry.kcal), fontWeight = FontWeight.Bold, color = EisenColors.Foreground)
+    }
+}
+
+/** "Copy yesterday" on an empty day, with what it copies. */
+@Composable
+private fun CopyButton(offer: CopyOffer, onCopy: () -> Unit) {
+    FilledTonalButton(
+        onClick = onCopy,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        shapes = pressShapes(14.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(offer.label, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("${counted(offer.foods, "food")} · ${kcalText(offer.kcal)} kcal", color = EisenColors.MutedForeground, fontSize = 13.sp)
+        }
     }
 }
 

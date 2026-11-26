@@ -2,6 +2,8 @@ package io.github.alexanderop.eisen.app.elm
 
 import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodEntry
+import io.github.alexanderop.eisen.feature.food.MealItem
+import io.github.alexanderop.eisen.feature.food.SearchHit
 
 /**
  * The Food screen: a day of what was eaten, over the tabs like the workout, with Back. [day] is the day it
@@ -19,11 +21,13 @@ data class FoodModel(
 /**
  * The one sheet over the Food screen. None is null. Every change of it is made in `food` (UpdateFood.kt).
  *
- *                OpenSearch, OpenQuick, OpenGoal, OpenCredit, TypeBarcode, NewOwn, OpenEntry
+ *                OpenSearch, OpenQuick, OpenGoal, OpenCredit, TypeBarcode, NewOwn, OpenEntry, OpenMeals, NewMeal
  *   ┌──────┐ ───────────────────────────────────────────────────────────────▶ that sheet
- *   │ none │ ◀─────────────── CloseSheet, ConfirmAmount, SaveQuick, SaveGoal, DeleteOwn, AddAgain, Close
+ *   │ none │ ◀─────────────── CloseSheet, ConfirmAmount, SaveQuick, SaveGoal, DeleteOwn, AddAgain, AddMeal, Close
  *   └──────┘
+ *   Meal: the meals, see [MealSheet]
  *   Search ── Pick(id) ──▶ Amount          Own ── SaveOwn ──▶ Amount of the food saved
+ *   Search ── Pick(id of a hit without its numbers) ──▶ LookingUp its barcode, see [Lookup]
  *   Amount of an own food ── EditOwn ──▶ Own(id)
  *   Scanned, LookUp, Retry: the lookup, see [Lookup]
  */
@@ -56,7 +60,43 @@ sealed interface FoodSheet {
 
     /** Where the food data comes from, and what leaves the phone. */
     data object Credit : FoodSheet
+
+    /** Making, changing and deleting meals, see [MealSheet]. */
+    data class Meal(val sheet: MealSheet) : FoodSheet
 }
+
+/**
+ * The sheet of the meals. [mealAfter] (UpdateMeals.kt) is the one place it changes. Logging a meal needs no sheet: its
+ * chip adds it in one tap, with Undo.
+ *
+ *            NewMeal (the day shown has entries: all of them picked)
+ *   ┌──────┐ ───────────────────────────────────────────▶ ┌──────────────┐  TogglePick(an entry of that day)
+ *   │      │ ◀──── SaveNewMeal(name): a meal of them ───── │ Pick(picked) │ ◀──┘
+ *   │      │                                               └──────────────┘
+ *   │ none │ ── OpenMeals ──▶ ┌─────┐ ── EditMeal(id) ──▶ ┌────────────────┐  SetMealAmount(i, amount),
+ *   │      │                  │ All │ ◀── SaveMeal(name), │ Edit(id, rows) │  RemoveMealItem(i): its rows
+ *   │      │                  └─────┘     DeleteMeal(id)  └────────────────┘
+ *   └──────┘ ◀── CloseSheet, AddMeal(id), Close: from each of them
+ *
+ *   A save that would break a limit (no name, nothing picked, no item left, more than MAX_MEALS) does nothing.
+ *   A meal that is gone (a Reset, a backup) closes the sheet that edits it. Nothing of this sheet changes an entry.
+ */
+sealed interface MealSheet {
+    /** A new meal from the entries of the day shown: [picked] are the entry ids ticked, in the order of the day. */
+    data class Pick(val picked: List<String>) : MealSheet
+
+    /** All the meals, each to change. */
+    data object All : MealSheet
+
+    /** Meal [id] being changed: its items as saved, each with the amount it will have. Saved by SaveMeal(name). */
+    data class Edit(val id: String, val rows: List<MealRow>) : MealSheet
+}
+
+/**
+ * An item of a meal being changed: [saved] as the meal holds it, and the [amount] it is set to (null for a quick item).
+ * Its numbers are worked out from [saved] each time, so stepping the amount up and down never drifts.
+ */
+data class MealRow(val saved: MealItem, val amount: Double?)
 
 /**
  * Looking up a barcode. A food the phone knows by its barcode (found before, or the lifter's own) needs no
@@ -99,13 +139,17 @@ sealed interface Online {
 
     data class Searching(val query: String) : Online
 
-    data class Results(val query: String, val foods: List<Food>) : Online
+    /** What was found, best first. A hit without its numbers is looked up by its barcode when it is picked. */
+    data class Results(val query: String, val hits: List<SearchHit>) : Online
 
     data class Failed(val query: String, val why: Failure) : Online
 }
 
 /** Why the scanner gave no barcode. */
 enum class ScanFailure { CANCELLED, UNAVAILABLE, FAILED }
+
+/** Undo of a meal or a copied day: the entries it logged, by id. */
+typealias AddedEntries = List<String>
 
 /** An entry deleted from the log at [index]: Undo puts it back there. */
 data class DeletedFoodEntry(val entry: FoodEntry, val index: Int)

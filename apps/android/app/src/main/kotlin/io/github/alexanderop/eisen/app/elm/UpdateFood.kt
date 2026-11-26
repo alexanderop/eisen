@@ -72,8 +72,14 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
         Msg.Food.Retry -> lookupAfter(timed, LookupEvent.Retry, env)
         is Msg.Food.Pick -> {
             val search = model.food.sheet as? FoodSheet.Search ?: return model.only()
-            val found = knownFood(model, msg.foodId) ?: (search.online as? Online.Results)?.foods?.firstOrNull { it.id == msg.foodId }
-            if (found == null) model.only() else timed.food { it.copy(sheet = FoodSheet.Amount(found, startAmount(found, model.state.foodLog))) }.only()
+            val hit = (search.online as? Online.Results)?.hits?.firstOrNull { it.id == msg.foodId }
+            val found = knownFood(model, msg.foodId) ?: hit?.food
+            when {
+                found != null -> timed.food { it.copy(sheet = FoodSheet.Amount(found, startAmount(found, model.state.foodLog))) }.only()
+                // The search did not carry its calories: the product is looked up by its barcode, which has them.
+                hit != null -> lookupAfter(timed, LookupEvent.Start(hit.barcode), env)
+                else -> model.only()
+            }
         }
         is Msg.Food.SetAmount -> {
             val sheet = model.food.sheet as? FoodSheet.Amount ?: return model.only()
@@ -130,6 +136,12 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
         is Msg.Food.Searched -> onlineAfter(model, OnlineEvent.Answer(msg.query, msg.answer), env)
         Msg.Food.OpenCredit -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Credit) }.only()
         Msg.Food.CloseSheet -> if (model.food.sheet == null) model.only() else model.food { it.copy(sheet = null) }.only()
+        // A bar of the week: that day, never one to come.
+        is Msg.Food.OpenDay -> if (!isPastOrToday(msg.day, today)) model.only() else timed.food { it.copy(day = msg.day, sheet = null) }.only()
+        Msg.Food.OpenMeals, Msg.Food.NewMeal, is Msg.Food.TogglePick, is Msg.Food.SaveNewMeal, is Msg.Food.EditMeal,
+        is Msg.Food.SetMealAmount, is Msg.Food.RemoveMealItem, is Msg.Food.SaveMeal, is Msg.Food.DeleteMeal,
+        is Msg.Food.AddMeal, Msg.Food.CopyDayBefore, Msg.Food.UndoAdded,
+        -> mealAfter(msg, timed, env)
     }
 }
 
@@ -312,7 +324,7 @@ internal fun onlineAfter(model: Model, event: OnlineEvent, env: Env): Next {
             val online = sheet.online
             if (online !is Online.Searching || online.query != event.query) return model.only()
             when (val answer = event.answer) {
-                is SearchAnswer.Found -> online(Online.Results(event.query, answer.foods.map(::foodWithin))).only()
+                is SearchAnswer.Found -> online(Online.Results(event.query, answer.hits.map { hit -> hit.copy(food = hit.food?.let(::foodWithin)) })).only()
                 SearchAnswer.Offline -> online(Online.Failed(event.query, Failure.OFFLINE)).only()
                 SearchAnswer.Busy -> online(Online.Failed(event.query, Failure.BUSY)).only()
             }

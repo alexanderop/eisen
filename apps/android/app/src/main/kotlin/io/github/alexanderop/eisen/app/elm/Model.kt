@@ -398,6 +398,8 @@ data class Undo(
     val deletedFoodEntry: DeletedFoodEntry? = null,
     /** The id of the entry the last tap on "Again" logged. */
     val againEntry: String? = null,
+    /** The entries the last meal or copied day logged, which its Undo takes back. */
+    val addedEntries: AddedEntries = emptyList(),
 )
 
 /**
@@ -407,6 +409,11 @@ data class Undo(
  */
 data class HealthModel(
     val enabled: Boolean = false,
+    /**
+     * Food may be written as well (the `WRITE_NUTRITION` permission, as last checked). A lifter who turned sync on before
+     * food existed has only the workouts' permission: Settings offers "Write food too", nothing asks at the start.
+     */
+    val food: Boolean = false,
     val syncing: Boolean = false,
     val notice: String? = null,
     val availability: HealthAvailability = HealthAvailability.UNAVAILABLE,

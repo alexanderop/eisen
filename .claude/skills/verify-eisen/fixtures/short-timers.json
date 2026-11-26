@@ -102,6 +102,14 @@
     "customExercises": [],
     "active": null,
     "history": [],
+    "pickedReps": false,
+    "foods": [],
+    "foodLog": [],
+    "foodGoal": {
+        "kcal": null,
+        "protein": null
+    },
+    "meals": [],
     "timerPresets": [
         {
             "id": "3f82bb91-01eb-31a8-97ce-3e50e0a557cf",
@@ -285,12 +293,5 @@
             }
         }
     },
-    "wods": [],
-    "pickedReps": false,
-    "foods": [],
-    "foodLog": [],
-    "foodGoal": {
-        "kcal": null,
-        "protein": null
-    }
+    "wods": []
 }

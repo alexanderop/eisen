@@ -78,17 +78,27 @@ fun HealthConnectRows(health: HealthModel, dispatch: (Msg) -> Unit) {
         HealthAvailability.AVAILABLE -> {
             ListItem(
                 headlineContent = { Text(LABEL, fontSize = 16.sp) },
-                supportingContent = { Text("Finished workouts show up in Google Fit, Samsung Health and other apps.", fontSize = 13.sp) },
+                supportingContent = { Text("Finished workouts and what you eat show up in Google Fit, Samsung Health and other apps.", fontSize = 13.sp) },
                 modifier = Modifier.toggleable(value = health.enabled, role = Role.Switch, onValueChange = { dispatch(Msg.Health.Toggle) })
                     .heightIn(min = 56.dp),
                 leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
                 trailingContent = { Switch(checked = health.enabled, onCheckedChange = null) },
                 colors = rowColors(),
             )
+            // Sync was turned on before food came: food needs one more permission, asked here and never at the start.
+            if (health.enabled && !health.food) {
+                ListItem(
+                    headlineContent = { Text("Write food too", fontSize = 16.sp) },
+                    supportingContent = { Text("Health Connect asks once more, for what you eat.", fontSize = 13.sp) },
+                    modifier = Modifier.clickable(role = Role.Button, onClick = { dispatch(Msg.Health.AllowFood) }).heightIn(min = 56.dp),
+                    leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
+                    colors = rowColors(),
+                )
+            }
             if (health.enabled) {
                 ListItem(
                     headlineContent = { Text("Sync past workouts", fontSize = 16.sp) },
-                    supportingContent = { Text("Writes every workout in your history once.", fontSize = 13.sp) },
+                    supportingContent = { Text(if (health.food) "Writes every workout and every food in your history once." else "Writes every workout in your history once.", fontSize = 13.sp) },
                     modifier = Modifier.clickable(enabled = !health.syncing, role = Role.Button, onClick = { dispatch(Msg.Health.SyncPast) })
                         .heightIn(min = 56.dp)
                         .alpha(if (health.syncing) 0.5f else 1f),

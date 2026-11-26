@@ -102,6 +102,29 @@
     "customExercises": [],
     "active": null,
     "history": [],
+    "pickedReps": false,
+    "foods": [
+        {
+            "id": "off:4056489000006",
+            "name": "Skyr Natur",
+            "brand": "Milbona",
+            "barcode": "4056489000006",
+            "kcal": 60.0,
+            "protein": 11.0,
+            "carbs": 4.0,
+            "fat": 0.2,
+            "unit": "g",
+            "serving": null,
+            "pack": 450.0,
+            "source": "scanned"
+        }
+    ],
+    "foodLog": [],
+    "foodGoal": {
+        "kcal": 2400,
+        "protein": 160
+    },
+    "meals": [],
     "timerPresets": [],
     "timerSessions": [],
     "timerConfigs": {
@@ -192,27 +215,5 @@
             }
         }
     },
-    "wods": [],
-    "pickedReps": false,
-    "foods": [
-        {
-            "id": "off:4056489000006",
-            "name": "Skyr Natur",
-            "brand": "Milbona",
-            "barcode": "4056489000006",
-            "kcal": 60.0,
-            "protein": 11.0,
-            "carbs": 4.0,
-            "fat": 0.2,
-            "unit": "g",
-            "serving": null,
-            "pack": 450.0,
-            "source": "scanned"
-        }
-    ],
-    "foodLog": [],
-    "foodGoal": {
-        "kcal": 2400,
-        "protein": 160
-    }
+    "wods": []
 }

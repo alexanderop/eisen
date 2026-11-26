@@ -133,8 +133,22 @@ class LimitsTest {
         assertWithin(open.send(Msg.Food.OpenGoal).send(Msg.Food.SaveGoal(big, big)), "SaveGoal")
         val search = open.send(Msg.Food.OpenSearch).send(Msg.Food.Search("s".repeat(500)))
         assertWithin(search, "Search")
-        val answered = search.send(Msg.Food.SubmitSearch).send(Msg.Food.Searched("s".repeat(MAX_FOOD_QUERY), SearchAnswer.Found(listOf(huge))))
+        val answered = search.send(Msg.Food.SubmitSearch).send(Msg.Food.Searched("s".repeat(MAX_FOOD_QUERY), SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(huge)))))
         assertWithin(answered.send(Msg.Food.Pick(huge.id)).send(Msg.Food.ConfirmAmount, id = "e4"), "a search result")
+        // A meal of the largest entries, its amounts at the largest number, logged; and the day copied.
+        val meal = logged.send(Msg.Food.NewMeal).send(Msg.Food.SaveNewMeal("m".repeat(500)), id = "m1")
+        assertWithin(meal, "SaveNewMeal")
+        val changed = meal.send(Msg.Food.EditMeal("meal:m1")).send(Msg.Food.SetMealAmount(0, heavy)).send(Msg.Food.SaveMeal("m".repeat(500)))
+        assertWithin(changed, "SetMealAmount and SaveMeal")
+        assertWithin(changed.send(Msg.Food.AddMeal("meal:m1"), id = "e5"), "AddMeal")
+        val yesterday = open.send(Msg.Food.PreviousDay).send(Msg.Food.OpenQuick).send(Msg.Food.SaveQuick(big, big, "q".repeat(500)), id = "y1")
+        val copied = yesterday.send(Msg.Food.NextDay).send(Msg.Food.CopyDayBefore, id = "c1")
+        assertEquals(2, copied.state.foodLog.size)
+        assertWithin(copied, "CopyDayBefore")
+        // As many meals as the limit allows, and not one more.
+        val full = (1..io.github.alexanderop.eisen.feature.food.MAX_MEALS + 3).fold(logged) { at, i -> at.send(Msg.Food.NewMeal).send(Msg.Food.SaveNewMeal("Meal $i"), id = "m$i") }
+        assertEquals(io.github.alexanderop.eisen.feature.food.MAX_MEALS, full.state.meals.size)
+        assertWithin(full, "every meal")
     }
 
     @Test fun `the largest number a Msg carries is saved within its field's limit`() {
@@ -248,6 +262,17 @@ internal fun foodOutOfLimits(state: AppState): List<String> = buildList {
         entry.amount?.let { if (it !in MIN_AMOUNT..MAX_AMOUNT) add("${entry.id} amount $it") }
         if (entry.foodId == null && entry.kcal > MAX_QUICK_KCAL) add("${entry.id} quick kcal ${entry.kcal}")
         if (entry.name.length > MAX_FOOD_NAME) add("${entry.id} name ${entry.name.length}")
+    }
+    if (state.meals.size > io.github.alexanderop.eisen.feature.food.MAX_MEALS) add("${state.meals.size} meals")
+    for (meal in state.meals) {
+        if (meal.items.size !in 1..io.github.alexanderop.eisen.feature.food.MAX_MEAL_ITEMS) add("${meal.id} ${meal.items.size} items")
+        if (meal.name.isBlank() || meal.name.length > io.github.alexanderop.eisen.feature.food.MAX_MEAL_NAME) add("${meal.id} name ${meal.name.length}")
+        for (item in meal.items) {
+            if (item.kcal !in 0..MAX_ENTRY_KCAL) add("${meal.id} ${item.name} kcal ${item.kcal}")
+            for (grams in listOfNotNull(item.protein, item.carbs, item.fat)) if (grams !in 0.0..MAX_ENTRY_GRAMS) add("${meal.id} ${item.name} grams $grams")
+            item.amount?.let { if (it !in MIN_AMOUNT..MAX_AMOUNT) add("${meal.id} ${item.name} amount $it") }
+            if (item.name.length > MAX_FOOD_NAME) add("${meal.id} item name ${item.name.length}")
+        }
     }
     state.foodGoal.kcal?.let { if (it !in 1..MAX_GOAL_KCAL) add("goal kcal $it") }
     state.foodGoal.protein?.let { if (it !in 1..MAX_GOAL_PROTEIN) add("goal protein $it") }

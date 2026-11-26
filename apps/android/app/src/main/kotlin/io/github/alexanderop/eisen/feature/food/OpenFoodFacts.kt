@@ -12,9 +12,12 @@ import kotlinx.serialization.json.intOrNull
 
 /*
  * What Open Food Facts answers, read into foods. Pure: the request is the runtime's (feature/food/platform),
- * which hands the status code and the body here. Read API v2 with a `fields=` list, see [PRODUCT_FIELDS]:
- * v3.6 moved the numbers per 100 g out of `nutriments` into a `nutrition` object, and v3 without a minor
- * version leaves out `product_quantity`. Saved real answers are in the tests' resources.
+ * which hands the status code and the body here. A product by its barcode: API v2 with a `fields=` list, see
+ * [PRODUCT_FIELDS]: v3.6 moved the numbers per 100 g out of `nutriments` into a `nutrition` object, and v3
+ * without a minor version leaves out `product_quantity`. A search: Search-a-licious at
+ * `search.openfoodfacts.org`, the full-text search their API docs point to (the legacy `/cgi/search.pl` is "not
+ * recommended for new integrations" and answered 503 to every request in November 2026), see [searchAnswer].
+ * Saved real answers are in the tests' resources.
  */
 
 /**
@@ -27,7 +30,10 @@ const val PRODUCT_FIELDS = "code,product_name,product_name_en,generic_name,brand
 /** Products per search: one page, the first that fits on the sheet. */
 const val SEARCH_PAGE_SIZE = 20
 
-/** Requests per minute Open Food Facts allows one phone: 15 for products, 10 for searches. */
+/**
+ * Requests per minute Open Food Facts allows one phone: 15 for products, 10 for searches. Search-a-licious states no
+ * limit of its own; the search keeps the one their API docs give for every search.
+ */
 const val PRODUCT_REQUESTS_PER_MINUTE = 15
 const val SEARCH_REQUESTS_PER_MINUTE = 10
 
@@ -47,12 +53,54 @@ sealed interface ProductAnswer {
     data object Busy : ProductAnswer
 }
 
+/**
+ * A product the search found. [food] is null when the search does not carry its calories (its index leaves out
+ * `nutriments` for many products): a tap then looks the product up by its [barcode], which has them.
+ */
+data class SearchHit(val barcode: String, val name: String, val brand: String, val food: Food?) {
+    val id: String get() = "off:$barcode"
+}
+
+/** A food as a search hit with its numbers. */
+fun hitOf(food: Food): SearchHit = SearchHit(food.barcode ?: food.id.removePrefix("off:"), food.name, food.brand, food)
+
 /** What a search came to. */
 sealed interface SearchAnswer {
-    data class Found(val foods: List<Food>) : SearchAnswer
+    data class Found(val hits: List<SearchHit>) : SearchAnswer
     data object Offline : SearchAnswer
     data object Busy : SearchAnswer
 }
+
+/**
+ * The fields a search asks for: those of a product, with the name in the phone's [lang] ahead of the others.
+ * [lang] is a two-letter code; anything else adds nothing.
+ */
+fun searchFields(lang: String): String {
+    val local = lang.lowercase().takeIf { it.matches(Regex("[a-z]{2}")) && it != "en" }?.let { "product_name_$it," }.orEmpty()
+    return "code,product_name,${local}product_name_en,generic_name,brands,quantity,product_quantity,product_quantity_unit," +
+        "serving_quantity,serving_quantity_unit,nutrition_data_per,nutriments"
+}
+
+/** The languages a search looks in: the phone's, then English. */
+fun searchLangs(lang: String): String = listOf(lang.lowercase(), "en").filter { it.matches(Regex("[a-z]{2}")) }.distinct().joinToString(",")
+
+/**
+ * The query Search-a-licious gets: the words typed, with the characters of its query syntax (Lucene) taken out so a
+ * typed "Ben & Jerry's: Cookie" is words and never a broken query, and the products sold in the phone's country
+ * ([country], an Open Food Facts tag such as `en:germany`, see [countryTag]) when it is known.
+ */
+fun searchQuery(query: String, country: String?): String {
+    val words = query.replace(Regex("""[+\-&|!(){}\[\]^"~*?:\\/]"""), " ").trim().split(Regex("\\s+"))
+        .filter { it.isNotEmpty() }
+        // AND, OR and NOT are operators in capitals: a typed one is a word.
+        .map { if (it == "AND" || it == "OR" || it == "NOT") it.lowercase() else it }
+    val terms = words.joinToString(" ")
+    return if (country == null || terms.isEmpty()) terms else "$terms countries:\"$country\""
+}
+
+/** The Open Food Facts tag of a country by its English name: "Germany" is `en:germany`, "United States" `en:united-states`. Null for none. */
+fun countryTag(englishName: String): String? =
+    englishName.trim().lowercase().replace(Regex("[^a-z]+"), "-").trim('-').takeIf { it.isNotEmpty() }?.let { "en:$it" }
 
 private val Lenient = Json { ignoreUnknownKeys = true }
 
@@ -79,21 +127,27 @@ fun productAnswer(barcode: String, status: Int, body: String?): ProductAnswer {
     return if (food == null) ProductAnswer.NoKcal(nameOf(product)) else ProductAnswer.Found(food)
 }
 
-/** The answer to a search: the products with a name and their calories, the others left out. */
-fun searchAnswer(status: Int, body: String?): SearchAnswer {
+/**
+ * The answer of Search-a-licious to a search: its `hits`, each with a barcode and a name, in the order it ranked
+ * them; with their numbers when the hit has its calories. A refused query (a 4xx other than 429) found nothing.
+ * Names in the phone's [lang] come first.
+ */
+fun searchAnswer(status: Int, body: String?, lang: String = "en"): SearchAnswer {
     if (busy(status)) return SearchAnswer.Busy
-    val json = parse(body) ?: return SearchAnswer.Offline
-    val products = json["products"] as? JsonArray ?: return SearchAnswer.Offline
-    val foods = products.mapNotNull { element ->
+    val json = parse(body)
+    if (json == null || json["hits"] !is JsonArray) return if (status in 400..499 && json != null) SearchAnswer.Found(emptyList()) else SearchAnswer.Offline
+    val hits = (json["hits"] as JsonArray).mapNotNull { element ->
         val product = element as? JsonObject ?: return@mapNotNull null
         val code = product["code"].text()?.let(::normalBarcode)?.takeIf { barcodeProblem(it) == null } ?: return@mapNotNull null
-        foodOf(product, code)?.takeIf { nameOf(product).isNotEmpty() }
+        val name = nameOf(product, lang).takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val food = foodOf(product, code, lang)
+        SearchHit(code, food?.name ?: name, food?.brand ?: brandOf(product), food)
     }
-    return SearchAnswer.Found(foods.distinctBy { it.id }.take(SEARCH_PAGE_SIZE))
+    return SearchAnswer.Found(hits.distinctBy { it.barcode }.take(SEARCH_PAGE_SIZE))
 }
 
 /** A product as a food, or null without its calories. Per 100 ml when the product is sold by volume. */
-private fun foodOf(product: JsonObject, barcode: String): Food? {
+private fun foodOf(product: JsonObject, barcode: String, lang: String = "en"): Food? {
     val nutriments = product["nutriments"] as? JsonObject
     val kcal = nutriments?.get("energy-kcal_100g").number()
         ?: nutriments?.get("energy-kj_100g").number()?.let(::kcalFromKj)
@@ -105,7 +159,7 @@ private fun foodOf(product: JsonObject, barcode: String): Food? {
     val unit = if (packUnit == "ml" || servingUnit == "ml" || product["nutrition_data_per"].text() == "100ml") FoodUnit.ML else FoodUnit.G
     fun inUnit(amount: Double?, said: String?) = amount?.takeIf { it > 0 && (said == null || said == unit.label) }
     val code = normalBarcode(barcode)
-    val name = nameOf(product).ifEmpty { brandOf(product).ifEmpty { "Product $code" } }
+    val name = nameOf(product, lang).ifEmpty { brandOf(product).ifEmpty { "Product $code" } }
     return foodWithin(
         Food(
             id = "off:$code",
@@ -124,12 +178,22 @@ private fun foodOf(product: JsonObject, barcode: String): Food? {
     )
 }
 
-private fun nameOf(product: JsonObject): String =
-    listOf("product_name", "product_name_en", "generic_name").firstNotNullOfOrNull { key -> product[key].text()?.trim()?.takeIf { it.isNotEmpty() } }.orEmpty()
+private fun nameOf(product: JsonObject, lang: String = "en"): String =
+    (listOfNotNull("product_name_${lang.lowercase()}".takeIf { lang.lowercase() != "en" }) + listOf("product_name", "product_name_en", "generic_name"))
+        .firstNotNullOfOrNull { key -> product[key].text()?.trim()?.takeIf { it.isNotEmpty() } }.orEmpty()
         .take(MAX_FOOD_NAME)
 
-/** The first brand: Open Food Facts lists them with commas ("Ferrero, Nutella"). */
-private fun brandOf(product: JsonObject): String = product["brands"].text()?.split(',')?.firstOrNull()?.trim().orEmpty().take(MAX_BRAND)
+/**
+ * The first brand. The product API lists them with commas ("Ferrero, Nutella"); the search as a list of tags
+ * (`xx:k-classic`, `xx:Ehrmann`), whose prefix goes and whose slug becomes words ("K Classic").
+ */
+private fun brandOf(product: JsonObject): String {
+    val brands = product["brands"]
+    if (brands !is JsonArray) return brands.text()?.split(',')?.firstOrNull()?.trim().orEmpty().take(MAX_BRAND)
+    val slug = brands.firstOrNull().text()?.trim().orEmpty().replace(Regex("^[a-z]{2}:"), "")
+    val brand = if (slug.any(Char::isUpperCase)) slug else slug.split('-').filter { it.isNotEmpty() }.joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+    return brand.take(MAX_BRAND)
+}
 
 private fun JsonElement?.prim(): JsonPrimitive? = (this as? JsonPrimitive)?.takeIf { it !is JsonNull }
 

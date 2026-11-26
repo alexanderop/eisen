@@ -92,6 +92,7 @@ import io.github.alexanderop.eisen.feature.food.MAX_MACRO_PER_100
 import io.github.alexanderop.eisen.feature.food.MAX_QUICK_KCAL
 import io.github.alexanderop.eisen.feature.food.MAX_QUICK_PROTEIN
 import io.github.alexanderop.eisen.feature.food.MIN_AMOUNT
+import io.github.alexanderop.eisen.feature.food.SearchHit
 import io.github.alexanderop.eisen.feature.food.amountChips
 import io.github.alexanderop.eisen.feature.food.amountText
 import io.github.alexanderop.eisen.feature.food.barcodeProblem
@@ -115,13 +116,14 @@ internal fun FoodSheets(model: Model, dispatch: (Msg) -> Unit) {
         is FoodSheet.LookingUp -> LookupSheet(sheet.lookup, dispatch, close)
         is FoodSheet.Search -> SearchSheet(model, sheet, dispatch, close)
         FoodSheet.Credit -> CreditSheet(close)
+        is FoodSheet.Meal -> MealSheets(model, sheet.sheet, dispatch, close)
     }
 }
 
 /** A bottom sheet with a title and a close button, like the workout's. [full]: opens all the way, for the ones that type. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FoodSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun FoodSheet(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val state = rememberFullSheetState()
     val scope = rememberCoroutineScope()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = EisenColors.Card) {
@@ -148,14 +150,14 @@ private fun FoodSheet(title: String, onDismiss: () -> Unit, content: @Composable
 }
 
 @Composable
-private fun PrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun PrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), shapes = pressShapes(14.dp)) {
         Text(text, fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }
 
 @Composable
-private fun SecondaryButton(text: String, onClick: () -> Unit) {
+internal fun SecondaryButton(text: String, onClick: () -> Unit) {
     FilledTonalButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
@@ -168,7 +170,7 @@ private fun SecondaryButton(text: String, onClick: () -> Unit) {
 
 /** A label above its control, so both keep their room at a large font. */
 @Composable
-private fun Field(label: String, control: @Composable () -> Unit) {
+internal fun Field(label: String, control: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = EisenColors.MutedForeground)
         control()
@@ -397,6 +399,7 @@ private fun SearchSheet(model: Model, sheet: FoodSheet.Search, dispatch: (Msg) -
         )
         if (query.isBlank()) {
             val again = againItems(model)
+            if (model.state.meals.isNotEmpty()) MealChips(model.state.meals, onAdd = { dispatch(Msg.Food.AddMeal(it.id)) })
             if (again.isNotEmpty()) AgainChips(again) { dispatch(Msg.Food.AddAgain(it.food.id, it.amount)) }
             SecondaryButton("Type a barcode") { dispatch(Msg.Food.TypeBarcode) }
             SecondaryButton("New food") { dispatch(Msg.Food.NewOwn()) }
@@ -417,7 +420,7 @@ private fun SearchSheet(model: Model, sheet: FoodSheet.Search, dispatch: (Msg) -
             }
             is Online.Results -> {
                 if (online.isEmpty()) Text("Nothing more found for “${state.query}”.", color = EisenColors.MutedForeground)
-                FoodList(online) { dispatch(Msg.Food.Pick(it.id)) }
+                HitList(online) { dispatch(Msg.Food.Pick(it.id)) }
                 if (state.query != query.trim() && query.trim().length >= MIN_ONLINE_QUERY) SecondaryButton("Search Open Food Facts") { dispatch(Msg.Food.SubmitSearch) }
             }
             Online.Idle -> if (query.trim().length >= MIN_ONLINE_QUERY) SecondaryButton("Search Open Food Facts") { dispatch(Msg.Food.SubmitSearch) }
@@ -448,6 +451,29 @@ private fun FoodList(foods: List<Food>, onPick: (Food) -> Unit) {
     }
 }
 
+/** What Open Food Facts found: name, brand, and the numbers per 100 when the search had them. A tap opens the add sheet, or looks the product up first. */
+@Composable
+private fun HitList(hits: List<SearchHit>, onPick: (SearchHit) -> Unit) {
+    Column {
+        hits.forEachIndexed { index, hit ->
+            if (index > 0) HorizontalDivider(color = EisenColors.Border)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .clickable(role = Role.Button) { onPick(hit) }
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(hit.name, fontWeight = FontWeight.SemiBold)
+                val brand = hit.brand.takeIf { it.isNotBlank() }?.let { "$it · " }.orEmpty()
+                val food = hit.food
+                Text("$brand${if (food != null) "${per100Text(food)} per 100 ${food.unit.label}" else "tap to look up its calories"}", color = EisenColors.MutedForeground, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
 /** Where the food data comes from, its licences, and what leaves the phone. */
 @Composable
 private fun CreditSheet(close: () -> Unit) {
@@ -468,6 +494,6 @@ private fun CreditSheet(close: () -> Unit) {
                 append(", in the public domain.")
             },
         )
-        Text("A barcode you scan or type, and a search you send, go to Open Food Facts. Nothing else leaves the phone: what you eat stays on it.")
+        Text("A barcode you scan or type, and a search you send, go to Open Food Facts. Nothing else leaves the phone: what you eat stays on it. With Health Connect sync on in Settings, it is also written to Health Connect, on this phone.")
     }
 }

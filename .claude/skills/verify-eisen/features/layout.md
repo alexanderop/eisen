@@ -10,14 +10,16 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
 - `layout-visible` every screen shows what it is for: its title or main action, its controls, the tabs.
 - `layout-targets` nothing on a screen can be tapped on less than 48 dp either way (`eisenctl small`).
 - `layout-food` the "Food today" card under the workout, which never pushes "Start workout" off the first screen,
-  the Food screen with its buttons, and the add sheet with its chips, grams and "Add" button.
+  the Food screen with its buttons, the add sheet with its chips, grams and "Add" button, the sheet of a new meal
+  ("Save as meal"), and the Food section of History › Progress with its seven bars, each a tap target.
 - `layout-rest-clock` the rest screen's countdown keeps its room and stays at least three times as tall as
   the text beside it; what is below it scrolls, "Next set" stays at the bottom.
 
 ## How to get to it (user POV)
 
 Android Settings › Display › Font size, or `eisenctl font <scale>` (put back by `cleanup`). The screens:
-Home, the "Food today" card below the workout, the Food screen and the add sheet of a plain food (Banana), a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
+Home, the "Food today" card below the workout, the Food screen and the add sheet of a plain food (Banana), the new meal
+sheet of it once added, the week of food in History › Progress, a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
 running, a boxing run, the WOD builder, History, Settings, the result of an interval timer with its chips
 "What was it?", and the sheet with the same chips over History's log.
 
@@ -38,6 +40,8 @@ eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small &
 eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 11c-food
 eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
 eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 11d-add-sheet
+eisenctl tap "Add 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl tap "Save as meal" && eisenctl wait "Save meal"
+eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 11e-meal-sheet
 eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 12-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
@@ -56,6 +60,8 @@ eisenctl tap "Start Quick boxing" && eisenctl wait "ROUND 1/1.*" 15 && eisenctl 
 eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisenctl wait "Back to the timers" && eisenctl tap "Back to the timers"
 eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" && eisenctl visible "Name your WOD" "For Time" "AMRAP" "EMOM" "Tabata" && eisenctl small && eisenctl shot 17-wod-builder
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 18-history
+eisenctl tap "Progress" && eisenctl wait "Last 7 days" && for i in 1 2 3; do eisenctl has "Avg kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Food" "Last 7 days" "[A-Z][a-z]{2}, 105 kcal, 1 g protein" "Avg kcal" "105" && eisenctl small && eisenctl shot 18b-progress-food && eisenctl scroll up && eisenctl tap "Log"
 eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 19-settings
 eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 20-timer-result
@@ -75,6 +81,8 @@ eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small &
 eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 21c-food
 eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
 eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 21d-add-sheet
+eisenctl tap "Add 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl tap "Save as meal" && eisenctl wait "Save meal"
+eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 21e-meal-sheet
 eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 22-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
@@ -93,6 +101,8 @@ eisenctl tap "Start Quick boxing" && eisenctl wait "ROUND 1/1.*" 15 && eisenctl 
 eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisenctl wait "Back to the timers" && eisenctl tap "Back to the timers"
 eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" && eisenctl visible "Name your WOD" "For Time" "AMRAP" "EMOM" "Tabata" && eisenctl small && eisenctl shot 27-wod-builder
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 28-history
+eisenctl tap "Progress" && eisenctl wait "Last 7 days" && for i in 1 2 3; do eisenctl has "Avg kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Food" "Last 7 days" "[A-Z][a-z]{2}, 105 kcal, 1 g protein" "Avg kcal" "105" && eisenctl small && eisenctl shot 28b-progress-food && eisenctl scroll up && eisenctl tap "Log"
 eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 29-settings
 eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 30-timer-result
@@ -112,6 +122,8 @@ eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small &
 eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 31c-food
 eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
 eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 31d-add-sheet
+eisenctl tap "Add 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl tap "Save as meal" && eisenctl wait "Save meal"
+eisenctl visible "New meal" "Name of the meal" "Banana" "1 food · 105 kcal · 1 g protein" "Save meal" "Close" && eisenctl small && eisenctl shot 31e-meal-sheet
 eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 32-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
@@ -130,6 +142,8 @@ eisenctl tap "Start Quick boxing" && eisenctl wait "ROUND 1/1.*" 15 && eisenctl 
 eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisenctl wait "Back to the timers" && eisenctl tap "Back to the timers"
 eisenctl tap "WODs" && eisenctl tap "New WOD" && eisenctl wait "Name your WOD" && eisenctl visible "Name your WOD" "For Time" "AMRAP" "EMOM" "Tabata" && eisenctl small && eisenctl shot 37-wod-builder
 eisenctl back && eisenctl tap "History" && eisenctl wait "Log" && eisenctl visible "Log" "Progress" "History" && eisenctl small && eisenctl shot 38-history
+eisenctl tap "Progress" && eisenctl wait "Last 7 days" && for i in 1 2 3; do eisenctl has "Avg kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Food" "Last 7 days" "[A-Z][a-z]{2}, 105 kcal, 1 g protein" "Avg kcal" "105" && eisenctl small && eisenctl shot 38b-progress-food && eisenctl scroll up && eisenctl tap "Log"
 eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl visible "Unit" "Bar weight" "Settings" && eisenctl small && eisenctl shot 39-settings
 eisenctl tap "Timer" && eisenctl tap "Timers" && for i in 1 2 3 4; do eisenctl has "Start Quick Tabata" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Start Quick Tabata" && eisenctl wait "Completed" 45 && eisenctl visible "Quick Tabata" "Completed" "What was it\?" "Boxing" "Running" "Again" "Done" "Don't count this run" && eisenctl small && eisenctl shot 40-timer-result
