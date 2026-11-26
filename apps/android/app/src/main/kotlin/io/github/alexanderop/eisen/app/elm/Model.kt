@@ -15,6 +15,9 @@ import io.github.alexanderop.eisen.feature.timer.TimerSession
 import io.github.alexanderop.eisen.feature.timer.wod.Wod
 import io.github.alexanderop.eisen.feature.workout.Workout
 import io.github.alexanderop.eisen.app.state.freshState
+import io.github.alexanderop.eisen.feature.food.Food
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * Everything that decides what the app does, as one immutable value. Only [update] makes a new one.
@@ -54,6 +57,10 @@ data class Model(
     val pendingStart: PendingStart? = null,
     /** The WODs page of the Timer tab: the filter of the benchmarks, the WOD open in its detail and the builder. */
     val wods: WodsModel = WodsModel(),
+    /** The Food screen, its sheet and the rate limits of Open Food Facts. See [FoodModel]. */
+    val food: FoodModel = FoodModel(),
+    /** The plain foods shipped in the app (rice, eggs, oats), read once at the start. Not saved: they are the app's. */
+    val plainFoods: List<Food> = emptyList(),
     val nav: Navigation = Navigation(workoutOpen = state.active != null),
     /** What an Undo snackbar can still bring back. The discarded workout lives in [session]. */
     val undo: Undo = Undo(),
@@ -70,6 +77,8 @@ data class Model(
      * the home screen's date and "last 7 days", the discard question's "N min", the Progress calendar, the timers.
      */
     val now: Long = 0,
+    /** The phone's time zone as of the start or the last [Msg.App.Foreground] or food Msg: which day "today" is. */
+    val zone: ZoneId = ZoneOffset.UTC,
 )
 
 /*
@@ -81,6 +90,7 @@ internal inline fun Model.nav(change: (Navigation) -> Navigation): Model = copy(
 internal inline fun Model.undo(change: (Undo) -> Undo): Model = copy(undo = change(undo))
 internal inline fun Model.health(change: (HealthModel) -> HealthModel): Model = copy(health = change(health))
 internal inline fun Model.notifications(change: (Notifications) -> Notifications): Model = copy(notifications = change(notifications))
+internal inline fun Model.food(change: (FoodModel) -> FoodModel): Model = copy(food = change(food))
 internal inline fun Model.timerSetup(change: (TimerSetup) -> TimerSetup): Model = copy(timerSetup = timerSetup?.let(change))
 
 /** The hold timer changed in place, while it is open: it is the same timer, so no transition of the [Overlay]. */
@@ -384,6 +394,10 @@ data class Undo(
     val deletedTimer: DeletedTimerSession? = null,
     val deletedWod: DeletedWod? = null,
     val deletedOwn: DeletedOwn? = null,
+    /** A food entry swiped away. */
+    val deletedFoodEntry: DeletedFoodEntry? = null,
+    /** The id of the entry the last tap on "Again" logged. */
+    val againEntry: String? = null,
 )
 
 /**
@@ -433,6 +447,10 @@ data class Flags(
     val timerPage: TimerPage = TimerPage.WODS,
     /** The builder's drafts when the process ended, newest first: the draft file, see [draftFile]. */
     val savedDrafts: List<WodDraft> = emptyList(),
+    /** The plain foods of the app's asset. */
+    val plainFoods: List<Food> = emptyList(),
+    /** The phone's time zone at the start. */
+    val zone: ZoneId = ZoneOffset.UTC,
 )
 
 /** The first model, and what has to happen right away. Elm's `init`. */
@@ -446,6 +464,8 @@ fun init(flags: Flags): Pair<Model, List<Cmd>> {
         health = HealthModel(enabled = flags.healthEnabled),
         notifications = flags.notifications,
         now = flags.now,
+        plainFoods = flags.plainFoods,
+        zone = flags.zone,
     )
     val cmds = mutableListOf<Cmd>()
     // The interval timer first: a run that still goes covers everything, so no rest can run under it.

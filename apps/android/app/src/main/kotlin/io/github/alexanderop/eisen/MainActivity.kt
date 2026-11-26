@@ -46,6 +46,13 @@ import io.github.alexanderop.eisen.app.elm.Tab
 import io.github.alexanderop.eisen.app.elm.UiEvent
 import io.github.alexanderop.eisen.app.elm.handlesBack
 import io.github.alexanderop.eisen.app.elm.showsWorkout
+import io.github.alexanderop.eisen.app.elm.showsFood
+import io.github.alexanderop.eisen.feature.food.ui.FoodScreen
+import io.github.alexanderop.eisen.feature.food.platform.BarcodeScanner
+import io.github.alexanderop.eisen.app.elm.ScanFailure
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import io.github.alexanderop.eisen.feature.health.platform.HealthSync
 import io.github.alexanderop.eisen.app.runtime.Eisen
 import io.github.alexanderop.eisen.app.runtime.Prefs
@@ -72,6 +79,7 @@ private const val SAVED_TAB = "tab"
 private const val SAVED_WORKOUT_OPEN = "workoutOpen"
 private const val SAVED_ROUTINE = "routine"
 private const val SAVED_HISTORY = "history"
+private const val SAVED_FOOD = "food"
 
 /**
  * The one activity. It turns what Android tells it (intents, start and stop, saved state) into Msgs,
@@ -88,7 +96,7 @@ class MainActivity : ComponentActivity() {
         savedInstanceState?.let { saved ->
             val tab = saved.getString(SAVED_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name } } ?: Tab.HOME
             val history = saved.getString(SAVED_HISTORY)?.let { name -> HistoryView.entries.firstOrNull { it.name == name } } ?: HistoryView.LOG
-            Eisen.dispatch(Msg.Nav.Restore(tab, saved.getBoolean(SAVED_WORKOUT_OPEN), saved.getString(SAVED_ROUTINE), history))
+            Eisen.dispatch(Msg.Nav.Restore(tab, saved.getBoolean(SAVED_WORKOUT_OPEN), saved.getString(SAVED_ROUTINE), history, food = saved.getBoolean(SAVED_FOOD)))
         }
         // The widget or a launcher shortcut may have opened the app to start a workout.
         WorkoutLaunch.message(intent, restored = savedInstanceState != null)?.let(Eisen.dispatch)
@@ -125,6 +133,7 @@ class MainActivity : ComponentActivity() {
         outState.putBoolean(SAVED_WORKOUT_OPEN, nav.workoutOpen)
         outState.putString(SAVED_ROUTINE, nav.routine)
         outState.putString(SAVED_HISTORY, nav.history.name)
+        outState.putBoolean(SAVED_FOOD, Eisen.model.food.day != null)
     }
 }
 
@@ -166,6 +175,15 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
     if (showsWorkout(model)) {
         ShowOverLockScreen()
         WorkoutScreen(model, dispatch)
+        return
+    }
+
+    // The Food screen covers the tabs like the workout. It shows the app's snackbars itself, above its buttons.
+    if (showsFood(model)) {
+        Box(Modifier.fillMaxSize()) {
+            FoodScreen(model, dispatch)
+            SnackbarHost(Eisen.snackbars.host, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp))
+        }
         return
     }
 
@@ -224,6 +242,7 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
 @Composable
 private fun UiEvents(dispatch: (Msg) -> Unit) {
     val context = LocalContext.current
+    val activity = LocalActivity.current
     val haptics = rememberHaptics()
     val scope = rememberCoroutineScope()
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -242,6 +261,7 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
                 is UiEvent.ShareBackup -> scope.launch {
                     runCatching { shareBackup(context, event.fileName, event.json) }.onFailure { dispatch(Msg.Data.SendFailed) }
                 }
+                UiEvent.ScanBarcode -> activity?.let { BarcodeScanner.scan(it, dispatch) } ?: dispatch(Msg.Food.ScanFailed(ScanFailure.UNAVAILABLE))
                 is UiEvent.Snackbar, is UiEvent.DismissSnackbar -> Unit
             }
         }

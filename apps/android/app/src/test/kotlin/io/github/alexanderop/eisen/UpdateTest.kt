@@ -78,6 +78,21 @@ import io.github.alexanderop.eisen.feature.timer.TimerConfig
 import io.github.alexanderop.eisen.feature.timer.TimerMode
 import io.github.alexanderop.eisen.feature.timer.timerConfig
 import io.github.alexanderop.eisen.feature.timer.countsRoundsByTap
+import io.github.alexanderop.eisen.app.elm.FoodSheet
+import io.github.alexanderop.eisen.app.elm.Lookup
+import io.github.alexanderop.eisen.app.elm.Online
+import io.github.alexanderop.eisen.app.elm.ScanFailure
+import io.github.alexanderop.eisen.app.elm.foodToday
+import io.github.alexanderop.eisen.app.elm.openFoodDay
+import io.github.alexanderop.eisen.feature.food.Food
+import io.github.alexanderop.eisen.feature.food.FoodSource
+import io.github.alexanderop.eisen.feature.food.FoodUnit
+import io.github.alexanderop.eisen.feature.food.PRODUCT_REQUESTS_PER_MINUTE
+import io.github.alexanderop.eisen.feature.food.ProductAnswer
+import io.github.alexanderop.eisen.feature.food.SEARCH_REQUESTS_PER_MINUTE
+import io.github.alexanderop.eisen.feature.food.SearchAnswer
+import io.github.alexanderop.eisen.feature.food.isPastOrToday
+import io.github.alexanderop.eisen.feature.food.localDay
 import io.github.alexanderop.eisen.feature.timer.timerSeconds
 import io.github.alexanderop.eisen.app.elm.HistoryView
 import io.github.alexanderop.eisen.app.elm.TimerState
@@ -913,6 +928,13 @@ class UpdateTest {
         var ownSaved = 0
         var activitiesSet = 0
         var sheets = 0
+        var foodLogged = 0
+        var foodsFound = 0
+        var foodChanged = 0
+        var ownFoodsSaved = 0
+        var foodsEdited = 0
+        var lookups = 0
+        var searches = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -1230,6 +1252,47 @@ class UpdateTest {
                 assertEquals(where, step.model.timerRun?.wod, (after.model.timer as TimerState.Finished).wod)
                 if (session.wodId != null) wodsFiled++
             }
+            // The food log. A day adds up to the sum of its entries, on the Food screen and on the Home card.
+            val log = after.state.foodLog
+            openFoodDay(after.model)?.let { day ->
+                assertEquals(where, log.filter { it.day == day.day }.sortedBy { it.at }, day.entries)
+                assertEquals(where, day.entries.sumOf { it.kcal }, day.totals.kcal)
+                assertTrue(where, isPastOrToday(day.day, localDay(now, java.time.ZoneOffset.UTC)))
+            }
+            val today = foodToday(after.model)
+            assertEquals(where, log.filter { it.day == today.day }.sumOf { it.kcal }, today.totals.kcal)
+            // An entry never changes but by its own sheet: editing or deleting its food leaves it as it was.
+            val sheetBefore = step.model.food.sheet
+            val edited = (sheetBefore as? FoodSheet.Amount)?.entryId ?: (sheetBefore as? FoodSheet.Quick)?.entryId
+            for (entry in log) {
+                val old = step.state.foodLog.firstOrNull { it.id == entry.id } ?: continue
+                if (old != entry) {
+                    assertTrue("$where changed the entry ${entry.id}", (msg == Msg.Food.ConfirmAmount || msg is Msg.Food.SaveQuick) && edited == entry.id || msg is Msg.Data)
+                    foodChanged++
+                }
+            }
+            if (msg is Msg.Food.SaveOwn || msg is Msg.Food.DeleteOwn || msg is Msg.Food.EditOwn) {
+                assertEquals(where, step.state.foodLog, log)
+                if (after.state.foods != step.state.foods) foodsEdited++
+            }
+            // No number of the food log beyond its limit.
+            val broken = foodOutOfLimits(after.state)
+            assertTrue("$where: $broken", broken.isEmpty())
+            // A sheet lies only over the Food screen, and Open Food Facts gets no more than its limits allow.
+            if (after.model.food.sheet != null) assertNotNull(where, after.model.food.day)
+            after.cmds.filterIsInstance<Cmd.LookUpProduct>().forEach { cmd ->
+                assertEquals(where, FoodSheet.LookingUp(Lookup.Looking(cmd.barcode)), after.model.food.sheet)
+                lookups++
+            }
+            after.cmds.filterIsInstance<Cmd.SearchFoods>().forEach { cmd ->
+                assertEquals(where, Online.Searching(cmd.query), (after.model.food.sheet as? FoodSheet.Search)?.online)
+                searches++
+            }
+            assertTrue(where, after.model.food.lookups.count { now - it < 60_000 } <= PRODUCT_REQUESTS_PER_MINUTE)
+            assertTrue(where, after.model.food.searches.count { now - it < 60_000 } <= SEARCH_REQUESTS_PER_MINUTE)
+            if (log.size > step.state.foodLog.size && msg is Msg.Food) foodLogged++
+            if (msg is Msg.Food.Looked && msg.answer is ProductAnswer.Found && after.model.food.sheet is FoodSheet.Amount && step.model.food.sheet is FoodSheet.LookingUp) foodsFound++
+            if (msg is Msg.Food.SaveOwn && after.state.foods.size > step.state.foods.size) ownFoodsSaved++
             if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
             if (after.model != step.model) changed++
             return Walk(after, opened)
@@ -1239,20 +1302,29 @@ class UpdateTest {
             // The chips of "What was it?" come from a dice of their own, slipped in between the walk's Msgs, so
             // the walk itself stays the one it was and reaches what it reached before.
             val side = java.util.Random(seed * 7_919)
+            // The food log's Msgs come from a dice of their own as well, now and then, so the walk stays the one it was.
+            val food = java.util.Random(seed * 104_729)
             var walk = Walk(stepOf(withHolds))
             var now = STARTED_AT
             val trail = mutableListOf<Sent>()
-            repeat(300) { turn ->
-                // Now and then the same Msg again right after it, as a bouncing thumb or a double tap sends it.
-                val again = trail.isNotEmpty() && random.nextInt(5) == 0
-                now += if (again) 30L + random.nextInt(700) else random.nextInt(120_000).toLong()
-                val sent = Sent(if (again) trail.last().msg else activityMsg(walk.step.model, side) ?: randomMsg(walk.step.model, random), now, "r$seed-$turn")
+            var main: Sent? = null
+            fun go(sent: Sent) {
                 trail += sent
                 walk = runCatching { check(walk, sent) }.getOrElse { failure ->
                     // The walk is cut down to the Msgs the failure needs, so the report is a handful of lines and not three hundred.
                     val shortest = shrink(trail) { part -> runCatching { part.fold(Walk(stepOf(withHolds)), ::check) }.isFailure }
                     throw AssertionError("${failure.message}\nShortest walk that fails, ${shortest.size} of ${trail.size} Msgs:\n${shortest.joinToString("\n") { "  ${it.id} at ${it.now}: ${it.msg}" }}", failure)
                 }
+            }
+            repeat(300) { turn ->
+                // Now and then the same Msg again right after it, as a bouncing thumb or a double tap sends it.
+                val again = main != null && random.nextInt(5) == 0
+                now += if (again) 30L + random.nextInt(700) else random.nextInt(120_000).toLong()
+                val sent = Sent(if (again) main!!.msg else activityMsg(walk.step.model, side) ?: randomMsg(walk.step.model, random), now, "r$seed-$turn")
+                main = sent
+                go(sent)
+                // A Msg of the food log comes in between, from its own dice, so the walk's own Msgs stay the ones they were.
+                foodMsg(walk.step.model, food)?.let { go(Sent(it, now + 1 + food.nextInt(20), "f$seed-$turn")) }
             }
         }
         assertTrue("only $finished workouts finished", finished >= 10)
@@ -1279,6 +1351,13 @@ class UpdateTest {
         assertTrue("only $bounced taps came within the guard after the tap that logged their set", bounced >= 20)
         assertTrue("only $activitiesSet activities were set", activitiesSet >= 100)
         assertTrue("only $sheets sheets opened in the history", sheets >= 5)
+        assertTrue("only $foodLogged foods were logged", foodLogged >= 200)
+        assertTrue("only $foodsFound products were found by their barcode", foodsFound >= 10)
+        assertTrue("only $foodChanged entries were changed", foodChanged >= 20)
+        assertTrue("only $ownFoodsSaved own foods were saved", ownFoodsSaved >= 10)
+        assertTrue("only $foodsEdited own foods were edited or deleted", foodsEdited >= 10)
+        assertTrue("only $lookups barcodes were looked up", lookups >= 30)
+        assertTrue("only $searches searches were sent", searches >= 20)
     }
 
     /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
@@ -1308,6 +1387,63 @@ class UpdateTest {
             side.nextInt(40) == 0 -> Msg.Timer.SetActivity(any, activity)
             else -> null
         }
+    }
+
+    /**
+     * Now and then a Msg of the food log: the screen, its sheets, the lookup with an answer of any kind (also one
+     * beyond every limit), the search, Again, Undo, own foods and the goal, for things that are there and that are not.
+     * Null most of the time: the walk's own Msg comes then.
+     */
+    private fun foodMsg(model: Model, food: java.util.Random): Msg? {
+        if (food.nextInt(if (model.food.day == null) 6 else 2) != 0) return null
+        fun <T> pick(items: List<T>): T = items[food.nextInt(items.size)]
+        val foods = model.state.foods
+        val log = model.state.foodLog
+        val barcodes = listOf("4056489000006", "3017620422003", "5449000000996", "4260999999990", "123")
+        val foodId = pick(foods.map { it.id } + "gone")
+        val entryId = pick(log.map { it.id } + "gone")
+        val sheet = model.food.sheet
+        val looking = ((sheet as? FoodSheet.LookingUp)?.lookup as? Lookup.Looking)?.barcode
+        val searching = ((sheet as? FoodSheet.Search)?.online as? Online.Searching)?.query
+        val found = Food("off:${pick(barcodes)}", pick(listOf("Skyr", "", "x".repeat(90))), "Brand", null, pick(listOf(60.0, 539.0, 1e12, -4.0)), pick(listOf(11.0, 400.0)), source = FoodSource.SCANNED, pack = pick(listOf(null, 450.0, 1e9)), unit = pick(FoodUnit.entries))
+        // The Food screen covers the history's sheet "What was it?": it opens now and then, and is closed as often.
+        if (model.food.day == null) return if (food.nextInt(4) != 0) null else pick(listOf(Msg.Food.Open, Msg.Food.Open, Msg.Food.OpenAdd, Msg.Food.OpenScan, Msg.Food.ScanFailed(pick(ScanFailure.entries)), Msg.Food.Scanned(pick(barcodes))))
+        // An answer comes for what is being looked up or searched most of the time, as from the network.
+        if (looking != null && food.nextInt(3) > 0) {
+            return Msg.Food.Looked(looking, pick(listOf(ProductAnswer.Found(found), ProductAnswer.Found(found), ProductAnswer.NotFound, ProductAnswer.NoKcal("Cornedbeef"), ProductAnswer.Offline, ProductAnswer.Busy)))
+        }
+        // An open sheet is used most of the time, as the lifter would: an amount chosen and added, a quick entry saved.
+        if (sheet is FoodSheet.Amount && food.nextInt(3) > 0) return pick(listOf(Msg.Food.SetAmount(pick(listOf(12.5, 80.0, 225.0, 450.0, 1e9))), Msg.Food.ConfirmAmount))
+        if (sheet is FoodSheet.Quick && food.nextInt(3) > 0) return Msg.Food.SaveQuick(pick(listOf(0, 500, 850, Int.MAX_VALUE)), pick(listOf(null, 40)), pick(listOf("", "Pizza")))
+        if (sheet is FoodSheet.Search && searching == null && food.nextInt(3) > 0) {
+            val results = (sheet.online as? Online.Results)?.foods.orEmpty().map { it.id }
+            return pick(listOf(Msg.Food.Search(pick(listOf("", "sky", "oats", "nutella", "z".repeat(90)))), Msg.Food.SubmitSearch, Msg.Food.SubmitSearch, Msg.Food.Pick(pick(results + foods.map { it.id } + "gone"))))
+        }
+        if (sheet is FoodSheet.Own && food.nextInt(3) > 0) {
+            return pick(listOf(Msg.Food.SaveOwn(pick(listOf("", "Bread", "y".repeat(90))), pick(listOf(250.0, 1e9)), pick(listOf(9.0, 1e9)), pick(listOf(null, 0.0, 40.0)), pick(listOf(null, 3.0)), pick(listOf(null, 0.0, 50.0, 1e9))), Msg.Food.DeleteOwn(sheet.id ?: "gone")))
+        }
+        if (searching != null && food.nextInt(3) > 0) return Msg.Food.Searched(searching, pick(listOf(SearchAnswer.Found(listOf(found)), SearchAnswer.Offline, SearchAnswer.Busy)))
+        val choices: List<() -> Msg> = listOf(
+            { Msg.Food.Close }, { Msg.Food.Close }, { Msg.Food.Close }, { Msg.Food.PreviousDay }, { Msg.Food.NextDay }, { Msg.Food.Scan },
+            { Msg.Food.Scanned(pick(barcodes)) }, { Msg.Food.Scanned(pick(barcodes)) }, { Msg.Food.ScanFailed(pick(ScanFailure.entries)) },
+            { Msg.Food.TypeBarcode }, { Msg.Food.LookUp(pick(barcodes)) }, { Msg.Food.Retry },
+            { Msg.Food.Looked(pick(barcodes), ProductAnswer.Found(found)) },
+            { Msg.Food.Pick(pick(foods.map { it.id } + found.id + "gone")) },
+            { Msg.Food.SetAmount(pick(listOf(0.0, 12.5, 225.0, 450.0, 1e9, -3.0))) },
+            { Msg.Food.ConfirmAmount }, { Msg.Food.ConfirmAmount }, { Msg.Food.ConfirmAmount },
+            { Msg.Food.OpenEntry(entryId) }, { Msg.Food.OpenEntry(entryId) },
+            { Msg.Food.DeleteEntry(entryId) }, { Msg.Food.UndoDeleteEntry },
+            { Msg.Food.AddAgain(foodId, pick(listOf(100.0, 450.0, 1e9))) }, { Msg.Food.UndoAgain },
+            { Msg.Food.OpenQuick }, { Msg.Food.SaveQuick(pick(listOf(0, 850, Int.MAX_VALUE)), pick(listOf(null, 40, Int.MAX_VALUE)), pick(listOf("", "Pizza"))) },
+            { Msg.Food.NewOwn(pick(listOf("", "Bread"))) }, { Msg.Food.EditOwn(pick(foods.filter { it.source == FoodSource.OWN }.map { it.id } + "gone")) },
+            { Msg.Food.SaveOwn(pick(listOf("", "Bread", "y".repeat(90))), pick(listOf(250.0, 1e9)), pick(listOf(9.0, 1e9)), pick(listOf(null, 0.0, 40.0)), pick(listOf(null, 3.0)), pick(listOf(null, 0.0, 50.0, 1e9))) },
+            { Msg.Food.DeleteOwn(pick(foods.filter { it.source == FoodSource.OWN }.map { it.id } + "gone")) },
+            { Msg.Food.OpenGoal }, { Msg.Food.SaveGoal(pick(listOf(0, 2400, Int.MAX_VALUE)), pick(listOf(0, 160, Int.MAX_VALUE))) },
+            { Msg.Food.OpenSearch }, { Msg.Food.Search(pick(listOf("", "s", "sky", "oats", "z".repeat(90)))) }, { Msg.Food.SubmitSearch },
+            { Msg.Food.Searched(pick(listOf("sky", "oats")), SearchAnswer.Found(listOf(found))) },
+            { Msg.Food.OpenCredit }, { Msg.Food.CloseSheet },
+        )
+        return pick(choices)()
     }
 
     /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */

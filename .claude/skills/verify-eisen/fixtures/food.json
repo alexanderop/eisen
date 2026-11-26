@@ -1,0 +1,218 @@
+{
+    "version": 9,
+    "settings": {
+        "unit": "kg",
+        "bar": 20.0,
+        "restDone": 90,
+        "restMissed": 300,
+        "sound": true,
+        "haptics": true,
+        "restFullScreen": true,
+        "timerCalls": {
+            "minutes": 1,
+            "halfway": true,
+            "final": true,
+            "phases": true,
+            "beeps": true
+        },
+        "trackRir": true
+    },
+    "progress": {
+        "hackSquat": {
+            "weight": 80.0,
+            "fails": 0,
+            "increment": 5.0
+        },
+        "bench": {
+            "weight": 80.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "row": {
+            "weight": 60.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "ohp": {
+            "weight": 40.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "deadlift": {
+            "weight": 100.0,
+            "fails": 0,
+            "increment": 5.0
+        }
+    },
+    "routines": [
+        {
+            "id": "A",
+            "name": "Workout A",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "bench",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "row",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "dips",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        },
+        {
+            "id": "B",
+            "name": "Workout B",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "ohp",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "deadlift",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "pullups",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        }
+    ],
+    "nextRoutineId": "A",
+    "customExercises": [],
+    "active": null,
+    "history": [],
+    "timerPresets": [],
+    "timerSessions": [],
+    "timerConfigs": {
+        "tabata": {
+            "mode": "tabata",
+            "work": 20,
+            "rest": 10,
+            "rounds": 8
+        },
+        "emom": {
+            "mode": "emom",
+            "work": 60,
+            "rest": 0,
+            "rounds": 10
+        },
+        "amrap": {
+            "mode": "amrap",
+            "work": 600,
+            "rest": 0,
+            "rounds": 1
+        },
+        "forTime": {
+            "mode": "forTime",
+            "work": 1200,
+            "rest": 0,
+            "rounds": 1
+        },
+        "boxing": {
+            "mode": "boxing",
+            "work": 180,
+            "rest": 60,
+            "rounds": 6,
+            "boxing": {
+                "rounds": [
+                    {
+                        "theme": "jab",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "two",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "three",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "four",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "mix",
+                        "every": 6,
+                        "split": 30,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "freestyle",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    }
+                ],
+                "style": "names",
+                "stance": "orthodox",
+                "room": "normal",
+                "own": []
+            }
+        }
+    },
+    "wods": [],
+    "pickedReps": false,
+    "foods": [
+        {
+            "id": "off:4056489000006",
+            "name": "Skyr Natur",
+            "brand": "Milbona",
+            "barcode": "4056489000006",
+            "kcal": 60.0,
+            "protein": 11.0,
+            "carbs": 4.0,
+            "fat": 0.2,
+            "unit": "g",
+            "serving": null,
+            "pack": 450.0,
+            "source": "scanned"
+        }
+    ],
+    "foodLog": [],
+    "foodGoal": {
+        "kcal": 2400,
+        "protein": 160
+    }
+}

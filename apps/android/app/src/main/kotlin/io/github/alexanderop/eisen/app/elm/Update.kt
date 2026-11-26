@@ -39,6 +39,7 @@ fun update(msg: Msg, model: Model, env: Env): Next {
         is Msg.Hold -> hold(msg, model, env)
         is Msg.Timer -> timer(msg, model, env)
         is Msg.Wods -> wods(msg, model, env)
+        is Msg.Food -> food(msg, model, env)
         is Msg.Rest -> {
             val (answered, cmds) = rest(msg, model, env)
             // A run that waited for the notification question starts with its answer.
@@ -316,6 +317,8 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
             model.activitySheet != null -> return history(Msg.History.CloseActivity, model)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
+            // The Food screen covers the tabs like the workout: its sheet goes first, then the screen.
+            model.food.day != null -> return food(if (model.food.sheet != null) Msg.Food.CloseSheet else Msg.Food.Close, model, env)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)
             nav.tab == Tab.TIMER && model.timerSetup?.sheet != null -> return timer(Msg.Timer.CloseRound, model, env)
             nav.tab == Tab.TIMER && model.timerSetup != null -> return timer(Msg.Timer.CloseSetup, model, env)
@@ -332,6 +335,11 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             routine = msg.routine?.takeIf { id -> model.state.routines.any { it.id == id } },
             timerPage = nav.timerPage,
         )
+    }
+    // The Food screen comes back on today, without the sheet that was open.
+    if (msg is Msg.Nav.Restore && msg.food && model.food.day == null) {
+        val (opened, cmds) = food(Msg.Food.Open, model.copy(nav = next), env)
+        return opened to cmds
     }
     // Whatever comes on screen reads the clock, so Home and Progress date themselves with today even
     // when nothing ticked. Selecting the tab that shows does too. A move that changes nothing is ignored.
@@ -517,7 +525,8 @@ private fun app(msg: Msg.App, model: Model, env: Env): Next = when (msg) {
     // Health Connect may have been installed, updated or removed while the app was away.
     // A hold that ended while the app was away is logged now.
     is Msg.App.Foreground -> {
-        val shown = model.notifications { it.copy(granted = msg.notificationsGranted) }.copy(visible = true, now = env.now)
+        // The phone may be in another time zone now: "today" of the food log follows it.
+        val shown = model.notifications { it.copy(granted = msg.notificationsGranted) }.copy(visible = true, now = env.now, zone = env.zone)
         val (checked, cmds) = holdClock(shown, env)
         checked and listOf<Cmd>(Cmd.Health(HealthJob.CheckAvailability)) + cmds
     }

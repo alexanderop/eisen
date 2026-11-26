@@ -9,13 +9,15 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
 
 - `layout-visible` every screen shows what it is for: its title or main action, its controls, the tabs.
 - `layout-targets` nothing on a screen can be tapped on less than 48 dp either way (`eisenctl small`).
+- `layout-food` the "Food today" card under the workout, which never pushes "Start workout" off the first screen,
+  the Food screen with its buttons, and the add sheet with its chips, grams and "Add" button.
 - `layout-rest-clock` the rest screen's countdown keeps its room and stays at least three times as tall as
   the text beside it; what is below it scrolls, "Next set" stays at the bottom.
 
 ## How to get to it (user POV)
 
 Android Settings › Display › Font size, or `eisenctl font <scale>` (put back by `cleanup`). The screens:
-Home, a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
+Home, the "Food today" card below the workout, the Food screen and the add sheet of a plain food (Banana), a running workout, the rest screen, the hold timer (a plank added to the workout), an interval timer
 running, a boxing run, the WOD builder, History, Settings, the result of an interval timer with its chips
 "What was it?", and the sheet with the same chips over History's log.
 
@@ -25,12 +27,18 @@ Preconditions: `--state short-timers` (its quick timers). One recipe per font sc
 screens and checks each with `visible` (the handles on screen, not cut off, tapped on at least 48 dp) and
 `small` (no clickable node of the screen under 48 dp). About four minutes each.
 
-**At font scale 1.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`).
+**At font scale 1.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`).
 
 ```sh
 eisenctl launch --state short-timers
 eisenctl font 1.0
 eisenctl visible "Start workout" "Home" "Workouts" "Timer" "History" "Settings" && eisenctl small && eisenctl shot 11-home
+for i in 1 2 3 4; do eisenctl has "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small && eisenctl shot 11b-home-food
+eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 11c-food
+eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
+eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 11d-add-sheet
+eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 12-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
 eisenctl texts | awk -F'\t' '/^text=[0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); clock = c[5] - c[3] } /^text=of [0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); body = c[5] - c[3] } END { exit !(clock >= 3 * body) }'
@@ -56,12 +64,18 @@ eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
-**At font scale 1.3** (`layout-visible`, `layout-targets`, `layout-rest-clock`).
+**At font scale 1.3** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`).
 
 ```sh
 eisenctl launch --state short-timers
 eisenctl font 1.3
 eisenctl visible "Start workout" "Home" "Workouts" "Timer" "History" "Settings" && eisenctl small && eisenctl shot 21-home
+for i in 1 2 3 4; do eisenctl has "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small && eisenctl shot 21b-home-food
+eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 21c-food
+eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
+eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 21d-add-sheet
+eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 22-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
 eisenctl texts | awk -F'\t' '/^text=[0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); clock = c[5] - c[3] } /^text=of [0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); body = c[5] - c[3] } END { exit !(clock >= 3 * body) }'
@@ -87,12 +101,18 @@ eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
-**At font scale 2.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`), the largest Android offers.
+**At font scale 2.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`), the largest Android offers.
 
 ```sh
 eisenctl launch --state short-timers
 eisenctl font 2.0
 eisenctl visible "Start workout" "Home" "Workouts" "Timer" "History" "Settings" && eisenctl small && eisenctl shot 31-home
+for i in 1 2 3 4; do eisenctl has "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "FOOD TODAY" "0 kcal eaten" "Scan" "\+ Add" && eisenctl small && eisenctl shot 31b-home-food
+eisenctl tap "FOOD TODAY" && eisenctl wait "Set a goal" && eisenctl visible "Back" "Today" "Previous day" "Next day" "Food data" "0 kcal eaten" "Set a goal" "Scan" "Search" "Quick kcal" && eisenctl small && eisenctl shot 31c-food
+eisenctl tap "Search" && eisenctl wait "Search foods" && eisenctl type banana && eisenctl wait "Banana" && eisenctl back && eisenctl tap "Banana" && eisenctl wait "Add 105 kcal"
+eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Add 105 kcal" && eisenctl small && eisenctl shot 31d-add-sheet
+eisenctl tap "Close" && eisenctl wait "Set a goal" && eisenctl back && eisenctl wait "Start workout" && eisenctl scroll up
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl visible "Back" "Finish" "More options" "Hack Squat" && eisenctl small && eisenctl shot 32-workout
 eisenctl tap "5" 1 && eisenctl wait "Set 1 of 5 done" && eisenctl visible "[0-9]:[0-9]{2}" "Rest 15 seconds less" "Rest 15 seconds longer" "Minimise rest timer" "Next set" && eisenctl small
 eisenctl texts | awk -F'\t' '/^text=[0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); clock = c[5] - c[3] } /^text=of [0-9]:[0-9][0-9]\t/ { split($2, c, /[^0-9]+/); body = c[5] - c[3] } END { exit !(clock >= 3 * body) }'
@@ -124,6 +144,8 @@ eisenctl doctor && eisenctl cleanup
   what a screen shows without scrolling, and scroll (one screen at a time, `has` first) to what is below.
 - `small` measures the clickable node a tap reaches, not the drawn shape: a Material button drawn 40 dp
   tall takes touches on 48 dp, and that is what it counts. Nodes cut by the edge of a list are left out.
+- The Home card sits below the workout: `Start workout` is checked on the first screen, the card after scrolling
+  to it. The Food screen covers the tabs like the workout; `back` leaves it for Home.
 - The awk line on the rest screen compares the heights of the countdown's text and of "of 1:30" as
   uiautomator reports them.
 - `font` changes a system setting; `cleanup` puts back the scale the run found. A run that stops half-way

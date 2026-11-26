@@ -1300,5 +1300,11 @@
             ]
         }
     ],
-    "pickedReps": false
+    "pickedReps": false,
+    "foods": [],
+    "foodLog": [],
+    "foodGoal": {
+        "kcal": null,
+        "protein": null
+    }
 }

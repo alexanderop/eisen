@@ -39,6 +39,7 @@ class ArchitectureTest {
         "history" to "share", // a workout in the history can be shared (ShareWorkoutSheet)
         "history" to "workout", // a workout in the history uses the workout screen's card shape and set descriptions
         "home" to "share", // the last workout can be shared from home
+        "home" to "food", // home shows today's food as a card with Scan and Add (FoodTodayCard)
         "settings" to "health", // settings show the Health Connect rows
         "settings" to "timer", // settings embed the timer's voice controls (TimerCallsControls)
         "timer" to "workout", // the WOD builder picks its movements with the exercise picker sheet

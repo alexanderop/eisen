@@ -38,6 +38,23 @@ import io.github.alexanderop.eisen.feature.workout.Slot
 import io.github.alexanderop.eisen.feature.workout.repsChoices
 import io.github.alexanderop.eisen.feature.workout.weightChoices
 import io.github.alexanderop.eisen.app.elm.findExercise
+import io.github.alexanderop.eisen.app.elm.FoodSheet
+import io.github.alexanderop.eisen.app.elm.Model
+import io.github.alexanderop.eisen.feature.food.Food
+import io.github.alexanderop.eisen.feature.food.FoodSource
+import io.github.alexanderop.eisen.feature.food.MAX_AMOUNT
+import io.github.alexanderop.eisen.feature.food.MAX_ENTRY_GRAMS
+import io.github.alexanderop.eisen.feature.food.MAX_ENTRY_KCAL
+import io.github.alexanderop.eisen.feature.food.MAX_FOOD_NAME
+import io.github.alexanderop.eisen.feature.food.MAX_FOOD_QUERY
+import io.github.alexanderop.eisen.feature.food.MAX_GOAL_KCAL
+import io.github.alexanderop.eisen.feature.food.MAX_GOAL_PROTEIN
+import io.github.alexanderop.eisen.feature.food.MAX_KCAL_PER_100
+import io.github.alexanderop.eisen.feature.food.MAX_MACRO_PER_100
+import io.github.alexanderop.eisen.feature.food.MAX_QUICK_KCAL
+import io.github.alexanderop.eisen.feature.food.MIN_AMOUNT
+import io.github.alexanderop.eisen.feature.food.ProductAnswer
+import io.github.alexanderop.eisen.feature.food.SearchAnswer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -84,6 +101,7 @@ class LimitsTest {
         for (config in configs) if (config != timerConfig(config)) add("timer $config")
         for (session in state.timerSessions) if (session.rounds !in 0..MAX_COUNTED_ROUNDS) add("${session.name} rounds ${session.rounds}")
         for (saved in state.wods) if (saved != wod(saved)) add("wod $saved")
+        addAll(foodOutOfLimits(state))
     }
 
     private fun assertWithin(step: Step, sent: Any) {
@@ -91,6 +109,32 @@ class LimitsTest {
         assertTrue("after $sent:\n${broken.joinToString("\n")}", broken.isEmpty())
         step.model.repsQuestion?.let { assertTrue("after $sent: the question starts at ${it.reps}", it.reps in 0..MAX_LOGGED_REPS) }
         step.model.timerSetup?.let { assertEquals("after $sent", timerConfig(it.config), it.config) }
+        (step.model.food.sheet as? FoodSheet.Amount)?.let { assertTrue("after $sent: the add sheet is at ${it.amount}", it.amount in MIN_AMOUNT..MAX_AMOUNT) }
+        (step.model.food.sheet as? FoodSheet.Search)?.let { assertTrue("after $sent: the search is ${it.query.length} long", it.query.length <= MAX_FOOD_QUERY) }
+    }
+
+    @Test fun `the largest number a food Msg carries is saved within its field's limit`() {
+        val huge = Food("off:3017620422003", "n".repeat(500), "b".repeat(500), "3017620422003", kcal = heavy, protein = heavy, carbs = heavy, fat = heavy, serving = heavy, pack = heavy, source = FoodSource.SCANNED)
+        val open = Step(Model(freshState(WeightUnit.KG), now = LATER)).send(Msg.Food.Open)
+        val looking = open.send(Msg.Food.Scanned("3017620422003"))
+        val found = looking.send(Msg.Food.Looked("3017620422003", ProductAnswer.Found(huge)))
+        assertWithin(found, "Looked")
+        val amounts = listOf(heavy, -heavy, Double.NaN, Double.POSITIVE_INFINITY).map { found.send(Msg.Food.SetAmount(it)) }
+        for (at in amounts) assertWithin(at.send(Msg.Food.ConfirmAmount), "SetAmount and ConfirmAmount")
+        val logged = amounts.first().send(Msg.Food.ConfirmAmount, id = "e1")
+        assertWithin(logged.send(Msg.Food.AddAgain(huge.id, heavy), id = "e2"), "AddAgain")
+        assertWithin(logged.send(Msg.Food.OpenEntry("e1")).send(Msg.Food.SetAmount(heavy)).send(Msg.Food.ConfirmAmount), "an entry's amount")
+        val quick = open.send(Msg.Food.OpenQuick)
+        assertWithin(quick.send(Msg.Food.SaveQuick(big, big, "q".repeat(500))), "SaveQuick")
+        val own = open.send(Msg.Food.NewOwn("x".repeat(500)))
+        val savedOwn = own.send(Msg.Food.SaveOwn("x".repeat(500), heavy, heavy, heavy, heavy, heavy), id = "o1")
+        assertWithin(savedOwn, "SaveOwn")
+        assertWithin(savedOwn.send(Msg.Food.ConfirmAmount, id = "e3"), "SaveOwn and ConfirmAmount")
+        assertWithin(open.send(Msg.Food.OpenGoal).send(Msg.Food.SaveGoal(big, big)), "SaveGoal")
+        val search = open.send(Msg.Food.OpenSearch).send(Msg.Food.Search("s".repeat(500)))
+        assertWithin(search, "Search")
+        val answered = search.send(Msg.Food.SubmitSearch).send(Msg.Food.Searched("s".repeat(MAX_FOOD_QUERY), SearchAnswer.Found(listOf(huge))))
+        assertWithin(answered.send(Msg.Food.Pick(huge.id)).send(Msg.Food.ConfirmAmount, id = "e4"), "a search result")
     }
 
     @Test fun `the largest number a Msg carries is saved within its field's limit`() {
@@ -188,4 +232,23 @@ class LimitsTest {
             for (unit in WeightUnit.entries) assertTrue(wodLoads(Equipment.BARBELL, unit, current).size <= 200)
         }
     }
+}
+
+/** Every number of the food log outside its limit. The random walk of `UpdateTest` checks it after every Msg too. */
+internal fun foodOutOfLimits(state: AppState): List<String> = buildList {
+    for (food in state.foods) {
+        if (food.kcal !in 0.0..MAX_KCAL_PER_100) add("${food.id} kcal ${food.kcal}")
+        for (macro in listOfNotNull(food.protein, food.carbs, food.fat)) if (macro !in 0.0..MAX_MACRO_PER_100) add("${food.id} macro $macro")
+        for (amount in listOfNotNull(food.serving, food.pack)) if (amount !in MIN_AMOUNT..MAX_AMOUNT) add("${food.id} amount $amount")
+        if (food.name.length > MAX_FOOD_NAME) add("${food.id} name ${food.name.length}")
+    }
+    for (entry in state.foodLog) {
+        if (entry.kcal !in 0..MAX_ENTRY_KCAL) add("${entry.id} kcal ${entry.kcal}")
+        for (grams in listOfNotNull(entry.protein, entry.carbs, entry.fat)) if (grams !in 0.0..MAX_ENTRY_GRAMS) add("${entry.id} grams $grams")
+        entry.amount?.let { if (it !in MIN_AMOUNT..MAX_AMOUNT) add("${entry.id} amount $it") }
+        if (entry.foodId == null && entry.kcal > MAX_QUICK_KCAL) add("${entry.id} quick kcal ${entry.kcal}")
+        if (entry.name.length > MAX_FOOD_NAME) add("${entry.id} name ${entry.name.length}")
+    }
+    state.foodGoal.kcal?.let { if (it !in 1..MAX_GOAL_KCAL) add("goal kcal $it") }
+    state.foodGoal.protein?.let { if (it !in 1..MAX_GOAL_PROTEIN) add("goal protein $it") }
 }

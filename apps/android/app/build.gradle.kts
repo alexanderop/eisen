@@ -69,6 +69,8 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.serialization.json)
     implementation(libs.health.connect)
+    // Google's code scanner: the barcode of a product without a camera permission or a camera library of our own.
+    implementation(libs.code.scanner)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.archunit)

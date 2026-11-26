@@ -255,8 +255,9 @@ data class Transition(val session: Session, val state: AppState, val effects: Li
  * for them with a Cmd and get the answer back as a Msg. Here the runtime passes them in with every Msg:
  * one value instead of a round trip, and `update` stays pure because a test passes its own.
  * [newSeed] gives a number from 0 to [Int.MAX_VALUE]; a test that does not pass one gets one made of the clock.
+ * [zone] is the phone's time zone, which decides the day food is logged for; a test that does not pass one is in UTC.
  */
-class Env(val now: Long, val newSeed: () -> Int = { (now xor (now ushr 29)).toInt() and Int.MAX_VALUE }, val newId: () -> String)
+class Env(val now: Long, val newSeed: () -> Int = { (now xor (now ushr 29)).toInt() and Int.MAX_VALUE }, val zone: java.time.ZoneId = java.time.ZoneOffset.UTC, val newId: () -> String)
 
 fun transition(session: Session, state: AppState, event: WorkoutEvent, env: Env): Transition {
     val next = when {

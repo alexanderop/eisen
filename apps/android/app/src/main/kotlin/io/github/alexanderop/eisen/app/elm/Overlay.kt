@@ -210,9 +210,9 @@ private fun fits(model: Model, overlay: Overlay?): Overlay? = when (overlay) {
     is ActivitySheet -> overlay.takeIf { activitySheetFits(model, it) } ?: restBar(model)
 }
 
-/** The sheet's timer is in the history, not a WOD, and the log it lies over is what shows. */
+/** The sheet's timer is in the history, not a WOD, and the log it lies over is what shows (not the workout or the Food screen over it). */
 fun activitySheetFits(model: Model, sheet: ActivitySheet): Boolean =
-    model.nav.tab == Tab.HISTORY && model.nav.history == HistoryView.LOG && !showsWorkout(model) && model.timer == null &&
+    model.nav.tab == Tab.HISTORY && model.nav.history == HistoryView.LOG && !showsWorkout(model) && model.timer == null && model.food.day == null &&
         model.state.timerSessions.any { it.id == sheet.sessionId && it.wodId == null }
 
 /** The sheet "What was it?", when it is what lies over the screen. */

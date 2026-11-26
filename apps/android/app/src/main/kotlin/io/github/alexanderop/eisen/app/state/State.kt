@@ -36,6 +36,12 @@ import io.github.alexanderop.eisen.feature.timer.timerConfig
 import io.github.alexanderop.eisen.feature.timer.wod.Wod
 import io.github.alexanderop.eisen.feature.timer.wod.isLibraryWod
 import io.github.alexanderop.eisen.feature.timer.wod.wod
+import io.github.alexanderop.eisen.feature.food.Food
+import io.github.alexanderop.eisen.feature.food.FoodEntry
+import io.github.alexanderop.eisen.feature.food.FoodGoal
+import io.github.alexanderop.eisen.feature.food.entryWithin
+import io.github.alexanderop.eisen.feature.food.foodWithin
+import io.github.alexanderop.eisen.feature.food.goalWithin
 
 @Serializable
 data class Settings(
@@ -78,6 +84,16 @@ data class AppState(
      * how. Older files have no such field and older builds ignore it: no migration.
      */
     val pickedReps: Boolean = false,
+    /**
+     * The foods the phone knows besides the plain ones shipped in the app: the ones found by their barcode or
+     * the search of Open Food Facts, kept so they need no network again, and the lifter's own. Older files have
+     * no such field and older builds ignore it: no migration.
+     */
+    val foods: List<Food> = emptyList(),
+    /** What was eaten, in the order it was logged. Each entry keeps its own numbers. */
+    val foodLog: List<FoodEntry> = emptyList(),
+    /** The calories and protein a day should reach; either may be missing. */
+    val foodGoal: FoodGoal = FoodGoal(),
     /** Saved interval timers, in the order the Timer tab shows them. */
     val timerPresets: List<TimerPreset> = emptyList(),
     /** Finished interval timers, newest first. */
@@ -168,7 +184,7 @@ private const val REASON_LENGTH = 140
 /** The state of a stored state or a backup of any version. Null when [loadState] has none. */
 fun decodeState(json: String): AppState? = (loadState(json) as? Loaded.Ok)?.state
 
-/** What a file holds that has limits of its own: the WODs, and boxing plans with one round per round. */
+/** What a file holds that has limits of its own: the WODs, boxing plans with one round per round, and the foods, what was eaten and the goal. */
 private fun inLimits(state: AppState): AppState {
     fun boxing(config: TimerConfig) = if (config.mode == TimerMode.BOXING) timerConfig(config) else config
     return state.copy(
@@ -176,6 +192,9 @@ private fun inLimits(state: AppState): AppState {
         timerConfigs = state.timerConfigs.mapValues { (_, config) -> boxing(config) },
         timerPresets = state.timerPresets.map { it.copy(config = boxing(it.config)) },
         timerSessions = state.timerSessions.map { it.copy(config = boxing(it.config)) },
+        foods = state.foods.map(::foodWithin).distinctBy { it.id },
+        foodLog = state.foodLog.map(::entryWithin).distinctBy { it.id },
+        foodGoal = goalWithin(state.foodGoal),
     )
 }
 

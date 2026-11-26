@@ -21,6 +21,9 @@ import io.github.alexanderop.eisen.feature.timer.boxing.MIN_BOXING_ROUND_SECONDS
 import io.github.alexanderop.eisen.feature.timer.timerConfig
 import io.github.alexanderop.eisen.feature.timer.timerSeconds
 import io.github.alexanderop.eisen.feature.timer.wod.isLibraryWod
+import io.github.alexanderop.eisen.feature.food.FoodGoal
+import io.github.alexanderop.eisen.feature.food.FoodSource
+import io.github.alexanderop.eisen.feature.food.barcodeProblem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -43,6 +46,7 @@ class FixturesTest {
     private val promises: Map<String, (AppState) -> Unit> = mapOf(
         "short-timers" to ::shortTimers,
         "lifter" to ::lifter,
+        "food" to ::food,
     )
 
     @Test fun `every fixture loads, is at the current version, and saving it again changes nothing`() {
@@ -104,6 +108,19 @@ class FixturesTest {
         val fresh = freshState(WeightUnit.KG).progress
         assertTrue("the weights are the fresh ones", state.progress.any { (id, progress) -> fresh[id]?.weight != progress.weight })
         assertEquals("a workout is running", null, state.active)
+    }
+
+    /**
+     * Fresh data, a goal of 2,400 kcal and 160 g protein, and a product found before by its barcode (so typing that
+     * barcode needs no network), with nothing eaten yet: the journeys log what they need on the day they run.
+     */
+    private fun food(state: AppState) {
+        assertEquals(freshState(WeightUnit.KG).copy(foods = state.foods, foodGoal = state.foodGoal), state)
+        assertEquals(FoodGoal(2400, 160), state.foodGoal)
+        val scanned = state.foods.single()
+        assertEquals(FoodSource.SCANNED, scanned.source)
+        assertEquals(null, scanned.barcode?.let(::barcodeProblem))
+        assertTrue("no pack for the chips", scanned.pack != null)
     }
 
     /** A saved timer whose numbers the setup's wheels can show: nothing a lifter could not have saved. */

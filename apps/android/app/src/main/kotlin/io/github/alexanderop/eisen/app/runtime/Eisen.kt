@@ -24,6 +24,9 @@ import io.github.alexanderop.eisen.feature.workout.platform.RestSystem
 import io.github.alexanderop.eisen.feature.timer.platform.TimerSounds
 import io.github.alexanderop.eisen.feature.timer.platform.TimerSystem
 import io.github.alexanderop.eisen.feature.home.platform.HomeSurfaces
+import io.github.alexanderop.eisen.feature.food.platform.OpenFoodFactsClient
+import io.github.alexanderop.eisen.feature.food.platform.PlainFoodAsset
+import java.time.ZoneId
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -98,6 +101,8 @@ object Eisen {
             savedTimer = TimerFile.read(app),
             timerPage = Prefs.timerPage(app),
             savedDrafts = DraftFile.read(app),
+            plainFoods = PlainFoodAsset.read(app),
+            zone = ZoneId.systemDefault(),
         )
         val (first, cmds) = initialModel(flags)
         model = first
@@ -122,7 +127,7 @@ object Eisen {
         try {
             while (true) {
                 val next = queue.removeFirstOrNull() ?: break
-                val (updated, cmds) = update(next, model, Env(System.currentTimeMillis(), newSeed = { Random.nextInt(0, Int.MAX_VALUE) }, newId = ::newId))
+                val (updated, cmds) = update(next, model, Env(System.currentTimeMillis(), newSeed = { Random.nextInt(0, Int.MAX_VALUE) }, zone = ZoneId.systemDefault(), newId = ::newId))
                 model = updated
                 cmds.forEach(::execute)
                 syncSources()
@@ -164,6 +169,8 @@ object Eisen {
                 is Cmd.PlayTimerSounds -> TimerSounds.playAll(app, cmd.sounds.map { it.at to it.sound }, cmd.fallback)
                 is Cmd.SaveTimerPage -> Prefs.saveTimerPage(app, cmd.page)
                 is Cmd.SaveDraft -> DraftFile.write(app, cmd.drafts)
+                is Cmd.LookUpProduct -> OpenFoodFactsClient.product(app, cmd.barcode) { dispatch(Msg.Food.Looked(cmd.barcode, it)) }
+                is Cmd.SearchFoods -> OpenFoodFactsClient.search(app, cmd.query) { dispatch(Msg.Food.Searched(cmd.query, it)) }
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.
                 is Cmd.Ui -> when (val event = cmd.event) {
                     is UiEvent.Snackbar -> snackbars.show(event)
@@ -172,6 +179,7 @@ object Eisen {
                     UiEvent.RequestNotificationPermission,
                     UiEvent.RequestHealthPermission,
                     is UiEvent.ShareBackup,
+                    UiEvent.ScanBarcode,
                     -> events.trySend(event)
                 }
             }

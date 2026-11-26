@@ -14,6 +14,8 @@ import io.github.alexanderop.eisen.feature.timer.TimerConfig
 import io.github.alexanderop.eisen.feature.timer.TimerMode
 import io.github.alexanderop.eisen.core.WeightUnit
 import io.github.alexanderop.eisen.feature.timer.wod.WodItem
+import io.github.alexanderop.eisen.feature.food.ProductAnswer
+import io.github.alexanderop.eisen.feature.food.SearchAnswer
 import io.github.alexanderop.eisen.feature.workout.Workout as FinishedWorkout
 
 /**
@@ -69,7 +71,7 @@ sealed interface Msg {
         data object Back : Nav
 
         /** What the activity saved before Android ended the process. */
-        data class Restore(val tab: Tab, val workoutOpen: Boolean, val routine: String?, val history: HistoryView = HistoryView.LOG) : Nav
+        data class Restore(val tab: Tab, val workoutOpen: Boolean, val routine: String?, val history: HistoryView = HistoryView.LOG, val food: Boolean = false) : Nav
     }
 
     sealed interface Home : Msg {
@@ -483,6 +485,108 @@ sealed interface Msg {
         /** The answers to "Discard changes?". */
         data object KeepEditing : Wods
         data object Discard : Wods
+    }
+
+    /**
+     * The food log: the Food screen, its sheets, the scanner and Open Food Facts. A Msg about a food, an entry
+     * or a sheet that is not there changes nothing. What is logged goes to the day the screen shows.
+     */
+    sealed interface Food : Msg {
+        /** The "Food today" card on Home: the Food screen opens on today. */
+        data object Open : Food
+
+        /** "Scan" on the Home card: the Food screen opens on today and the scanner starts. */
+        data object OpenScan : Food
+
+        /** "Add" on the Home card: the Food screen opens on today with the search. */
+        data object OpenAdd : Food
+
+        /** Back from the Food screen. */
+        data object Close : Food
+
+        /** The arrows: the day before, the day after (never after today). */
+        data object PreviousDay : Food
+        data object NextDay : Food
+
+        /** "Scan": the scanner starts. Answers with [Scanned] or [ScanFailed]. */
+        data object Scan : Food
+        data class Scanned(val barcode: String) : Food
+
+        /** The scanner gave nothing: the barcode can be typed instead. */
+        data class ScanFailed(val why: ScanFailure) : Food
+
+        /** "Type a barcode": its sheet opens. */
+        data object TypeBarcode : Food
+
+        /** A typed barcode, sent with "Look up". One that cannot be a product's changes nothing. */
+        data class LookUp(val barcode: String) : Food
+
+        /** What Open Food Facts answered for [barcode]. */
+        data class Looked(val barcode: String, val answer: ProductAnswer) : Food
+
+        /** "Try again" after a lookup that got no answer. */
+        data object Retry : Food
+
+        /** A food in the search, the phone's or one Open Food Facts found: its add sheet opens. */
+        data class Pick(val foodId: String) : Food
+
+        /** The chips and the grams of the add sheet. Brought into the limits. */
+        data class SetAmount(val amount: Double) : Food
+
+        /** "Add 270 kcal" (or "Save" of an entry's new amount). */
+        data object ConfirmAmount : Food
+
+        /** A tap on an entry: its amount can change, or a quick entry its numbers. */
+        data class OpenEntry(val id: String) : Food
+
+        /** A swipe: gone at once, with Undo. */
+        data class DeleteEntry(val id: String) : Food
+        data object UndoDeleteEntry : Food
+
+        /** A chip of "Again": one tap logs [foodId] at [amount] again, with Undo. */
+        data class AddAgain(val foodId: String, val amount: Double) : Food
+        data object UndoAgain : Food
+
+        /** "kcal": the quick entry for a meal out. */
+        data object OpenQuick : Food
+
+        /** Saves a quick entry: new, or the one the sheet was opened for. No calories: nothing. */
+        data class SaveQuick(val kcal: Int, val protein: Int?, val name: String) : Food
+
+        /** "New food" in the search: the own food form, with what was typed as its name. */
+        data class NewOwn(val name: String = "") : Food
+
+        /** "Edit food" on the add sheet of an own food. */
+        data class EditOwn(val id: String) : Food
+
+        /** Saves the own food form, per 100 g. A blank name changes nothing. Then its add sheet opens. */
+        data class SaveOwn(val name: String, val kcal: Double, val protein: Double, val carbs: Double?, val fat: Double?, val serving: Double?) : Food
+
+        /** Deletes an own food. What was logged of it keeps its numbers. */
+        data class DeleteOwn(val id: String) : Food
+
+        data object OpenGoal : Food
+
+        /** 0 is no goal. */
+        data class SaveGoal(val kcal: Int, val protein: Int) : Food
+
+        /** "Search": its sheet opens. */
+        data object OpenSearch : Food
+
+        /** Typed into the search: what the phone knows is filtered at once. No request. */
+        data class Search(val query: String) : Food
+
+        /** The keyboard's search key or "Search Open Food Facts": one request. */
+        data object SubmitSearch : Food
+
+        /** What Open Food Facts found for [query]. */
+        data class Searched(val query: String, val answer: SearchAnswer) : Food
+
+        /** "Food data" on the Food screen. */
+        data object OpenCredit : Food
+
+        /** A sheet is put away: its close button, a swipe down, a tap beside it or Back. */
+        data object CloseSheet : Food
     }
 
     /** The rest timer. Its alarms and the buttons on its notification end up here too. */

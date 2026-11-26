@@ -91,6 +91,12 @@ sealed interface Cmd {
      */
     data class PlayTimerSounds(val sounds: List<TimerSound>, val fallback: String? = null) : Cmd
 
+    /** Asks Open Food Facts for the product with [barcode]. Answers with [Msg.Food.Looked]. */
+    data class LookUpProduct(val barcode: String) : Cmd
+
+    /** Asks Open Food Facts to search for [query]. Answers with [Msg.Food.Searched]. */
+    data class SearchFoods(val query: String) : Cmd
+
     /** Something the screen shows or does once. See [UiEvent]. */
     data class Ui(val event: UiEvent) : Cmd
 }
@@ -168,6 +174,9 @@ sealed interface UiEvent {
 
     /** Writes [json] to a file named [fileName] and opens the share sheet with it. Fails with [Msg.Data.SendFailed]. */
     data class ShareBackup(val fileName: String, val json: String) : UiEvent
+
+    /** Google's code scanner, for the barcodes of products. Answers with [Msg.Food.Scanned] or [Msg.Food.ScanFailed]. */
+    data object ScanBarcode : UiEvent
 }
 
 /** What the Health Connect adapter does, one job after the other in the order they come. */

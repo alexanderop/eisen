@@ -75,6 +75,7 @@ import io.github.alexanderop.eisen.core.ui.EisenCard
 import io.github.alexanderop.eisen.core.ui.Eyebrow
 import io.github.alexanderop.eisen.core.ui.PillBadge
 import io.github.alexanderop.eisen.feature.share.ui.ShareWorkoutSheet
+import io.github.alexanderop.eisen.feature.food.ui.FoodTodayCard
 
 /** One exercise of the workout on the card. [load] is "80kg", "BW" or "BW + 10kg". */
 private class ExerciseRow(val id: String, val name: String, val image: String?, val sets: Int, val reps: Int?, val timed: Boolean, val load: String)
@@ -134,6 +135,8 @@ fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
             SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) })
         }
         NextCard(model, dispatch)
+        // Below the workout, so "Start workout" stays on the first screen at any font size.
+        FoodTodayCard(model, dispatch)
         // A finished interval timer counts like a workout.
         val stats = trainingStats(model.state, model.now)
         if (stats != null) {
