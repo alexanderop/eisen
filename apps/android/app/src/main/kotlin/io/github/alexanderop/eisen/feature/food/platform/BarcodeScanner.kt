@@ -26,14 +26,28 @@ object BarcodeScanner {
         .build()
 
     fun scan(activity: Activity, dispatch: (Msg) -> Unit) {
-        val scanner = GmsBarcodeScanning.getClient(activity, options)
-        val modules = ModuleInstall.getClient(activity)
-        modules.areModulesAvailable(scanner)
-            .addOnSuccessListener { answer ->
-                if (answer.areModulesAvailable()) start(activity, dispatch) else fetch(activity, dispatch)
-            }
-            // Play services could not say: the scanner itself gives the better answer.
-            .addOnFailureListener { start(activity, dispatch) }
+        // Nothing the scanner does may take the app down: the lifter can always type the barcode.
+        try {
+            val scanner = GmsBarcodeScanning.getClient(activity, options)
+            ModuleInstall.getClient(activity).areModulesAvailable(scanner)
+                .addOnSuccessListener { answer ->
+                    guarded(dispatch) { if (answer.areModulesAvailable()) start(activity, dispatch) else fetch(activity, dispatch) }
+                }
+                // Play services could not say: the scanner itself gives the better answer.
+                .addOnFailureListener { guarded(dispatch) { start(activity, dispatch) } }
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "scanner could not be asked for", error)
+            dispatch(Msg.Food.ScanFailed(ScanFailure.UNAVAILABLE))
+        }
+    }
+
+    private inline fun guarded(dispatch: (Msg) -> Unit, block: () -> Unit) {
+        try {
+            block()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "scanner failed", error)
+            dispatch(Msg.Food.ScanFailed(ScanFailure.UNAVAILABLE))
+        }
     }
 
     /** Asks Play services to download the scanner now. The lifter types this barcode; the next Scan finds it there. */
@@ -69,7 +83,7 @@ object BarcodeScanner {
                     MlKitException.CODE_SCANNER_UNAVAILABLE -> ScanFailure.UNAVAILABLE
                     else -> ScanFailure.FAILED
                 }
-                if (why == ScanFailure.UNAVAILABLE) fetch(activity, dispatch) else dispatch(Msg.Food.ScanFailed(why))
+                if (why == ScanFailure.UNAVAILABLE) guarded(dispatch) { fetch(activity, dispatch) } else dispatch(Msg.Food.ScanFailed(why))
             }
     }
 
