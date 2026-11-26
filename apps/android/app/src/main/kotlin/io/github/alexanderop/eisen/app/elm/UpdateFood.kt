@@ -147,7 +147,8 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
 
 private fun scanNote(why: ScanFailure): String = when (why) {
     ScanFailure.CANCELLED -> "No barcode scanned. Type its digits instead."
-    ScanFailure.UNAVAILABLE -> "The scanner is not available yet: Google Play services may still be installing it. Type the barcode instead."
+    ScanFailure.INSTALLING -> "Google Play services is downloading the scanner, once. Type this barcode, and tap Scan again in a minute."
+    ScanFailure.UNAVAILABLE -> "This phone has no scanner from Google Play services. Type the barcode instead."
     ScanFailure.FAILED -> "The scanner did not work. Type the barcode instead."
 }
 

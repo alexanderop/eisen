@@ -178,4 +178,4 @@ eisenctl doctor && eisenctl cleanup
   says "tap to look up its calories" and a tap is a product lookup by its barcode, the one request it costs.
 - The real scanner is not driven: on the emulator Google Play services first has to download its module
   ("Waiting for the Barcode UI module to be downloaded"), and then it needs a camera. `Scan` then opens
-  `Type a barcode` with "The scanner is not available yet: Google Play services may still be installing it."
+  `Type a barcode` with "Google Play services is downloading the scanner, once." (the app asks for the module; a second Scan a minute later opens the camera)

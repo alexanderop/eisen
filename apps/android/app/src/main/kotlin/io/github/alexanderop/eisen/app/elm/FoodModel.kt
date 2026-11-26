@@ -146,7 +146,7 @@ sealed interface Online {
 }
 
 /** Why the scanner gave no barcode. */
-enum class ScanFailure { CANCELLED, UNAVAILABLE, FAILED }
+enum class ScanFailure { CANCELLED, INSTALLING, UNAVAILABLE, FAILED }
 
 /** Undo of a meal or a copied day: the entries it logged, by id. */
 typealias AddedEntries = List<String>

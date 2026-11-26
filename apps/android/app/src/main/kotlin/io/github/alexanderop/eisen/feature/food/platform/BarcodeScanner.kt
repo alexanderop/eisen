@@ -2,6 +2,8 @@ package io.github.alexanderop.eisen.feature.food.platform
 
 import android.app.Activity
 import android.util.Log
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.mlkit.common.MlKitException
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
@@ -13,6 +15,9 @@ import io.github.alexanderop.eisen.app.elm.ScanFailure
  * Google's code scanner: Play services shows the camera and hands back only the barcode, so the app needs no
  * camera permission. Product barcodes only. When the scanner is missing, fails or is cancelled the lifter
  * types the barcode instead, which `update` offers.
+ *
+ * Play services downloads the scanner as a module. It does that by itself only for an app from the Play
+ * Store; this app is installed from a file, so it asks for the module before the first scan.
  */
 object BarcodeScanner {
     private val options = GmsBarcodeScannerOptions.Builder()
@@ -21,6 +26,26 @@ object BarcodeScanner {
         .build()
 
     fun scan(activity: Activity, dispatch: (Msg) -> Unit) {
+        val scanner = GmsBarcodeScanning.getClient(activity, options)
+        val modules = ModuleInstall.getClient(activity)
+        modules.areModulesAvailable(scanner)
+            .addOnSuccessListener { answer ->
+                if (answer.areModulesAvailable()) start(activity, dispatch) else fetch(activity, dispatch)
+            }
+            // Play services could not say: the scanner itself gives the better answer.
+            .addOnFailureListener { start(activity, dispatch) }
+    }
+
+    /** Asks Play services to download the scanner now. The lifter types this barcode; the next Scan finds it there. */
+    private fun fetch(activity: Activity, dispatch: (Msg) -> Unit) {
+        val request = ModuleInstallRequest.newBuilder().addApi(GmsBarcodeScanning.getClient(activity, options)).build()
+        ModuleInstall.getClient(activity).installModules(request)
+            .addOnSuccessListener { Log.i(TAG, "scanner module asked for, already there: ${it.areModulesAlreadyInstalled()}") }
+            .addOnFailureListener { Log.w(TAG, "scanner module could not be asked for", it) }
+        dispatch(Msg.Food.ScanFailed(ScanFailure.INSTALLING))
+    }
+
+    private fun start(activity: Activity, dispatch: (Msg) -> Unit) {
         val task = try {
             GmsBarcodeScanning.getClient(activity, options).startScan()
         } catch (error: RuntimeException) {
@@ -44,7 +69,7 @@ object BarcodeScanner {
                     MlKitException.CODE_SCANNER_UNAVAILABLE -> ScanFailure.UNAVAILABLE
                     else -> ScanFailure.FAILED
                 }
-                dispatch(Msg.Food.ScanFailed(why))
+                if (why == ScanFailure.UNAVAILABLE) fetch(activity, dispatch) else dispatch(Msg.Food.ScanFailed(why))
             }
     }
 
