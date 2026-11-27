@@ -54,7 +54,8 @@ data class ChartPoint(
     val record: Boolean = false,
 )
 
-data class ChartSeries(val id: String, val name: String, val color: Color, val points: List<ChartPoint>)
+/** [dots]: every point as a dot and no line between them, as the weights under their trend. */
+data class ChartSeries(val id: String, val name: String, val color: Color, val points: List<ChartPoint>, val dots: Boolean = false)
 
 /** The web chart's viewBox. The chart keeps its shape at any width. */
 private const val ASPECT = 328f / 196f
@@ -203,6 +204,11 @@ fun TimeChart(
 private fun DrawScope.drawSeries(line: ChartSeries, frame: Frame, events: Boolean, drawn: Float) {
     if (line.points.isEmpty()) return
     val offsets = line.points.map { Offset(frame.x(it.time), frame.y(it.value)) }
+    if (line.dots) {
+        val radius = (if (line.points.size > CROWDED) 2.5.dp else 3.5.dp).toPx()
+        for (center in offsets) drawCircle(line.color, radius, center, alpha = drawn)
+        return
+    }
     val path = Path().apply {
         moveTo(offsets[0].x, offsets[0].y)
         for (offset in offsets.drop(1)) lineTo(offset.x, offset.y)

@@ -16,6 +16,7 @@ import io.github.alexanderop.eisen.feature.workout.rirSuffix
 import io.github.alexanderop.eisen.feature.timer.sessionSummary
 import io.github.alexanderop.eisen.feature.timer.timerSummary
 import io.github.alexanderop.eisen.feature.food.FoodEntry
+import io.github.alexanderop.eisen.feature.food.WeightEntry
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -218,4 +219,22 @@ fun nutritionFields(entry: FoodEntry, zone: ZoneId): NutritionFields? {
         fat = entry.fat,
         name = entry.name,
     )
+}
+
+/** Everything a weight record is built from: one weight of the log. Kept free of Android so it can be unit tested. */
+data class WeightFields(val id: String, val time: Instant, val offset: ZoneOffset, val kg: Double)
+
+/** The client record id of the weight of [day]: one per day, so a second weight that day rewrites the record, and a delete finds it. */
+fun weightRecordId(day: String): String = "weight:$day"
+
+/**
+ * The weight record of [entry]: its kilograms, at the moment it was logged when that was on its day; a weight filled in
+ * later for an earlier day is put at noon of that day, so Health Connect counts it on the day it was weighed. Null for an
+ * entry whose day is not a date (a hand-edited backup).
+ */
+fun weightFields(entry: WeightEntry, zone: ZoneId): WeightFields? {
+    val day = runCatching { LocalDate.parse(entry.day) }.getOrNull() ?: return null
+    val logged = Instant.ofEpochMilli(entry.at)
+    val time = if (logged.atZone(zone).toLocalDate() == day) logged else day.atTime(LocalTime.NOON).atZone(zone).toInstant()
+    return WeightFields(weightRecordId(entry.day), time, zone.rules.getOffset(time), entry.kg)
 }

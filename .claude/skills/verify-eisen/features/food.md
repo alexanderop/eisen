@@ -6,7 +6,9 @@ a run of barcodes (scanned, or typed when the scanner gives none) goes onto it o
 all. The foods usual at this time of day come first. The day shows what is left of the goal, the calories and the three
 macros (calm past a goal: "120 over"), a timeline of what was eaten together, and a week strip on top. Foods eaten often
 come back as "Again" chips that log with one tap, meals log in one tap, an empty day copies the day before, and History ›
-Progress shows the last seven days. Nothing but a barcode or a search leaves the phone.
+Progress shows the last seven days. A weight a day gives a smoothed trend and, with the food, what the lifter burns; once a
+week a check-in offers a new calorie target from it, which changes nothing until it is taken. Nothing but a barcode or a
+search leaves the phone.
 
 ## Sub-features
 
@@ -40,6 +42,17 @@ Progress shows the last seven days. Nothing but a barcode or a search leaves the
 - `food-copy` "Copy yesterday" on an empty day logs what the day before holds, with Undo.
 - `food-week` History › Progress › Food: the last seven days; a bar opens its day on the Food tab.
 - `food-credit` where the data comes from, and what leaves the phone.
+- `food-weight` the weight card on the Food tab (the trend, its arrow and change a week, `Log weight`) and its sheet: one
+  weight a day in the unit of the settings, an earlier day by its arrow, a second weight replaces the first, Delete with
+  Undo.
+- `food-burn` what the lifter burns: calories eaten a day minus the trend's change at 7,700 kcal per kg over 21 days, once
+  14 days with food logged count ("Learning: 9 of 14 days" before).
+- `food-pace` the goal sheet's weight goal: lose, maintain or gain at most 1% of the trend a week, the calories that pace
+  takes, protein from the weight, "Adjust my target each week".
+- `food-check-in` the weekly check-in on the Food tab: last week's numbers and "New target: X kcal (was Y)", Take or Keep;
+  gone for the week once answered, back after a restart while it is not.
+- `food-weight-progress` History › Progress › Weight: the weights as dots, the trend as a line, the range, the trend, its
+  change a week and what the lifter burns, `Log weight`.
 
 ## How to get to it (user POV)
 
@@ -50,13 +63,23 @@ the summary with `Change goal` (or `Set a goal`); the timeline (a group describe
 the bottom `Scan`, `+ Add`, `kcal` (described `Quick kcal`) and, with something on the plate, `On the plate: N foods · X
 kcal`. The add screen: `Back`, `Add food`, `Search foods`, `Scan`, the sections, a row's `Put <name> on the plate` (or
 `Take <name> off the plate`), the plate `Plate, N foods · X kcal` with `Clear` and `Log X kcal`. History › `Progress`
-has the `Food` section once anything was ever logged.
+has the `Food` section once anything was ever logged. Under the day's entries the `WEIGHT` card (described `Weight trend 83.3
+kg, down 0.3 kg a week`) with `Log weight` (`Change today's weight` once today has one); its sheet `Weight` with `Previous day`,
+the day, `Next day`, the number (described `weight 82.4 kg`, a tap types it), `Save 82.4 kg` and, for a day with a weight,
+`Delete`. On or after a Monday with enough data, `WEEKLY CHECK-IN` on top of the tab with `Take X kcal` and `Keep Y kcal`. The
+goal sheet (`Change goal`) has `WEIGHT GOAL` below the macros: `Lose`, `Maintain`, `Gain`, the pace (described `pace 0.5 kg a
+week`), `Adjust my target each week`. History › `Progress` › `Weight`: `3 months`, `1 year`, `All`, the chart (described
+`Weight over time, N weights, trend ...`), `Trend`, `Change`, `You burn`, `Log weight`.
 
 ## Driving it with eisenctl
 
 Preconditions: `--state food`: fresh data, a goal of 2,400 kcal and 160 g protein, and `Skyr Natur` (Milbona, 60 kcal
 and 11 g protein per 100 g, a pack of 450 g) found before by its barcode `4056489000006`, so typing it needs no network.
 Nothing is logged. `--state food-history` adds two weeks of eight foods at fixed times of day (see `SKILL.md`).
+`--state food-weight` holds four weeks, Monday to Sunday, of three meals a day (two days without any) and most mornings'
+weights (84.2 kg down to 82.4 kg, six mornings without, one 1.5 kg high), a goal of 2,400 kcal and to lose 0.5 kg a week; the
+driver moves it so its last day is the Sunday before today, so the check-in is due and its numbers are the same whatever
+day the journey runs: last week 2,456 kcal a day, the trend 83.7 kg to 83.3 kg, 2,740 kcal burnt, a target of 2,200.
 
 Open Food Facts is not asked: a debug build answers from the app's `files/off/` when that folder exists
 (`product/<barcode>.json`, `search/<query>.json`; a missing file is no network). The recipes copy the real answers saved
@@ -123,8 +146,9 @@ eisenctl texts | sed -n '/^text=USUAL AT THIS TIME/,/^text=RECENT/p' | grep -q "
 eisenctl tap "Put .* on the plate" 1 && eisenctl wait "Plate, 1 food · .*" && eisenctl wait "Put .* on the plate" && eisenctl tap "Put .* on the plate" 1 && eisenctl wait "Plate, 2 foods · .*"
 eisenctl wait "Put .* on the plate" && eisenctl tap "Put .* on the plate" 1 && eisenctl wait "Plate, 3 foods · .*" && eisenctl shot 13-breakfast-plate
 eisenctl tap "Log .* kcal" && eisenctl wait "Logged 3 foods" && eisenctl tap "[0-9]{2}:[0-9]{2}, 3 foods, .* kcal"
-for i in 1 2 3; do eisenctl has "Save these as a meal" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl visible "$usual, [0-9.]+ (g|ml), [0-9,]+ kcal" "Save these as a meal" && eisenctl has "[0-9]{2}:[0-9]{2}, 3 foods, .* kcal" && eisenctl shot 14-timeline
+eisenctl has "$usual, [0-9.]+ (g|ml), [0-9,]+ kcal" "[0-9]{2}:[0-9]{2}, 3 foods, .* kcal" && eisenctl shot 14-timeline
+for i in 1 2 3; do eisenctl visible "Save these as a meal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Save these as a meal" && eisenctl scroll up
 jq -e --arg usual "$usual" '(.foodLog | length == 115) and (.foodLog[112:] | map(.name) | index($usual) != null) and ([.foodLog[112:][].at] | unique | length == 1)' "$(eisenctl state 15-state)"
 nh=$(( t < 720 ? 20 : 3 )) && eisenctl tap "$usual, [0-9.]+ (g|ml), [0-9,]+ kcal" && eisenctl wait "Save [0-9,]+ kcal" && eisenctl wait "hour [0-9]{2}"
 eisenctl tap "hour [0-9]{2}" && eisenctl type $nh && eisenctl back && eisenctl has "hour $(printf %02d $nh)" && eisenctl shot 16-entry-time && eisenctl tap "Save [0-9,]+ kcal"
@@ -141,7 +165,9 @@ is today.
 ```sh
 eisenctl launch --state food
 eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl visible "Today" "Previous week" "Food data" "Calories 0 / 2,400 kcal" "Protein 0 / 160 g" "Carbs 0 g" "Fat 0 g" "Change goal" && eisenctl small
-eisenctl tap "Change goal" && eisenctl wait "Save goal" && eisenctl scroll down && eisenctl tap "Fill carbs and fat from the rest" && eisenctl has "carbs goal 289 g" "fat goal 67 g" && eisenctl shot 18-goal && eisenctl tap "Save goal"
+eisenctl tap "Change goal" && eisenctl wait "Goal per day" && eisenctl scroll down && eisenctl tap "Fill carbs and fat from the rest" && eisenctl has "carbs goal 289 g" "fat goal 67 g" && eisenctl shot 18-goal
+for i in 1 2 3; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Save goal"
 eisenctl wait "Carbs 0 / 289 g" && eisenctl has "Fat 0 / 67 g" && eisenctl tap "Quick kcal" && eisenctl wait "Add 0 kcal" && eisenctl type 2520 && eisenctl wait "Add 2,520 kcal" && eisenctl tap "Add 2,520 kcal"
 eisenctl wait "120 kcal over" && eisenctl has "Calories 2,520 / 2,400 kcal · 120 over" && eisenctl shot 19-over
 y="$(date -v-1d '+%a %-d')" && { eisenctl has "$y(, .*)?" 2> /dev/null || eisenctl tap "Previous week"; }
@@ -206,10 +232,12 @@ eisenctl launch --state food
 y="$(date -v-1d '+%a %-d')" && eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && { eisenctl has "$y" 2> /dev/null || eisenctl tap "Previous week"; }
 eisenctl tap "$y" && eisenctl wait "Yesterday" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up" && eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate.*" && eisenctl tap "Close"
 eisenctl tap "Search foods" && eisenctl type oats && eisenctl wait "Oats, rolled" && eisenctl back && eisenctl tap "Put Oats, rolled on the plate" && eisenctl wait "Log 573 kcal" && eisenctl tap "Log 573 kcal" && eisenctl wait "1,827 kcal left"
+for i in 1 2 3; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save as meal" && eisenctl wait "Save meal" && eisenctl visible "New meal" "Name of the meal" "Breakfast|Lunch|Snack|Dinner" "2 foods · 573 kcal · 60 g protein" "Save meal" && eisenctl shot 32-new-meal
 eisenctl tap "Save meal" && eisenctl wait "MEALS · ONE TAP ADDS" && eisenctl has "Add meal (Breakfast|Lunch|Snack|Dinner), 573 kcal" "Edit meals"
 eisenctl tap "Food" && eisenctl wait "Today" && eisenctl visible "Nothing logged on this day yet." "Copy yesterday" "2 foods · 573 kcal" && eisenctl shot 33-copy-offer
 eisenctl tap "Copy yesterday" && eisenctl wait "Copied 2 foods" && grep -q "^text=1,827 kcal left" "$(eisenctl shot 34-copied | sed 's/png$/txt/')" && eisenctl tap "Undo" && eisenctl wait "2,400 kcal left"
+for i in 1 2 3; do eisenctl visible "Add meal .*, 573 kcal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Add meal .*, 573 kcal" && eisenctl wait "Added .*, 2 foods" && grep -q "^text=1,827 kcal left" "$(eisenctl shot 35-meal-added | sed 's/png$/txt/')"
 jq -e '(.meals | length == 1 and (.[0].items | map([.name, .amount, .kcal]) == [["Skyr Natur", 450, 270], ["Oats, rolled", 80, 303]])) and (.foodLog | length == 4) and ([.foodLog[2:][] | [.name, .amount, .kcal]] == [["Skyr Natur", 450, 270], ["Oats, rolled", 80, 303]])' "$(eisenctl state 36-state)"
 for i in 1 2 3; do eisenctl visible "Edit meals" 2> /dev/null && break; eisenctl scroll down; done
@@ -222,6 +250,79 @@ jq -e '(.meals == []) and (.foodLog | map(.kcal) == [270, 303, 270, 303])' "$(ei
 eisenctl tap "Close" && eisenctl wait "1,827 kcal left" && eisenctl tap "History" && eisenctl tap "Progress" && eisenctl wait "Last 7 days"
 eisenctl visible "Food" "Goal 2,400 kcal" "[A-Z][a-z]{2}, 573 kcal, 60 g protein" "Avg kcal" "573" "60 g" "0 of 7" && eisenctl small && eisenctl shot 40-week
 eisenctl tap "[A-Z][a-z]{2}, 573 kcal, 60 g protein" && eisenctl wait "Yesterday" && eisenctl has "1,827 kcal left" "Food" && eisenctl shot 41-bar-opens-day
+eisenctl doctor && eisenctl cleanup
+```
+
+**Log a weight, correct it, an earlier day, delete with Undo; what the lifter burns is still learning** (`food-weight`,
+`food-burn`, `food-weight-progress`). The card asks for a first weight; the sheet starts at 80 kg and takes 82.4 typed. A
+second weight today replaces the first. Yesterday gets 82.8 by the arrow: the trend starts at 82.8 and today's 82.1 moves
+it a tenth of the way, to 82.73. Today's weight deleted and brought back by Undo. Progress shows both weights and "Learning",
+no day with food yet.
+
+```sh
+eisenctl launch --state food
+eisenctl tap "Food" && eisenctl wait "2,400 kcal left"
+for i in 1 2 3; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "WEIGHT" "Log your weight on a few mornings to see your trend." "Log weight" && eisenctl small && eisenctl shot 42-weight-card-empty
+eisenctl tap "Log weight" && eisenctl wait "Save 80 kg" && eisenctl visible "Weight" "Previous day" "Today" "weight 80 kg" "Save 80 kg" && eisenctl small
+eisenctl tap "weight 80 kg" && eisenctl type 82.4 && eisenctl back && eisenctl wait "Save 82.4 kg" && eisenctl shot 43-logging && eisenctl tap "Save 82.4 kg"
+eisenctl wait "Weight trend 82.4 kg" && eisenctl visible "Change today's weight" && eisenctl shot 44-weight-card
+eisenctl tap "Change today's weight" && eisenctl wait "Logged 82.4 kg on this day. Save replaces it." && eisenctl tap "weight 82.4 kg" && eisenctl type 82.1 && eisenctl back && eisenctl wait "Save 82.1 kg" && eisenctl tap "Save 82.1 kg" && eisenctl wait "Weight trend 82.1 kg"
+eisenctl tap "Change today's weight" && eisenctl wait "Save 82.1 kg" && eisenctl tap "Previous day" && eisenctl wait "Yesterday" && eisenctl tap "weight 82.1 kg" && eisenctl type 82.8 && eisenctl back && eisenctl wait "Save 82.8 kg" && eisenctl tap "Save 82.8 kg"
+eisenctl wait "Weight trend 82.7 kg"
+jq -e '(.weights | map(.kg) == [82.8, 82.1]) and (.weights[0].day < .weights[1].day)' "$(eisenctl state 45-state)"
+eisenctl tap "Change today's weight" && eisenctl wait "Delete" && eisenctl tap "Delete" && eisenctl wait "Deleted the weight of today"
+grep -q "^content-desc=Weight trend 82.8 kg" "$(eisenctl shot 46-deleted | sed 's/png$/txt/')" && eisenctl tap "Undo" && eisenctl wait "Weight trend 82.7 kg"
+jq -e '.weights | map(.kg) == [82.8, 82.1]' "$(eisenctl state 47-state)"
+eisenctl tap "History" && eisenctl tap "Progress" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Weight" "Trend" "82.7 kg" "You burn" "Learning" "0 of 14 days" "Log weight" && eisenctl has "Weight over time, 2 weights, trend 82.7 kg, from 82.8 kg yesterday" && eisenctl small && eisenctl shot 48-progress-learning
+eisenctl doctor && eisenctl cleanup
+```
+
+**The weekly check-in taken; the weights and the trend in Progress** (`food-check-in`, `food-burn`, `food-weight-progress`).
+Four weeks of food and weights: the Food tab shows the check-in with last week's numbers. Take makes 2,200 kcal the goal
+and the card goes, also after a restart. Progress draws 22 weights as dots under the trend line.
+
+```sh
+eisenctl launch --state food-weight
+eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN"
+eisenctl visible "WEEKLY CHECK-IN" "Last week: 2,456 kcal a day, 7 days logged." "Trend −0.4 kg: 83.7 kg to 83.3 kg." "You burn about 2,740 kcal." "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" && eisenctl small && eisenctl shot 49-check-in
+eisenctl tap "Take 2,200 kcal" && eisenctl wait "Target this week: 2,200 kcal" && eisenctl has "2,200 kcal left" && eisenctl shot 50-taken
+! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+jq -e '(.foodGoal.kcal == 2200) and (.weightGoal.checkIn | .took and .target == 2200 and .was == 2400)' "$(eisenctl state 51-state)"
+eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
+eisenctl tap "Food" && eisenctl wait "2,200 kcal left" && ! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+for i in 1 2 3 4; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "WEIGHT" "Weight trend 83.3 kg, (down|up) 0\.[0-9] kg a week|Weight trend 83.3 kg, steady" "Log weight" && eisenctl shot 52-weight-card
+eisenctl tap "History" && eisenctl tap "Progress" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Weight" "3 months" "1 year" "All" "Weight over time, 22 weights, trend 83.3 kg, .*" "Trend" "83.3 kg" "Change" "You burn" "[0-9],[0-9]{3}" "kcal a day" "Log weight" && eisenctl small && eisenctl shot 53-progress-weight
+eisenctl tap "All" && eisenctl has "Weight over time, 22 weights, trend 83.3 kg, .*, from 84.2 kg on .*"
+eisenctl doctor && eisenctl cleanup
+```
+
+**The check-in after a restart, the goal pace, the switch off and on, and the check-in kept** (`food-check-in`, `food-pace`).
+The card comes back after the app is stopped with it open. The goal sheet's pace goes to 0.6 kg a week and the switch
+off: the card goes and nothing of the goal changes. Switched on again the card is back with the target of the new pace
+(2,740 − 0.6 × 1,100 = 2,080, to 50: 2,100); Keep leaves 2,400.
+
+```sh
+eisenctl launch --state food-weight
+eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN"
+eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
+eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN" && eisenctl has "New target: 2,200 kcal \(was 2,400\)"
+for i in 1 2 3; do eisenctl visible "Change goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Change goal" && eisenctl wait "Goal per day" && eisenctl has "Protein from your weight: 167 g"
+for i in 1 2 3 4; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "WEIGHT GOAL" "Lose" "Maintain" "Gain" "pace 0.5 kg a week" "Adjust my target each week" "Save goal" && eisenctl has "At most 1% of your weight a week: 0.8 kg." "You burn about [0-9],[0-9]{3} kcal. For this goal: [0-9],[0-9]{3} kcal a day." && eisenctl small && eisenctl shot 54-goal-pace
+eisenctl tap "Increase pace" && eisenctl wait "pace 0.6 kg a week" && eisenctl tap "Adjust my target each week" && eisenctl tap "Save goal" && eisenctl wait "Change goal"
+eisenctl scroll up && eisenctl scroll up && eisenctl wait "2,400 kcal left" && ! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+eisenctl shot 55-switch-off
+jq -e '(.weightGoal == {"direction": "lose", "pace": 0.6, "adjust": false, "checkIn": null}) and (.foodGoal == {"kcal": 2400, "protein": 160, "carbs": null, "fat": null})' "$(eisenctl state 56-state)"
+eisenctl tap "Change goal" && eisenctl wait "Goal per day" && for i in 1 2 3 4; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Adjust my target each week" && eisenctl tap "Save goal" && eisenctl wait "Food data" && eisenctl scroll up && eisenctl scroll up
+eisenctl wait "WEEKLY CHECK-IN" && eisenctl has "New target: 2,100 kcal \(was 2,400\)" "Keep 2,400 kcal" && eisenctl tap "Keep 2,400 kcal"
+eisenctl wait "2,400 kcal left" && ! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+jq -e '(.foodGoal.kcal == 2400) and (.weightGoal.adjust) and (.weightGoal.checkIn | (.took | not) and .target == 2100 and .was == 2400)' "$(eisenctl state 57-state)"
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -248,6 +349,17 @@ eisenctl doctor && eisenctl cleanup
   first match, and the first bar with 573 kcal is yesterday's.
 - Search-a-licious leaves `nutriments` out of many hits (all of the German "skyr" ones in November 2026): such a hit
   says "tap to look up its calories" and a tap is a product lookup by its barcode, the one request it costs.
+- `food-weight`'s check-in reads up to the Sunday before today and the driver moves the fixture so that is its last day: its
+  numbers are fixed. What the lifter burns on the card of the goal sheet and in Progress reads up to yesterday, so it moves
+  with the weekday a journey runs on; the recipes match it by its shape. The trend is the same any day (a day without a
+  weight carries it), its change a week is not.
+- The weight sheet starts at the day's weight, else the last one before it, else 80 kg; its number is typed by tapping it
+  (`weight 80 kg`), like the add sheet's grams. "Protein from your weight" is 2 g per kg of the trend (83.3 kg: 167 g).
+- The weight card sits under the day's timeline: a list that is longer by it scrolls further, so the timeline recipe checks
+  the opened group's first entry before it scrolls to "Save these as a meal", and scrolls back up to tap it.
+- The goal sheet has the weight goal under the macros: "Save goal" is below the fold, the recipes scroll to it.
+- The check-in card is the first item of the Food tab: after the goal sheet, scrolled down to `Change goal`, the recipes
+  scroll up before they look for it.
 - The real scanner is not driven here: on the emulator Google Play services first has to download its module
   ("Waiting for the Barcode UI module to be downloaded"), and then it needs a camera. `Scan` then opens
   `Type a barcode` with "Google Play services is downloading the scanner, once." (the app asks for the module; a second

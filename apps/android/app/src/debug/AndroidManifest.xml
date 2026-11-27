@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Debug builds only: may read back the nutrition records the app wrote, so the emulator can prove what Health
-  Connect holds (HealthSync logs it). Nothing in the app asks for it; it is granted by hand on the emulator.
+  Debug builds only: may read back the nutrition and weight records the app wrote, so the emulator can prove what Health
+  Connect holds (HealthSync logs it). Nothing in the app asks for them; they are granted by hand on the emulator.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.health.READ_NUTRITION" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
 </manifest>

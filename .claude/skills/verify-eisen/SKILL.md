@@ -39,7 +39,8 @@ eisenctl launch --fresh --animations   # the same with the animation scales left
   before it starts, so a journey that needs earlier data or a short timer does not tap it together.
   The file's days are moved by whole weeks so its newest entry is in the last seven days; its food log
   is moved by whole weeks so its newest day is one of the seven days before the phone's today (today
-  starts empty, the times of day stay). The moved copy is the run's `00-fixture-<name>.json`. Each journey in `features/` says which start it needs.
+  starts empty, the times of day stay); its weights (and a check-in answered) move by the same days. The moved copy is the
+  run's `00-fixture-<name>.json`. Each journey in `features/` says which start it needs.
 - Grants the notification permission, turns system animations off (`--animations` leaves them at 1),
   wakes the screen and mutes the media volume. **The owner wants every test muted. Never raise the volume.**
   A run with the animations off is faster and steadier, and misses what only breaks while something
@@ -76,7 +77,7 @@ debug app's files, uninstalls it (the release key is another signature), install
 animations off, and drives it: Home, a workout started and discarded, Workouts, a timer's setup, the Food tab, its add
 screen, Scan (the scanner's own screen, or the typed barcode while Play services fetches the scanner), a typed barcode
 looked up in airplane mode ("No network": a release build reads no local answers), a new own food put on the plate and
-logged, Settings behind the gear, History › Progress. It **fails on a crash, an ANR, or a `ClassNotFoundException`,
+logged, Settings behind the gear, History › Progress and a weight logged in its Weight section. It **fails on a crash, an ANR, or a `ClassNotFoundException`,
 `NoSuchMethodException` or `ComponentDiscovery` warning of the app's process in logcat**, and on any step that does
 not show. Then, failed or not, the debug build goes back on with its files, airplane mode off, animations and font as
 found. Evidence: `verify/android/<date-time>-release/`. It needs no open run and leaves none; it stamps nothing. About
@@ -186,6 +187,9 @@ change to the state that breaks one is fixed in the same change: load it and sav
 - `food-history`: the same, plus two weeks of food: eight foods, each eaten every day at its own time three hours
   apart (Milk 01:30, Banana 04:30, Oats 07:30, Skyr 10:30, Rice 13:30, Apple 16:30, Chicken 19:30, Cottage cheese
   22:30, Berlin time), so whatever the hour a journey runs at, one of them is "usual at this time".
+- `food-weight`: the `food` fixture with four weeks, Monday to Sunday, of three meals a day (two days without) and most
+  mornings' weights (84.2 kg down to 82.4 kg), a goal of 2,400 kcal and to lose 0.5 kg a week with the weekly check-in on.
+  Moved so its last day is the Sunday before today: the check-in is due, with the same numbers on any day.
 
 Every value in them is one the app's own screens can produce: they were made by sending `update`
 the messages the screens send, with wheel values from the setup's own lists.

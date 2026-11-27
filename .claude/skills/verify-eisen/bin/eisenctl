@@ -119,7 +119,8 @@ case "${1:-}" in
       # Moved by whole weeks so its newest entry is in the last seven days: "this week" and the
       # last 12 weeks of Progress keep something to show, on the same weekdays, however old the file.
       # The food log moves by whole weeks too, its newest day into the seven days before today (the
-      # phone's today), so today starts empty and the times of day stay what they were.
+      # phone's today), so today starts empty and the times of day stay what they were. The weights
+      # (and a check-in answered) move with it, by the same days.
       shifted="$run/00-fixture-$(basename "$fixture")"
       today="$("$ADB" shell date +%Y-%m-%d | tr -d '\r')"
       jq -c --argjson now "$(date +%s)000" --arg today "$today" '
@@ -128,7 +129,10 @@ case "${1:-}" in
         | walk(if type == "object" then with_entries(if (.key == "startedAt" or .key == "finishedAt") and (.value | type) == "number" then .value += $by else . end) else . end)
         | ([.foodLog[]?.day] | max) as $last
         | (if $last == null then 0 else (((($today | strptime("%Y-%m-%d") | mktime) - ($last | strptime("%Y-%m-%d") | mktime)) / 86400 | floor) as $d | 7 * ((($d - 1) / 7) | floor)) end) as $days
-        | if has("foodLog") then .foodLog |= map(.at += $days * 86400000 | .day = ((.day | strptime("%Y-%m-%d") | mktime) + $days * 86400 | strftime("%Y-%m-%d"))) else . end
+        | def moved: (strptime("%Y-%m-%d") | mktime) + $days * 86400 | strftime("%Y-%m-%d");
+        if has("foodLog") then .foodLog |= map(.at += $days * 86400000 | .day |= moved) else . end
+        | if has("weights") then .weights |= map(.at += $days * 86400000 | .day |= moved) else . end
+        | if .weightGoal.checkIn? then .weightGoal.checkIn.week |= moved else . end
       ' "$fixture" > "$shifted" || die "could not read $fixture"
       "$ADB" shell "run-as $PKG mkdir -p files" && "$ADB" shell "run-as $PKG sh -c 'cat > files/eisen.json'" < "$shifted" \
         || die "could not write $fixture into the app"
@@ -483,6 +487,9 @@ $(echo "$ignored" | cut -c1-160)"
     # Settings behind the gear on Home, History and its Progress.
     go tap "Home" && go wait "Start workout" && go tap "Settings" && go wait "Weights" && go shot 09-settings && go back && go wait "Start workout"
     go tap "History" && go tap "Progress" && go wait "Finish your first workout and your progress shows up here." && go shot 10-progress && seen
+    # Its Weight section: a weight logged from the sheet there starts the trend (the weight log and its JSON under R8).
+    for _ in 1 2 3; do "$self" has "Log weight" 2> /dev/null && break; "$self" scroll down; done
+    go tap "Log weight" && go wait "Save 80 kg" && go tap "Save 80 kg" && go wait "Weight over time, 1 weight, trend 80 kg.*" && go shot 11-weight && seen
     "$ADB" logcat -d -v threadtime > "$run/logcat.txt"
     # What breaks under R8: a crash, an ANR, a class or a method it took away, ML Kit's components not found.
     pids="$(echo $pids | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')"

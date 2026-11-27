@@ -45,6 +45,10 @@ import io.github.alexanderop.eisen.feature.food.goalWithin
 import io.github.alexanderop.eisen.feature.food.MAX_MEALS
 import io.github.alexanderop.eisen.feature.food.Meal
 import io.github.alexanderop.eisen.feature.food.mealWithin
+import io.github.alexanderop.eisen.feature.food.WeightEntry
+import io.github.alexanderop.eisen.feature.food.WeightGoal
+import io.github.alexanderop.eisen.feature.food.weightGoalWithin
+import io.github.alexanderop.eisen.feature.food.weightsWithin
 
 @Serializable
 data class Settings(
@@ -102,6 +106,13 @@ data class AppState(
      * field and older builds ignore it: no migration.
      */
     val meals: List<Meal> = emptyList(),
+    /**
+     * The lifter's weights in kilograms, one per day, in the order of the days. Older files have no such field and
+     * older builds ignore it: no migration.
+     */
+    val weights: List<WeightEntry> = emptyList(),
+    /** The goal pace, whether the weekly check-in adjusts the calorie target, and the check-in answered last. */
+    val weightGoal: WeightGoal = WeightGoal(),
     /** Saved interval timers, in the order the Timer tab shows them. */
     val timerPresets: List<TimerPreset> = emptyList(),
     /** Finished interval timers, newest first. */
@@ -192,7 +203,7 @@ private const val REASON_LENGTH = 140
 /** The state of a stored state or a backup of any version. Null when [loadState] has none. */
 fun decodeState(json: String): AppState? = (loadState(json) as? Loaded.Ok)?.state
 
-/** What a file holds that has limits of its own: the WODs, boxing plans with one round per round, and the foods, what was eaten, the goal and the meals. */
+/** What a file holds that has limits of its own: the WODs, boxing plans with one round per round, the foods, what was eaten, the goal and the meals, and the weights with their goal. */
 private fun inLimits(state: AppState): AppState {
     fun boxing(config: TimerConfig) = if (config.mode == TimerMode.BOXING) timerConfig(config) else config
     return state.copy(
@@ -204,6 +215,8 @@ private fun inLimits(state: AppState): AppState {
         foodLog = state.foodLog.map(::entryWithin).distinctBy { it.id },
         foodGoal = goalWithin(state.foodGoal),
         meals = state.meals.mapNotNull(::mealWithin).distinctBy { it.id }.take(MAX_MEALS),
+        weights = weightsWithin(state.weights),
+        weightGoal = weightGoalWithin(state.weightGoal),
     )
 }
 

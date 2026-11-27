@@ -193,4 +193,20 @@ class HealthMappingTest {
         assertTrue(io.github.alexanderop.eisen.feature.food.MAX_QUICK_KCAL <= 100_000)
         assertTrue(io.github.alexanderop.eisen.feature.food.MAX_ENTRY_GRAMS <= 100_000.0)
     }
+
+    @Test fun `a weight is a record of its day, at the moment it was logged or at noon of an earlier day`() {
+        val logged = java.time.ZonedDateTime.parse("2026-11-26T07:05:00+01:00[Europe/Berlin]").toInstant().toEpochMilli()
+        val fields = io.github.alexanderop.eisen.feature.health.platform.weightFields(io.github.alexanderop.eisen.feature.food.WeightEntry("2026-11-26", 82.4, logged), berlin)!!
+        assertEquals("weight:2026-11-26", fields.id)
+        assertEquals(java.time.Instant.ofEpochMilli(logged), fields.time)
+        assertEquals(java.time.ZoneOffset.ofHours(1), fields.offset)
+        assertEquals(82.4, fields.kg, 0.0)
+        // Filled in on the 26th for the 24th: noon of the 24th, under the 24th's id, so a correction rewrites that record.
+        val earlier = io.github.alexanderop.eisen.feature.health.platform.weightFields(io.github.alexanderop.eisen.feature.food.WeightEntry("2026-11-24", 82.9, logged), berlin)!!
+        assertEquals(java.time.ZonedDateTime.parse("2026-11-24T12:00:00+01:00[Europe/Berlin]").toInstant(), earlier.time)
+        assertEquals("weight:2026-11-24", earlier.id)
+        assertNull(io.github.alexanderop.eisen.feature.health.platform.weightFields(io.github.alexanderop.eisen.feature.food.WeightEntry("not a day", 82.4, logged), berlin))
+        // WeightRecord takes 0 to 1,000 kg (connect-client 1.1.0).
+        assertTrue(io.github.alexanderop.eisen.feature.food.MIN_BODY_KG > 0 && io.github.alexanderop.eisen.feature.food.MAX_BODY_KG <= 1_000.0)
+    }
 }

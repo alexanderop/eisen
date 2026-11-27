@@ -62,6 +62,8 @@ data class Model(
     val wods: WodsModel = WodsModel(),
     /** The Food screen, its sheet and the rate limits of Open Food Facts. See [FoodModel]. */
     val food: FoodModel = FoodModel(),
+    /** The weight sheet and the check-in card already shown this week. See [WeightModel]. */
+    val weight: WeightModel = WeightModel(),
     /** The plain foods shipped in the app (rice, eggs, oats), read once at the start. Not saved: they are the app's. */
     val plainFoods: List<Food> = emptyList(),
     val nav: Navigation = Navigation(workoutOpen = state.active != null),
@@ -94,6 +96,7 @@ internal inline fun Model.undo(change: (Undo) -> Undo): Model = copy(undo = chan
 internal inline fun Model.health(change: (HealthModel) -> HealthModel): Model = copy(health = change(health))
 internal inline fun Model.notifications(change: (Notifications) -> Notifications): Model = copy(notifications = change(notifications))
 internal inline fun Model.food(change: (FoodModel) -> FoodModel): Model = copy(food = change(food))
+internal inline fun Model.weight(change: (WeightModel) -> WeightModel): Model = copy(weight = change(weight))
 internal inline fun Model.timerSetup(change: (TimerSetup) -> TimerSetup): Model = copy(timerSetup = timerSetup?.let(change))
 
 /** The hold timer changed in place, while it is open: it is the same timer, so no transition of the [Overlay]. */
@@ -410,6 +413,8 @@ data class Undo(
     val againEntry: String? = null,
     /** The entries the last meal or copied day logged, which its Undo takes back. */
     val addedEntries: AddedEntries = emptyList(),
+    /** The weight deleted last. */
+    val deletedWeight: DeletedWeight? = null,
 )
 
 /**
@@ -424,6 +429,8 @@ data class HealthModel(
      * food existed has only the workouts' permission: Settings offers "Write food too", nothing asks at the start.
      */
     val food: Boolean = false,
+    /** Weights may be written as well (`WRITE_WEIGHT`, as last checked), asked for like [food]: from Settings, never at the start. */
+    val weight: Boolean = false,
     val syncing: Boolean = false,
     val notice: String? = null,
     val availability: HealthAvailability = HealthAvailability.UNAVAILABLE,

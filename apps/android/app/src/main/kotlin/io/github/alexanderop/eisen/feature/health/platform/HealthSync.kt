@@ -8,6 +8,7 @@ import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.MealType
 import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.units.Energy
 import androidx.health.connect.client.units.Mass
@@ -15,6 +16,7 @@ import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import io.github.alexanderop.eisen.BuildConfig
 import io.github.alexanderop.eisen.feature.food.FoodEntry
+import io.github.alexanderop.eisen.feature.food.WeightEntry
 import io.github.alexanderop.eisen.feature.timer.TimerSession
 import io.github.alexanderop.eisen.feature.workout.Workout
 import io.github.alexanderop.eisen.app.elm.HealthAvailability
@@ -40,7 +42,10 @@ object HealthSync {
 
     /** `android.permission.health.WRITE_NUTRITION`: what was eaten, asked for together with the workouts. */
     val FOOD_PERMISSION: String = HealthPermission.getWritePermission(NutritionRecord::class)
-    val PERMISSIONS: Set<String> = setOf(WRITE_PERMISSION, FOOD_PERMISSION)
+
+    /** `android.permission.health.WRITE_WEIGHT`: the weights of the log, asked for together with the rest. */
+    val WEIGHT_PERMISSION: String = HealthPermission.getWritePermission(WeightRecord::class)
+    val PERMISSIONS: Set<String> = setOf(WRITE_PERMISSION, FOOD_PERMISSION, WEIGHT_PERMISSION)
 
     private lateinit var app: Context
     private lateinit var dispatch: (Msg) -> Unit
@@ -78,13 +83,13 @@ object HealthSync {
             // Not queued behind a long sync: the switch should answer at once.
             is HealthJob.CheckPermission -> scope.launch {
                 val granted = granted()
-                dispatch(Msg.Health.PermissionChecked(job.purpose, WRITE_PERMISSION in granted, FOOD_PERMISSION in granted))
+                dispatch(Msg.Health.PermissionChecked(job.purpose, WRITE_PERMISSION in granted, FOOD_PERMISSION in granted, WEIGHT_PERMISSION in granted))
             }
-            is HealthJob.Upsert -> enqueue { guarded { upsert(job.workouts, job.timers, job.food) } }
-            is HealthJob.Delete -> enqueue { guarded { delete(job.ids, job.food) } }
+            is HealthJob.Upsert -> enqueue { guarded { upsert(job.workouts, job.timers, job.food, job.weights) } }
+            is HealthJob.Delete -> enqueue { guarded { delete(job.ids, job.food, job.weights) } }
             is HealthJob.SyncPast -> enqueue {
-                val written = guarded { upsert(job.workouts, job.timers, job.food) }
-                dispatch(Msg.Health.SyncedPast(written?.first, written?.second ?: 0))
+                val written = guarded { upsert(job.workouts, job.timers, job.food, job.weights) }
+                dispatch(Msg.Health.SyncedPast(written?.workouts, written?.foods ?: 0, written?.weights ?: 0))
             }
             // Answered at once: the activity asks before its first frame, so Settings never shows a stale row.
             HealthJob.CheckAvailability -> dispatch(Msg.Health.Availability(availability()))
@@ -126,15 +131,19 @@ object HealthSync {
 
     private const val TAG = "EisenHealth"
 
-    /** The number of workout and timer records written and of food records, or null when Health Connect is not there. */
-    private suspend fun upsert(workouts: List<Workout>, timers: List<TimerSession>, food: List<FoodEntry>): Pair<Int, Int>? {
+    /** How many records one upsert wrote: workouts and timers, food entries, weights. */
+    private data class Written(val workouts: Int, val foods: Int, val weights: Int)
+
+    /** What was written, or null when Health Connect is not there. */
+    private suspend fun upsert(workouts: List<Workout>, timers: List<TimerSession>, food: List<FoodEntry>, weights: List<WeightEntry>): Written? {
         val client = client() ?: return null
         val granted = client.permissionController.getGrantedPermissions()
         if (WRITE_PERMISSION !in granted) {
             dispatch(Msg.Health.Revoked)
-            return 0 to 0
+            return Written(0, 0, 0)
         }
         val foods = if (food.isEmpty()) 0 else if (FOOD_PERMISSION !in granted) 0.also { dispatch(Msg.Health.FoodRevoked) } else writeFood(client, food)
+        val weighed = if (weights.isEmpty()) 0 else if (WEIGHT_PERMISSION !in granted) 0.also { dispatch(Msg.Health.WeightRevoked) } else writeWeights(client, weights)
         // Newer than anything written before, so an edited workout replaces its old record.
         val version = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
@@ -145,7 +154,38 @@ object HealthSync {
             runCatching { timerSessionFields(timer, zone)?.let { record(timer.id, version, it) } }.getOrNull()
         }
         for (batch in records.chunked(BATCH)) client.insertRecords(batch)
-        return records.size to foods
+        return Written(records.size, foods, weighed)
+    }
+
+    /** Weights as weight records, one per day, rewritten by their day's id. The number written. */
+    private suspend fun writeWeights(client: HealthConnectClient, weights: List<WeightEntry>): Int {
+        val version = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
+        val records = weights.mapNotNull { entry ->
+            runCatching {
+                weightFields(entry, zone)?.let { fields ->
+                    // Typed by the lifter: a manual entry, not a scale's measurement.
+                    WeightRecord(fields.time, fields.offset, Mass.kilograms(fields.kg), Metadata.manualEntry(clientRecordId = fields.id, clientRecordVersion = version))
+                }
+            }.getOrNull()
+        }
+        for (batch in records.chunked(BATCH)) client.insertRecords(batch)
+        if (BuildConfig.DEBUG) logWeightsBack(client, records)
+        return records.size
+    }
+
+    /** Debug builds only, like [logReadBack]: the weights just written as Health Connect holds them. Needs `READ_WEIGHT`, declared only in the debug manifest. */
+    private suspend fun logWeightsBack(client: HealthConnectClient, records: List<WeightRecord>) {
+        if (records.isEmpty()) return
+        try {
+            val ids = records.mapNotNull { it.metadata.clientRecordId }.toSet()
+            val range = TimeRangeFilter.between(records.minOf { it.time }, records.maxOf { it.time }.plusMillis(1))
+            for (record in client.readRecords(ReadRecordsRequest(WeightRecord::class, range)).records.filter { it.metadata.clientRecordId in ids }) {
+                Log.i(TAG, "read back ${record.metadata.clientRecordId}: ${record.weight.inKilograms} kg at ${record.time}")
+            }
+        } catch (_: SecurityException) {
+            Log.i(TAG, "read back skipped: READ_WEIGHT not granted")
+        }
     }
 
     /** Food entries as nutrition records, rewritten by their id like workouts. The number written. */
@@ -181,10 +221,11 @@ object HealthSync {
         }
     }
 
-    private suspend fun delete(ids: List<String>, food: List<String>) {
+    private suspend fun delete(ids: List<String>, food: List<String>, weights: List<String>) {
         val client = client() ?: return
         for (batch in ids.chunked(BATCH)) client.deleteRecords(ExerciseSessionRecord::class, emptyList(), batch)
         for (batch in food.chunked(BATCH)) client.deleteRecords(NutritionRecord::class, emptyList(), batch)
+        for (batch in weights.map(::weightRecordId).chunked(BATCH)) client.deleteRecords(WeightRecord::class, emptyList(), batch)
     }
 
     private fun nutrition(id: String, version: Long, fields: NutritionFields) = NutritionRecord(

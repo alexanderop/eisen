@@ -50,6 +50,7 @@ import io.github.alexanderop.eisen.app.elm.showsWorkout
 import io.github.alexanderop.eisen.app.elm.showsFood
 import io.github.alexanderop.eisen.feature.food.ui.FoodScreen
 import io.github.alexanderop.eisen.feature.food.ui.AddFoodScreen
+import io.github.alexanderop.eisen.feature.food.ui.WeightSheet
 import io.github.alexanderop.eisen.feature.food.platform.BarcodeScanner
 import io.github.alexanderop.eisen.app.elm.ScanFailure
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -234,6 +235,8 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
                     Tab.SETTINGS -> SettingsScreen(model, dispatch)
                 }
             }
+            // The weight is logged from the Food tab and from History › Progress, over either.
+            if (tab == Tab.FOOD || tab == Tab.HISTORY) WeightSheet(model, dispatch)
         }
     }
 }
@@ -252,7 +255,7 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
         dispatch(Msg.Rest.NotificationPermission(granted))
     }
     val health = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
-        dispatch(Msg.Health.PermissionResult(HealthSync.WRITE_PERMISSION in granted, HealthSync.FOOD_PERMISSION in granted))
+        dispatch(Msg.Health.PermissionResult(HealthSync.WRITE_PERMISSION in granted, HealthSync.FOOD_PERMISSION in granted, HealthSync.WEIGHT_PERMISSION in granted))
     }
     LaunchedEffect(Unit) {
         Eisen.uiEvents.collect { event ->

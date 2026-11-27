@@ -112,6 +112,13 @@
         "fat": null
     },
     "meals": [],
+    "weights": [],
+    "weightGoal": {
+        "direction": "maintain",
+        "pace": 0.0,
+        "adjust": true,
+        "checkIn": null
+    },
     "timerPresets": [
         {
             "id": "3f82bb91-01eb-31a8-97ce-3e50e0a557cf",

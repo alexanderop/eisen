@@ -78,7 +78,7 @@ fun HealthConnectRows(health: HealthModel, dispatch: (Msg) -> Unit) {
         HealthAvailability.AVAILABLE -> {
             ListItem(
                 headlineContent = { Text(LABEL, fontSize = 16.sp) },
-                supportingContent = { Text("Finished workouts and what you eat show up in Google Fit, Samsung Health and other apps.", fontSize = 13.sp) },
+                supportingContent = { Text("Finished workouts, what you eat and your weight show up in Google Fit, Samsung Health and other apps.", fontSize = 13.sp) },
                 modifier = Modifier.toggleable(value = health.enabled, role = Role.Switch, onValueChange = { dispatch(Msg.Health.Toggle) })
                     .heightIn(min = 56.dp),
                 leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
@@ -89,16 +89,27 @@ fun HealthConnectRows(health: HealthModel, dispatch: (Msg) -> Unit) {
             if (health.enabled && !health.food) {
                 ListItem(
                     headlineContent = { Text("Write food too", fontSize = 16.sp) },
-                    supportingContent = { Text("Health Connect asks once more, for what you eat.", fontSize = 13.sp) },
+                    supportingContent = { Text("Health Connect asks for what you eat. If nothing opens, allow it in Health Connect itself.", fontSize = 13.sp) },
                     modifier = Modifier.clickable(role = Role.Button, onClick = { dispatch(Msg.Health.AllowFood) }).heightIn(min = 56.dp),
                     leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
                     colors = rowColors(),
                 )
             }
+            // The same for the weights, which came after food.
+            if (health.enabled && !health.weight) {
+                ListItem(
+                    headlineContent = { Text("Write weight too", fontSize = 16.sp) },
+                    supportingContent = { Text("Health Connect asks for your weight. If nothing opens, allow it in Health Connect itself.", fontSize = 13.sp) },
+                    modifier = Modifier.clickable(role = Role.Button, onClick = { dispatch(Msg.Health.AllowWeight) }).heightIn(min = 56.dp),
+                    leadingContent = { Icon(HealthIcon, contentDescription = null, modifier = Modifier.size(24.dp)) },
+                    colors = rowColors(),
+                )
+            }
             if (health.enabled) {
+                val what = listOfNotNull("every workout", "every food".takeIf { health.food }, "every weight".takeIf { health.weight })
                 ListItem(
                     headlineContent = { Text("Sync past workouts", fontSize = 16.sp) },
-                    supportingContent = { Text(if (health.food) "Writes every workout and every food in your history once." else "Writes every workout in your history once.", fontSize = 13.sp) },
+                    supportingContent = { Text("Writes ${if (what.size == 1) what[0] else what.dropLast(1).joinToString(", ") + " and " + what.last()} in your history once.", fontSize = 13.sp) },
                     modifier = Modifier.clickable(enabled = !health.syncing, role = Role.Button, onClick = { dispatch(Msg.Health.SyncPast) })
                         .heightIn(min = 56.dp)
                         .alpha(if (health.syncing) 0.5f else 1f),

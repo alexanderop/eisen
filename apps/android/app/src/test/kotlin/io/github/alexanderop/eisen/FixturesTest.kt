@@ -48,6 +48,7 @@ class FixturesTest {
         "lifter" to ::lifter,
         "food" to ::food,
         "food-history" to ::foodHistory,
+        "food-weight" to ::foodWeight,
     )
 
     @Test fun `every fixture loads, is at the current version, and saving it again changes nothing`() {
@@ -145,6 +146,33 @@ class FixturesTest {
         val days = log.map { java.time.LocalDate.parse(it.day) }.toSet()
         val span = java.time.temporal.ChronoUnit.DAYS.between(days.min(), days.max())
         assertTrue("the history spans $span days", span in 13..(io.github.alexanderop.eisen.feature.food.USUAL_DAYS - 8).toLong())
+    }
+
+    /**
+     * The food fixture with four weeks, Monday to Sunday, of food and weights: most mornings a weight (a few without one,
+     * one high), three meals a day but on two days nothing, a goal of 2,400 kcal and to lose 0.5 kg a week with the
+     * check-in on and never answered. The driver moves its days by whole weeks, so its last day is always the Sunday
+     * before the day a journey runs: the check-in is due, and the trend and what the lifter burns are known.
+     */
+    private fun foodWeight(state: AppState) {
+        assertEquals(freshState(WeightUnit.KG).copy(foods = state.foods, foodGoal = state.foodGoal, foodLog = state.foodLog, weights = state.weights, weightGoal = state.weightGoal), state)
+        assertEquals(FoodGoal(2400, 160), state.foodGoal)
+        assertEquals(io.github.alexanderop.eisen.feature.food.WeightGoal(io.github.alexanderop.eisen.feature.food.GoalDirection.LOSE, 0.5, adjust = true), state.weightGoal)
+        val days = state.foodLog.map { it.day }.toSet() + state.weights.map { it.day }
+        val last = java.time.LocalDate.parse(days.max())
+        assertEquals("its last day is not a Sunday", java.time.DayOfWeek.SUNDAY, last.dayOfWeek)
+        assertEquals("not four weeks", 27L, java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.parse(days.min()), last))
+        assertEquals("one weight per day", state.weights.map { it.day }.toSet().size, state.weights.size)
+        assertTrue("fewer than 20 weights", state.weights.size >= 20)
+        // Whatever weekday a journey runs on, the 21 days before yesterday hold 14 logged days.
+        val monday = last.plusDays(1)
+        for (offset in 0L..6L) {
+            val today = monday.plusDays(offset)
+            val model = io.github.alexanderop.eisen.app.elm.Model(state, now = today.atTime(10, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli())
+            assertTrue("$today: ${io.github.alexanderop.eisen.app.elm.burnNow(model)}", io.github.alexanderop.eisen.app.elm.burnNow(model) is io.github.alexanderop.eisen.feature.food.Estimate.Ready)
+            val due = io.github.alexanderop.eisen.app.elm.checkIn(model)
+            assertTrue("$today: $due", due is io.github.alexanderop.eisen.app.elm.CheckIn.Due && due.offer.note == null && due.offer.target != 2400)
+        }
     }
 
     /** A saved timer whose numbers the setup's wheels can show: nothing a lifter could not have saved. */

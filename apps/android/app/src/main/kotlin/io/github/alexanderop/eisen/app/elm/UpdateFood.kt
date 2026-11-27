@@ -30,6 +30,8 @@ import io.github.alexanderop.eisen.feature.food.underLimit
 import io.github.alexanderop.eisen.feature.food.withRequest
 import io.github.alexanderop.eisen.feature.food.entryIds
 import io.github.alexanderop.eisen.feature.food.plusDays
+import io.github.alexanderop.eisen.feature.food.maxPace
+import io.github.alexanderop.eisen.feature.food.weightGoalWithin
 import io.github.alexanderop.eisen.feature.food.weekOf
 import io.github.alexanderop.eisen.feature.food.atOfDay
 import io.github.alexanderop.eisen.feature.food.entryMinute
@@ -149,7 +151,9 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
         Msg.Food.OpenGoal -> if (!open || add != null) model.only() else timed.food { it.copy(sheet = FoodSheet.Goal) }.only()
         is Msg.Food.SaveGoal -> {
             if (model.food.sheet != FoodSheet.Goal) return model.only()
-            timed.withState { it.copy(foodGoal = goalWithin(FoodGoal(msg.kcal, msg.protein, msg.carbs, msg.fat))) }.food { it.copy(sheet = null) }.only()
+            // The pace is kept within 1 % of the trend weight a week, the check-in's switch as it was set.
+            val plan = msg.weight?.let { weightGoalWithin(model.state.weightGoal.copy(direction = it.direction, pace = it.pace, adjust = it.adjust), maxPace(trendNow(model))) }
+            timed.withState { it.copy(foodGoal = goalWithin(FoodGoal(msg.kcal, msg.protein, msg.carbs, msg.fat)), weightGoal = plan ?: it.weightGoal) }.food { it.copy(sheet = null) }.only()
         }
         is Msg.Food.Search -> {
             if (add == null) return model.only()

@@ -12,9 +12,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- The end of a rest has to fire on the second, also with the screen off. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <!-- Finished workouts and what was eaten are written to Health Connect when the lifter turns it on. Nothing is read. -->
+    <!-- Finished workouts, what was eaten and the weights are written to Health Connect when the lifter turns it on. Nothing is read. -->
     <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
     <uses-permission android:name="android.permission.health.WRITE_NUTRITION" />
+    <uses-permission android:name="android.permission.health.WRITE_WEIGHT" />
     <!-- A scanned or typed barcode, or a typed search, is sent to Open Food Facts. Nothing else leaves the phone. -->
     <uses-permission android:name="android.permission.INTERNET" />
 

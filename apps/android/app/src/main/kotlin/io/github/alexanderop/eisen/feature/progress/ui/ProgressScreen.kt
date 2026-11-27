@@ -76,6 +76,11 @@ import io.github.alexanderop.eisen.core.ui.fmt
 import io.github.alexanderop.eisen.core.ui.formatDate
 import io.github.alexanderop.eisen.core.ui.formatShortDate
 import java.util.Locale
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import io.github.alexanderop.eisen.app.elm.LOGGED_DAY_NOTE
+import io.github.alexanderop.eisen.app.elm.weightChart
 
 private const val WEEKS = 12
 
@@ -128,13 +133,17 @@ fun ProgressScreen(model: Model, dispatch: (Msg) -> Unit, title: Boolean = true)
                 Text("Finish your first workout and your progress shows up here.", color = EisenColors.MutedForeground)
             }
             week?.let { FoodSection(it, dispatch) }
+            WeightSection(model.copy(now = now), dispatch)
             return@Column
         }
 
         // A day with an interval timer is a training day. Volume and records stay with the workouts.
         Consistency(state.history, state.timerSessions, now)
         week?.let { FoodSection(it, dispatch) }
-        if (state.history.isEmpty()) return@Column
+        if (state.history.isEmpty()) {
+            WeightSection(model.copy(now = now), dispatch)
+            return@Column
+        }
 
         var range by rememberSaveable { mutableStateOf(Range.THREE_MONTHS) }
         RangePicker(range, onChange = { range = it })
@@ -146,6 +155,8 @@ fun ProgressScreen(model: Model, dispatch: (Msg) -> Unit, title: Boolean = true)
 
         AllLifts(state.history, unit, options, entries, range)
         ExerciseCard(state.history, unit, options, entries, range, workingWeight = { id -> progressOf(model, id).weight })
+        // Last: the lifts stay where a lifter looks for them.
+        WeightSection(model.copy(now = now), dispatch)
     }
 }
 
@@ -184,6 +195,64 @@ private fun FoodSection(week: FoodWeek, dispatch: (Msg) -> Unit) {
                 Stat("Protein goal", week.proteinDays?.let { "$it of $FOOD_WEEK_DAYS" } ?: "–", if (week.proteinDays == null) "none set" else "days reached"),
             ),
         )
+    }
+}
+
+/**
+ * The weights as dots and their trend as a line over the range picked, the trend, its change a week and what the lifter
+ * burns; "Log weight" opens the weight sheet. Before the first weight it says what to do.
+ */
+@Composable
+private fun WeightSection(model: Model, dispatch: (Msg) -> Unit) {
+    var range by rememberSaveable { mutableStateOf(Range.THREE_MONTHS) }
+    val chart = remember(model.state.weights, model.state.foodLog, model.state.settings.unit, range, model.now) { weightChart(model, range.days) }
+    Section(Gutter) {
+        SectionHead("Weight", if (chart == null) "No weights yet" else "Trend and weights")
+        if (chart == null) {
+            Text("Log your weight on a few mornings to see your trend.", color = EisenColors.MutedForeground)
+        } else {
+            ChoiceGroup(Range.entries, range, { it.label }, { range = it }, fontSize = 14.sp)
+            var at by rememberSaveable(range) { mutableStateOf<Long?>(null) }
+            val series = remember(chart) {
+                listOf(
+                    ChartSeries("weights", "Weights", EisenColors.MutedForeground, chart.weights.map { ChartPoint(it.first, it.second) }, dots = true),
+                    ChartSeries("trend", "Trend", EisenColors.Primary, chart.trend.map { ChartPoint(it.first, it.second) }),
+                )
+            }
+            val unit = model.state.settings.unit
+            // The day under the crosshair: its weight (if one was logged) and its trend.
+            val active = at
+            val readout = if (active == null) null else listOfNotNull(
+                formatDate(active),
+                chart.weights.firstOrNull { it.first == active }?.let { "weight ${formatNumber(it.second)} ${unit.label}" },
+                chart.trend.firstOrNull { it.first == active }?.let { "trend ${String.format(Locale.ROOT, "%.1f", it.second)} ${unit.label}" },
+            ).joinToString(" · ")
+            Text(readout ?: "Dots: your weights. Line: the trend.", Modifier.padding(top = 12.dp, bottom = 4.dp).semantics { liveRegion = LiveRegionMode.Polite }, color = EisenColors.MutedForeground, fontSize = 13.sp)
+            TimeChart(
+                series = series,
+                active = at,
+                onActiveChange = { at = it },
+                format = { formatNumber(it) },
+                formatTime = ::formatShortDate,
+                label = chart.summary,
+            )
+            Stats(
+                listOf(
+                    Stat("Trend", chart.trendText ?: "–"),
+                    Stat("Change", chart.changeText ?: "–", if (chart.changeText == null) "needs a week" else "a week"),
+                    Stat("You burn", chart.burnValue, chart.burnUnit),
+                ),
+            )
+            chart.burnNote?.let { Text(it, Modifier.padding(top = 8.dp), color = EisenColors.MutedForeground, fontSize = 13.sp) }
+            Text(LOGGED_DAY_NOTE, Modifier.padding(top = 8.dp), color = EisenColors.MutedForeground, fontSize = 13.sp)
+        }
+        FilledTonalButton(
+            onClick = { dispatch(Msg.Weight.Open()) },
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 52.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(containerColor = EisenColors.Muted, contentColor = EisenColors.Foreground),
+        ) {
+            Text("Log weight", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
     }
 }
 

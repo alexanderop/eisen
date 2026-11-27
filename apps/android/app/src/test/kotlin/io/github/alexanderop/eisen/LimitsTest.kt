@@ -102,6 +102,7 @@ class LimitsTest {
         for (session in state.timerSessions) if (session.rounds !in 0..MAX_COUNTED_ROUNDS) add("${session.name} rounds ${session.rounds}")
         for (saved in state.wods) if (saved != wod(saved)) add("wod $saved")
         addAll(foodOutOfLimits(state))
+        addAll(weightOutOfLimits(state))
     }
 
     private fun assertWithin(step: Step, sent: Any) {
@@ -114,6 +115,39 @@ class LimitsTest {
         assertTrue("after $sent: ${step.model.food.plate.size} foods on the plate", step.model.food.plate.size <= io.github.alexanderop.eisen.feature.food.MAX_PLATE_ITEMS)
         val plate = plateOutOfLimits(step.model.food.plate)
         assertTrue("after $sent:\n${plate.joinToString("\n")}", plate.isEmpty())
+        step.model.weight.sheet?.let { sheet ->
+            val unit = step.state.settings.unit
+            val kg = io.github.alexanderop.eisen.feature.food.bodyFrom(sheet.value, unit)
+            assertTrue("after $sent: the weight sheet is at ${sheet.value} $unit", kg in io.github.alexanderop.eisen.feature.food.MIN_BODY_KG - 0.05..io.github.alexanderop.eisen.feature.food.MAX_BODY_KG + 0.05)
+        }
+    }
+
+    @Test fun `the largest number a weight Msg carries is saved within its field's limit`() {
+        for (unit in WeightUnit.entries) {
+            val open = Step(Model(freshState(unit), now = LATER)).send(Msg.Weight.Open())
+            for (value in listOf(heavy, -heavy, Double.NaN, Double.POSITIVE_INFINITY, Double.MIN_VALUE)) {
+                val set = open.send(Msg.Weight.SetValue(value))
+                assertWithin(set, "SetValue($value) in $unit")
+                assertWithin(set.send(Msg.Weight.Save, id = "w1"), "Save of $value in $unit")
+            }
+        }
+        // A goal pace beyond every limit, with and without a weight to take 1 % of.
+        val heavyPace = io.github.alexanderop.eisen.feature.food.WeightGoal(io.github.alexanderop.eisen.feature.food.GoalDirection.GAIN, heavy)
+        val goal = Step(Model(freshState(WeightUnit.KG), now = LATER)).send(Msg.Food.Open).send(Msg.Food.OpenGoal)
+        assertWithin(goal.send(Msg.Food.SaveGoal(big, big, big, big, heavyPace)), "SaveGoal with a pace")
+        val weighed = Step(Model(freshState(WeightUnit.KG).copy(weights = listOf(io.github.alexanderop.eisen.feature.food.WeightEntry("1970-01-01", io.github.alexanderop.eisen.feature.food.MAX_BODY_KG, 0))), now = LATER))
+        assertWithin(weighed.send(Msg.Food.Open).send(Msg.Food.OpenGoal).send(Msg.Food.SaveGoal(big, big, big, big, heavyPace.copy(pace = -heavy))), "SaveGoal with a negative pace")
+        // A check-in over the largest entries there are: the target it offers is a goal the sheet could set.
+        val days = (1..28).map { java.time.LocalDate.parse("2026-10-26").plusDays(it.toLong()).toString() }
+        val feast = freshState(WeightUnit.KG).copy(
+            weights = days.map { io.github.alexanderop.eisen.feature.food.WeightEntry(it, io.github.alexanderop.eisen.feature.food.MIN_BODY_KG, 0) },
+            foodLog = days.map { io.github.alexanderop.eisen.feature.food.FoodEntry("f$it", foodId = "own:feast", name = "Feast", amount = MAX_AMOUNT, kcal = MAX_ENTRY_KCAL, at = 0, day = it) },
+            weightGoal = heavyPace.copy(pace = io.github.alexanderop.eisen.feature.food.MAX_PACE_KG),
+        )
+        val monday = java.time.LocalDate.parse("2026-11-30").atTime(10, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        val taken = Step(Model(feast, now = monday)).send(Msg.Food.Open, now = monday).send(Msg.Weight.TakeCheckIn, now = monday)
+        assertTrue("the check-in was not taken", taken.state.weightGoal.checkIn?.took == true)
+        assertWithin(taken, "TakeCheckIn")
     }
 
     @Test fun `the largest number a food Msg carries is saved within its field's limit`() {
@@ -265,6 +299,17 @@ class LimitsTest {
 /** What on the plate is beyond a limit: each item in the limits of an entry, and of a food. */
 internal fun plateOutOfLimits(plate: List<io.github.alexanderop.eisen.feature.food.PlateItem>): List<String> =
     plate.flatMap { item -> foodOutOfLimits(freshState(WeightUnit.KG).copy(foods = listOfNotNull(item.food), foodLog = listOf(item.entry))) }
+
+/** Every number of the weight log outside its limit: one weight a day, in order, each a body weight; a pace it can have. */
+internal fun weightOutOfLimits(state: AppState): List<String> = buildList {
+    val days = state.weights.map { it.day }
+    if (days != days.distinct().sorted()) add("weights not one a day in order: $days")
+    for (entry in state.weights) if (entry.kg !in io.github.alexanderop.eisen.feature.food.MIN_BODY_KG..io.github.alexanderop.eisen.feature.food.MAX_BODY_KG) add("weight ${entry.day} ${entry.kg}")
+    val goal = state.weightGoal
+    if (goal.pace !in 0.0..io.github.alexanderop.eisen.feature.food.MAX_PACE_KG) add("pace ${goal.pace}")
+    if (goal.direction == io.github.alexanderop.eisen.feature.food.GoalDirection.MAINTAIN && goal.pace != 0.0) add("a pace of ${goal.pace} to maintain")
+    goal.checkIn?.let { if (it.target !in 0..MAX_GOAL_KCAL) add("check-in target ${it.target}") }
+}
 
 internal fun foodOutOfLimits(state: AppState): List<String> = buildList {
     for (food in state.foods) {

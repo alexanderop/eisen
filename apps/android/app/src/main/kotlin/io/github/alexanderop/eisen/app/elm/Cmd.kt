@@ -2,6 +2,7 @@ package io.github.alexanderop.eisen.app.elm
 
 import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.PlateItem
+import io.github.alexanderop.eisen.feature.food.WeightEntry
 import io.github.alexanderop.eisen.app.state.AppState
 import io.github.alexanderop.eisen.feature.timer.TimerRun
 import io.github.alexanderop.eisen.feature.timer.TimerSession
@@ -190,16 +191,17 @@ sealed interface HealthJob {
     data class CheckPermission(val purpose: PermissionCheck) : HealthJob
 
     /**
-     * Writes (or rewrites) these workouts and timers, and these food entries as nutrition records. A missing permission
-     * answers with [Msg.Health.Revoked] (workouts) or [Msg.Health.FoodRevoked] (food).
+     * Writes (or rewrites) these workouts and timers, these food entries as nutrition records and these weights as weight
+     * records. A missing permission answers with [Msg.Health.Revoked] (workouts), [Msg.Health.FoodRevoked] (food) or
+     * [Msg.Health.WeightRevoked] (weights).
      */
-    data class Upsert(val workouts: List<Workout>, val timers: List<TimerSession> = emptyList(), val food: List<FoodEntry> = emptyList()) : HealthJob
+    data class Upsert(val workouts: List<Workout>, val timers: List<TimerSession> = emptyList(), val food: List<FoodEntry> = emptyList(), val weights: List<WeightEntry> = emptyList()) : HealthJob
 
-    /** Workouts and timers alike, by id; food entries by theirs. */
-    data class Delete(val ids: List<String>, val food: List<String> = emptyList()) : HealthJob
+    /** Workouts and timers alike, by id; food entries by theirs; weights by their day. */
+    data class Delete(val ids: List<String>, val food: List<String> = emptyList(), val weights: List<String> = emptyList()) : HealthJob
 
     /** [Upsert] that answers with [Msg.Health.SyncedPast]. */
-    data class SyncPast(val workouts: List<Workout>, val timers: List<TimerSession> = emptyList(), val food: List<FoodEntry> = emptyList()) : HealthJob
+    data class SyncPast(val workouts: List<Workout>, val timers: List<TimerSession> = emptyList(), val food: List<FoodEntry> = emptyList(), val weights: List<WeightEntry> = emptyList()) : HealthJob
 
     /** Asks Android whether Health Connect is installed and usable. Answers with [Msg.Health.Availability]. */
     data object CheckAvailability : HealthJob

@@ -14,6 +14,9 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
   its common foods and the plate pinned at the bottom, the add sheet of an item of the plate with its chips, grams and
   "Save" button, the sheet of a new meal ("Save as meal"), and the Food section of History › Progress with its seven
   bars, each a tap target. Settings is reached by the gear on Home.
+- `layout-weight` the weekly check-in on top of the Food tab with Take and Keep, the weight card with `Log weight`, the
+  weight sheet with its day, its number and Save, and the Weight section of History › Progress with its range, chart, three
+  numbers and `Log weight`.
 - `layout-rest-clock` the rest screen's countdown keeps its room and stays at least three times as tall as
   the text beside it; what is below it scrolls, "Next set" stays at the bottom.
 
@@ -29,7 +32,8 @@ running, a boxing run, the WOD builder, History, Settings, the result of an inte
 
 Preconditions: `--state short-timers` (its quick timers). One recipe per font scale; each walks all eleven
 screens and checks each with `visible` (the handles on screen, not cut off, tapped on at least 48 dp) and
-`small` (no clickable node of the screen under 48 dp). About four minutes each.
+`small` (no clickable node of the screen under 48 dp). About four minutes each. The weight log has a recipe of its own on
+`--state food-weight` (a check-in due), which goes through the three scales one after the other.
 
 **At font scale 1.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`).
 
@@ -175,6 +179,56 @@ eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
+**The weight log at font scale 1.0, 1.3 and 2.0** (`layout-weight`, `layout-visible`, `layout-targets`). The check-in
+is shown once and stays unanswered, so it shows at every scale; at 2.0 the screen scrolls to its buttons.
+
+```sh
+eisenctl launch --state food-weight
+# At 1.0
+eisenctl font 1.0
+eisenctl tap "Food" && eisenctl wait "Food data" && eisenctl scroll up && eisenctl scroll up && eisenctl visible "WEEKLY CHECK-IN" && eisenctl small && eisenctl shot 61a-check-in-1.0
+for i in 1 2 3; do eisenctl visible "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" && eisenctl small && eisenctl shot 61b-check-in-buttons-1.0
+for i in 1 2 3 4 5; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "WEIGHT" "Weight trend 83.3 kg.*" "Log weight" && eisenctl small && eisenctl shot 61c-weight-card-1.0
+eisenctl tap "Log weight" && eisenctl wait "Save 82.4 kg" && eisenctl visible "Weight" "Previous day" "Today" "weight 82.4 kg" "Save 82.4 kg" && eisenctl small && eisenctl shot 61d-weight-sheet-1.0
+eisenctl tap "Close" && eisenctl wait "Log weight" && eisenctl tap "History" && eisenctl tap "Progress"
+for i in 1 2 3 4; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Log weight" && eisenctl has "Trend" "Change" "You burn" && eisenctl small && eisenctl shot 61e-progress-weight-1.0
+for i in 1 2 3; do eisenctl visible "3 months" "1 year" "All" 2> /dev/null && break; eisenctl scroll up; done
+eisenctl visible "3 months" "1 year" "All" && eisenctl has "Weight over time, 22 weights, .*" && eisenctl small && eisenctl shot 61f-progress-chart-1.0
+eisenctl tap "Home" && eisenctl wait "Start workout"
+# At 1.3
+eisenctl font 1.3
+eisenctl tap "Food" && eisenctl wait "Food data" && eisenctl scroll up && eisenctl scroll up && eisenctl visible "WEEKLY CHECK-IN" && eisenctl small && eisenctl shot 62a-check-in-1.3
+for i in 1 2 3; do eisenctl visible "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" && eisenctl small && eisenctl shot 62b-check-in-buttons-1.3
+for i in 1 2 3 4 5; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "WEIGHT" "Weight trend 83.3 kg.*" "Log weight" && eisenctl small && eisenctl shot 62c-weight-card-1.3
+eisenctl tap "Log weight" && eisenctl wait "Save 82.4 kg" && eisenctl visible "Weight" "Previous day" "Today" "weight 82.4 kg" "Save 82.4 kg" && eisenctl small && eisenctl shot 62d-weight-sheet-1.3
+eisenctl tap "Close" && eisenctl wait "Log weight" && eisenctl tap "History" && eisenctl tap "Progress"
+for i in 1 2 3 4; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Log weight" && eisenctl has "Trend" "Change" "You burn" && eisenctl small && eisenctl shot 62e-progress-weight-1.3
+for i in 1 2 3; do eisenctl visible "3 months" "1 year" "All" 2> /dev/null && break; eisenctl scroll up; done
+eisenctl visible "3 months" "1 year" "All" && eisenctl has "Weight over time, 22 weights, .*" && eisenctl small && eisenctl shot 62f-progress-chart-1.3
+eisenctl tap "Home" && eisenctl wait "Start workout"
+# At 2.0
+eisenctl font 2.0
+eisenctl tap "Food" && eisenctl wait "Food data" && eisenctl scroll up && eisenctl scroll up && eisenctl visible "WEEKLY CHECK-IN" && eisenctl small && eisenctl shot 63a-check-in-2.0
+for i in 1 2 3; do eisenctl visible "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" && eisenctl small && eisenctl shot 63b-check-in-buttons-2.0
+for i in 1 2 3 4 5; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "WEIGHT" "Weight trend 83.3 kg.*" "Log weight" && eisenctl small && eisenctl shot 63c-weight-card-2.0
+eisenctl tap "Log weight" && eisenctl wait "Save 82.4 kg" && eisenctl visible "Weight" "Previous day" "Today" "weight 82.4 kg" "Save 82.4 kg" && eisenctl small && eisenctl shot 63d-weight-sheet-2.0
+eisenctl tap "Close" && eisenctl wait "Log weight" && eisenctl tap "History" && eisenctl tap "Progress"
+for i in 1 2 3 4; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Log weight" && eisenctl has "Trend" "Change" "You burn" && eisenctl small && eisenctl shot 63e-progress-weight-2.0
+for i in 1 2 3; do eisenctl visible "3 months" "1 year" "All" 2> /dev/null && break; eisenctl scroll up; done
+eisenctl visible "3 months" "1 year" "All" && eisenctl has "Weight over time, 22 weights, .*" && eisenctl small && eisenctl shot 63f-progress-chart-2.0
+eisenctl tap "Home" && eisenctl wait "Start workout"
+eisenctl doctor && eisenctl cleanup
+```
+
 ## Gotchas
 
 - `visible` fails for a handle at the edge of a list that scrolls, which may cut it off: the recipes check
@@ -188,6 +242,9 @@ eisenctl doctor && eisenctl cleanup
   phone each is 43 dp wide, under the 48 dp the recipes ask for (a known gap, not checked by the recipes).
 - The awk line on the rest screen compares the heights of the countdown's text and of "of 1:30" as
   uiautomator reports them.
+- The weight recipe walks the three scales in one run: the Food tab keeps its scroll, so each scale scrolls up first, and
+  it goes Home before tapping `Food`, which History › Progress also has as the title of its Food section.
+  "Take" and "Keep" are below the fold at 2.0; the recipe scrolls to them.
 - `font` changes a system setting; `cleanup` puts back the scale the run found. A run that stops half-way
   must still be cleaned up, or the emulator keeps the large font.
 - The result's middle scrolls when it does not fit (a narrow phone at 2.0: 320 dp, checked by hand with

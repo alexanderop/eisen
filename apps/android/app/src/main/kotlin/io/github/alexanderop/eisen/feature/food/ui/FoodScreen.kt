@@ -25,6 +25,9 @@ import io.github.alexanderop.eisen.feature.food.clockText
 import io.github.alexanderop.eisen.feature.food.dayOfMonth
 import io.github.alexanderop.eisen.feature.food.macroText
 import io.github.alexanderop.eisen.app.elm.kcalLine
+import io.github.alexanderop.eisen.app.elm.CheckIn
+import io.github.alexanderop.eisen.app.elm.checkIn
+import io.github.alexanderop.eisen.app.elm.weightCard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -154,6 +157,7 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             weekStrip(model)?.let { strip -> item(key = "week") { WeekStripRow(strip, dispatch) } }
+            (checkIn(model) as? CheckIn.Shown)?.let { shown -> item(key = "check-in") { CheckInCard(shown, model.state.settings.unit, dispatch) } }
             item(key = "summary") { DaySummary(day, onGoal = { dispatch(Msg.Food.OpenGoal) }) }
             if (day.entries.isEmpty()) {
                 item(key = "empty") {
@@ -191,6 +195,8 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                     }
                 }
             }
+            // Under the day's timeline, which keeps the first screen: the weight is one tap a morning, food many.
+            item(key = "weight") { WeightCardRow(weightCard(model)) { dispatch(Msg.Weight.Open()) } }
             if (canSaveMeal(model)) {
                 item(key = "save-meal") {
                     TextButton(onClick = { dispatch(Msg.Food.NewMeal) }, modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {

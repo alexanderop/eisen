@@ -41,6 +41,7 @@ fun update(msg: Msg, model: Model, env: Env): Next {
         is Msg.Timer -> timer(msg, model, env)
         is Msg.Wods -> wods(msg, model, env)
         is Msg.Food -> food(msg, model, env)
+        is Msg.Weight -> weight(msg, model, env)
         is Msg.Rest -> {
             val (answered, cmds) = rest(msg, model, env)
             // A run that waited for the notification question starts with its answer.
@@ -88,14 +89,16 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     if (kept != draftFile(before.wods.builder)) extra += Cmd.SaveDraft(kept)
     // The plate file holds what is on the plate, so nothing collected is lost when the process ends.
     if (model.food.plate != before.food.plate) extra += Cmd.SavePlate(model.food.plate)
+    // The weekly check-in's card counts as shown once the Food tab shows it.
+    if (showsCheckInCard(model)) model = checkInAfter(model, CheckInEvent.SEEN).first
     if (before.session is Session.Discarded && model.session !is Session.Discarded) {
         extra += Cmd.Ui(UiEvent.DismissSnackbar(DISCARD_SNACKBAR))
     }
     if (model.state !== before.state && model.state != before.state) {
         extra += Cmd.Save(model.state)
         val followed = model.state.history !== before.state.history || model.state.timerSessions !== before.state.timerSessions ||
-            (model.health.food && model.state.foodLog !== before.state.foodLog)
-        if (model.health.enabled && followed) extra += healthFollows(before.state, model.state, food = model.health.food)
+            (model.health.food && model.state.foodLog !== before.state.foodLog) || (model.health.weight && model.state.weights !== before.state.weights)
+        if (model.health.enabled && followed) extra += healthFollows(before.state, model.state, food = model.health.food, weight = model.health.weight)
         val surfaces = refreshHomeSurfaces(model.state)
         if (surfaces != refreshHomeSurfaces(before.state)) extra += surfaces
     }
@@ -106,9 +109,10 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
  * Health Connect follows the history: a new or edited workout is written, a deleted one removed.
  * A finished workout is new in the history, so it is written here too. So is a restored backup.
  * Finished interval timers are followed the same way, and, when [food] may be written, the food log: a new or changed
- * entry is written as a nutrition record, a deleted one removed.
+ * entry is written as a nutrition record, a deleted one removed; when [weight] may be written, the weights the same way, by
+ * their day.
  */
-internal fun healthFollows(before: AppState, after: AppState, food: Boolean = false): List<Cmd> {
+internal fun healthFollows(before: AppState, after: AppState, food: Boolean = false, weight: Boolean = false): List<Cmd> {
     val old = before.history.associateBy { it.id }
     val now = after.history.map { it.id }.toSet()
     val oldTimers = before.timerSessions.associateBy { it.id }
@@ -120,9 +124,12 @@ internal fun healthFollows(before: AppState, after: AppState, food: Boolean = fa
     val nowEntries = if (food) after.foodLog.map { it.id }.toSet() else emptySet()
     val removedEntries = if (food) before.foodLog.map { it.id }.filter { it !in nowEntries } else emptyList()
     val changedEntries = if (food) after.foodLog.filter { oldEntries[it.id] != it } else emptyList()
+    val oldWeights = if (weight) before.weights.associateBy { it.day } else emptyMap()
+    val removedWeights = if (weight) before.weights.map { it.day }.filter { day -> after.weights.none { it.day == day } } else emptyList()
+    val changedWeights = if (weight) after.weights.filter { oldWeights[it.day] != it } else emptyList()
     return buildList {
-        if (removed.isNotEmpty() || removedEntries.isNotEmpty()) add(Cmd.Health(HealthJob.Delete(removed, removedEntries)))
-        if (changed.isNotEmpty() || changedTimers.isNotEmpty() || changedEntries.isNotEmpty()) add(Cmd.Health(HealthJob.Upsert(changed, changedTimers, changedEntries)))
+        if (removed.isNotEmpty() || removedEntries.isNotEmpty() || removedWeights.isNotEmpty()) add(Cmd.Health(HealthJob.Delete(removed, removedEntries, removedWeights)))
+        if (changed.isNotEmpty() || changedTimers.isNotEmpty() || changedEntries.isNotEmpty() || changedWeights.isNotEmpty()) add(Cmd.Health(HealthJob.Upsert(changed, changedTimers, changedEntries, changedWeights)))
     }
 }
 
@@ -325,6 +332,8 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             model.hold != null -> return model.overlay(OverlayEvent.HoldClosed).only()
             showsRestScreen(model) -> return rest(Msg.Rest.Minimise, model, env)
             model.activitySheet != null -> return history(Msg.History.CloseActivity, model)
+            // The weight sheet lies over the Food tab or Progress, and over a sheet of neither.
+            model.weight.sheet != null && !showsWorkout(model) -> return weight(Msg.Weight.Close, model, env)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             // A sheet over the Food tab or its add screen goes first, then the add screen, then the tab.
             model.food.sheet != null -> return food(Msg.Food.CloseSheet, model, env)
@@ -351,8 +360,10 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
     val food = foodWithTab(model.food, shown.tab, retapped = msg is Msg.Nav.SelectTab && msg.tab == Tab.FOOD && nav.tab == Tab.FOOD, today = localDay(env.now, env.zone))
     // Whatever comes on screen reads the clock, so Home and Progress date themselves with today even
     // when nothing ticked. Selecting the tab that shows does too. A move that changes nothing is ignored.
+    // The weight sheet goes with the screen it lay over.
+    val weighing = if (shown.tab != nav.tab || shown.workoutOpen != nav.workoutOpen || shown.history != nav.history) model.weight.copy(sheet = null) else model.weight
     return when {
-        shown != nav || food != model.food -> model.copy(nav = shown, food = food, now = env.now, zone = if (food != model.food) env.zone else model.zone)
+        shown != nav || food != model.food -> model.copy(nav = shown, food = food, weight = weighing, now = env.now, zone = if (food != model.food) env.zone else model.zone)
         msg is Msg.Nav.SelectTab -> model.copy(now = env.now)
         else -> model
     }.only()

@@ -27,13 +27,15 @@ import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.EisenTheme
 
 private val PARAGRAPHS = listOf(
-    "Eisen writes each finished workout to Health Connect as a strength training session, and each food you log as " +
-        "nutrition, so they show up in apps like Google Fit, Samsung Health or Garmin Connect.",
+    "Eisen writes each finished workout to Health Connect as a strength training session, each food you log as " +
+        "nutrition and each weight you log as your weight, so they show up in apps like Google Fit, Samsung Health or Garmin Connect.",
     "What is written: when the workout started and ended, its name, and the exercises with their weight, " +
         "sets and reps. Editing or deleting a workout in History changes or removes it in Health Connect too.",
     "For food: its name, calories, protein, carbs and fat, on the day you logged it for. Changing or deleting an " +
         "entry changes or removes it in Health Connect too.",
-    "What is read: nothing. Eisen only asks to write exercise sessions and nutrition.",
+    "For weight: the weight in kilograms, on the day you logged it for. Changing or deleting it changes or removes it " +
+        "in Health Connect too.",
+    "What is read: nothing. Eisen only asks to write exercise sessions, nutrition and weight.",
     "Nothing leaves your phone except through Health Connect. Eisen has no account and no server. " +
         "Which apps can read your workouts is up to you, in the Health Connect settings.",
     "Turn sync off any time in Eisen's settings.",

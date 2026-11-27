@@ -254,7 +254,8 @@ private fun setUnit(model: Model, msg: Msg.Settings.SetUnit): Next {
                 convertProgress(entry, state.findExercise(id)?.equipment ?: Equipment.BARBELL, from, msg.unit)
             },
         ).settings { it.copy(unit = msg.unit, bar = unitDefaults(msg.unit).bar) }
-    }.only()
+    // An open weight sheet shows its number in the new unit.
+    }.weight { weight -> weight.copy(sheet = weight.sheet?.let { it.copy(value = io.github.alexanderop.eisen.feature.food.round1(io.github.alexanderop.eisen.core.convert(it.value, from, msg.unit))) }) }.only()
 }
 
 // Backups
@@ -288,6 +289,7 @@ internal fun data(msg: Msg.Data, model: Model, env: Env): Next = when (msg) {
             overlay = overlayAfter(model.overlay, OverlayEvent.Cleared),
             undo = Undo(),
             food = model.food.copy(plate = emptyList(), add = null, sheet = null),
+            weight = WeightModel(),
             dataNotice = "All data erased.",
         ) and cmds
     }
@@ -307,6 +309,7 @@ private fun import(model: Model, json: String): Next {
         lastChanges = null,
         overlay = overlayAfter(model.overlay, OverlayEvent.Cleared),
         undo = Undo(),
+        weight = WeightModel(),
         dataNotice = BACKUP_RESTORED,
     ) and cmds
 }
@@ -315,7 +318,14 @@ private fun import(model: Model, json: String): Next {
 // Health Connect
 
 private const val HEALTH_REFUSED = "Health Connect did not allow Eisen to write workouts."
-private const val HEALTH_FOOD_REFUSED = "Health Connect did not allow Eisen to write food. Workouts are still synced."
+
+/** What a refusal of food, of weight or of both leaves out, while workouts are still written. */
+private fun partRefused(food: Boolean, weight: Boolean): String? {
+    val missing = listOfNotNull("food".takeIf { !food }, "weight".takeIf { !weight })
+    if (missing.isEmpty()) return null
+    val synced = if (food) "Workouts and food are" else if (weight) "Workouts and weights are" else "Workouts are"
+    return "Health Connect did not allow Eisen to write ${missing.joinToString(" and ")}. $synced still synced."
+}
 
 internal fun health(msg: Msg.Health, model: Model): Next {
     val health = model.health
@@ -323,37 +333,49 @@ internal fun health(msg: Msg.Health, model: Model): Next {
         val next = model.health { it.copy(enabled = on, notice = notice) }
         return if (on == health.enabled) next.only() else next and Cmd.SaveHealthEnabled(on)
     }
-    fun food(allowed: Boolean, next: Next): Next = if (next.first.health.food == allowed) next else next.first.health { it.copy(food = allowed) } to next.second
+    fun allowed(food: Boolean, weight: Boolean, next: Next): Next =
+        if (next.first.health.food == food && next.first.health.weight == weight) next else next.first.health { it.copy(food = food, weight = weight) } to next.second
     return when (msg) {
         Msg.Health.Toggle ->
             if (health.enabled) switched(false, notice = null)
             // Already allowed, for example after turning sync off and on again: no need to ask.
             else model.health { it.copy(notice = null) } and Cmd.Health(HealthJob.CheckPermission(PermissionCheck.TOGGLE))
         is Msg.Health.PermissionChecked -> when (msg.purpose) {
-            // Both allowed: on. One missing: Health Connect asks, for the one that is missing.
-            PermissionCheck.TOGGLE -> if (msg.granted && msg.food) food(true, switched(true)) else model and Cmd.Ui(UiEvent.RequestHealthPermission)
+            // All allowed: on. One missing: Health Connect asks, for the ones that are missing.
+            PermissionCheck.TOGGLE -> if (msg.granted && msg.food && msg.weight) allowed(true, true, switched(true)) else model and Cmd.Ui(UiEvent.RequestHealthPermission)
             // Taken away in Health Connect while the app was away: show the switch as off. A missing permission for
-            // food is only noted, never asked for at the start.
-            PermissionCheck.STARTUP, PermissionCheck.ROWS -> food(msg.food, if (!msg.granted && health.enabled) switched(false) else model.only())
+            // food or weight is only noted, never asked for at the start.
+            PermissionCheck.STARTUP, PermissionCheck.ROWS -> allowed(msg.food, msg.weight, if (!msg.granted && health.enabled) switched(false) else model.only())
         }
         is Msg.Health.PermissionResult ->
-            // "Write food too" asks while sync is on: a refusal there leaves the workouts on.
-            if (health.enabled && msg.granted) food(msg.food, model.health { it.copy(notice = if (msg.food) null else HEALTH_FOOD_REFUSED) }.only())
-            else food(msg.food && msg.granted, switched(msg.granted, notice = if (msg.granted) null else HEALTH_REFUSED))
+            // "Write food too" or "Write weight too" asks while sync is on: a refusal there leaves the workouts on.
+            if (health.enabled && msg.granted) allowed(msg.food, msg.weight, model.health { it.copy(notice = partRefused(msg.food, msg.weight)) }.only())
+            else allowed(msg.food && msg.granted, msg.weight && msg.granted, switched(msg.granted, notice = if (msg.granted) null else HEALTH_REFUSED))
         Msg.Health.AllowFood -> if (!health.enabled || health.food) model.only() else model.health { it.copy(notice = null) } and Cmd.Ui(UiEvent.RequestHealthPermission)
         Msg.Health.FoodRevoked -> if (!health.food) model.only() else model.health { it.copy(food = false) }.only()
+        Msg.Health.AllowWeight -> if (!health.enabled || health.weight) model.only() else model.health { it.copy(notice = null) } and Cmd.Ui(UiEvent.RequestHealthPermission)
+        Msg.Health.WeightRevoked -> if (!health.weight) model.only() else model.health { it.copy(weight = false) }.only()
         Msg.Health.PermissionRequestFailed -> model.health { it.copy(notice = "Could not open Health Connect.") }.only()
         Msg.Health.SyncPast ->
             if (health.syncing) model.only()
             else model.health { it.copy(syncing = true, notice = "Syncing…") } and
-                Cmd.Health(HealthJob.SyncPast(model.state.history, model.state.timerSessions, if (health.food) model.state.foodLog else emptyList()))
+                Cmd.Health(
+                    HealthJob.SyncPast(
+                        model.state.history,
+                        model.state.timerSessions,
+                        if (health.food) model.state.foodLog else emptyList(),
+                        if (health.weight) model.state.weights else emptyList(),
+                    ),
+                )
         is Msg.Health.SyncedPast -> {
             val count = msg.count
             val notice = when {
                 count == null -> "Could not reach Health Connect."
                 !health.enabled -> "Health Connect no longer allows Eisen to write workouts."
-                msg.foods > 0 -> "${counted(count, "workout")} and ${counted(msg.foods, "food")} synced."
-                else -> "${counted(count, "workout")} synced."
+                else -> {
+                    val parts = listOfNotNull(counted(count, "workout"), counted(msg.foods, "food").takeIf { msg.foods > 0 }, counted(msg.weights, "weight").takeIf { msg.weights > 0 })
+                    "${if (parts.size == 1) parts[0] else parts.dropLast(1).joinToString(", ") + " and " + parts.last()} synced."
+                }
             }
             model.health { it.copy(syncing = false, notice = notice) }.only()
         }

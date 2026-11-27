@@ -576,8 +576,11 @@ sealed interface Msg {
 
         data object OpenGoal : Food
 
-        /** Calories and grams a day should reach. 0 is no goal. */
-        data class SaveGoal(val kcal: Int, val protein: Int, val carbs: Int = 0, val fat: Int = 0) : Food
+        /**
+         * Calories and grams a day should reach. 0 is no goal. [weight]: the goal pace and the weekly check-in's switch as
+         * the goal sheet has them (pace in kilograms a week), null to leave them as they are.
+         */
+        data class SaveGoal(val kcal: Int, val protein: Int, val carbs: Int = 0, val fat: Int = 0, val weight: io.github.alexanderop.eisen.feature.food.WeightGoal? = null) : Food
 
         /** Typed into the search of the add screen: what the phone knows is filtered at once. No request. */
         data class Search(val query: String) : Food
@@ -662,6 +665,38 @@ sealed interface Msg {
         data object LogPlate : Food
     }
 
+    /**
+     * The weight log and the weekly check-in. A weight is logged from the Food tab's card or from History › Progress,
+     * for today or an earlier day; the check-in's card is on the Food tab, see [CheckIn].
+     */
+    sealed interface Weight : Msg {
+        /** "Log weight": the sheet opens on [day], today when null, at that day's weight or the last one before it. */
+        data class Open(val day: String? = null) : Weight
+
+        /** The number on the sheet, in the unit of the settings. Brought into the limits. */
+        data class SetValue(val value: Double) : Weight
+
+        /** The arrows of the sheet: the day before, the day after (never after today). */
+        data object PreviousDay : Weight
+        data object NextDay : Weight
+
+        /** "Save": the weight of the sheet's day, replacing one logged that day. */
+        data object Save : Weight
+
+        /** "Delete" on the sheet of a day with a weight: gone at once, with Undo. */
+        data object Delete : Weight
+        data object UndoDelete : Weight
+
+        /** The sheet is put away without saving. */
+        data object Close : Weight
+
+        /** The check-in's "Take": its new target becomes the calorie goal. */
+        data object TakeCheckIn : Weight
+
+        /** The check-in's "Keep": the goal stays, the card goes for this week. */
+        data object KeepCheckIn : Weight
+    }
+
     /** The rest timer. Its alarms and the buttons on its notification end up here too. */
     sealed interface Rest : Msg {
         /** "+30s": in the app and on the notification. */
@@ -713,11 +748,20 @@ sealed interface Msg {
     sealed interface Health : Msg {
         /** The switch: off at once, on only with Health Connect's permission. */
         data object Toggle : Health
-        /** [granted]: workouts may be written. [food]: food may be written too (`WRITE_NUTRITION`, asked since food came). */
-        data class PermissionChecked(val purpose: PermissionCheck, val granted: Boolean, val food: Boolean = false) : Health
+        /**
+         * [granted]: workouts may be written. [food]: food may be written too (`WRITE_NUTRITION`, asked since food came).
+         * [weight]: weights may be written (`WRITE_WEIGHT`, asked since the weight log came).
+         */
+        data class PermissionChecked(val purpose: PermissionCheck, val granted: Boolean, val food: Boolean = false, val weight: Boolean = false) : Health
 
-        /** The answer of Health Connect's permission screen: workouts, and food. */
-        data class PermissionResult(val granted: Boolean, val food: Boolean = false) : Health
+        /** The answer of Health Connect's permission screen: workouts, food and weight. */
+        data class PermissionResult(val granted: Boolean, val food: Boolean = false, val weight: Boolean = false) : Health
+
+        /** "Write weight too" in Settings, shown while sync is on without the permission for weight: Health Connect asks. */
+        data object AllowWeight : Health
+
+        /** A write of a weight found its permission taken away. Workouts and food go on. */
+        data object WeightRevoked : Health
 
         /** "Write food too" in Settings, shown while sync is on without the permission for food: Health Connect asks. */
         data object AllowFood : Health
@@ -731,8 +775,8 @@ sealed interface Msg {
         /** Writes the whole history once. */
         data object SyncPast : Health
 
-        /** [count]: workouts and timers written, null when Health Connect could not be reached. [foods]: food entries written. */
-        data class SyncedPast(val count: Int?, val foods: Int = 0) : Health
+        /** [count]: workouts and timers written, null when Health Connect could not be reached. [foods]: food entries written, [weights]: weights. */
+        data class SyncedPast(val count: Int?, val foods: Int = 0, val weights: Int = 0) : Health
 
         /** A write found the permission taken away. */
         data object Revoked : Health

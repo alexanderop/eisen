@@ -846,9 +846,10 @@ class UpdateTest {
     @Test fun `turning sync on asks Health Connect only when it is not allowed yet`() {
         val checking = stepOf().send(Msg.Health.Toggle)
         assertEquals(listOf(Cmd.Health(HealthJob.CheckPermission(PermissionCheck.TOGGLE))), checking.cmds)
-        val on = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true, food = true))
+        val on = checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true, food = true, weight = true))
         assertTrue(on.model.health.enabled)
         assertTrue(on.model.health.food)
+        assertTrue(on.model.health.weight)
         assertEquals(listOf(Cmd.SaveHealthEnabled(true)), on.cmds)
         // Allowed for workouts before food came: Health Connect asks, for food.
         assertEquals(listOf(UiEvent.RequestHealthPermission), checking.send(Msg.Health.PermissionChecked(PermissionCheck.TOGGLE, granted = true, food = false)).uiEvents)
@@ -906,14 +907,15 @@ class UpdateTest {
         assertEquals(listOf(Cmd.Health(HealthJob.CheckAvailability), Cmd.Health(HealthJob.CheckPermission(PermissionCheck.ROWS))), checked.send(Msg.Health.RowsShown).cmds)
         val asking = checked.send(Msg.Health.AllowFood)
         assertEquals(listOf(UiEvent.RequestHealthPermission), asking.uiEvents)
-        val yes = asking.send(Msg.Health.PermissionResult(granted = true, food = true))
+        val yes = asking.send(Msg.Health.PermissionResult(granted = true, food = true, weight = true))
         assertTrue(yes.model.health.food && yes.model.health.enabled)
         assertIgnored(yes, Msg.Health.AllowFood)
-        // A no keeps the workouts on.
+        // A no keeps the workouts on (Health Connect asks for food and weight together, see WeightUpdateTest for weight alone).
         val no = asking.send(Msg.Health.PermissionResult(granted = true, food = false))
         assertTrue(no.model.health.enabled)
         assertFalse(no.model.health.food)
-        assertEquals("Health Connect did not allow Eisen to write food. Workouts are still synced.", no.model.health.notice)
+        assertEquals("Health Connect did not allow Eisen to write food and weight. Workouts are still synced.", no.model.health.notice)
+        assertEquals("Health Connect did not allow Eisen to write food. Workouts and weights are still synced.", asking.send(Msg.Health.PermissionResult(granted = true, food = false, weight = true)).model.health.notice)
         // Allowed in Health Connect's own settings meanwhile: the rows see it.
         assertTrue(checked.send(Msg.Health.PermissionChecked(PermissionCheck.ROWS, granted = true, food = true)).model.health.food)
         assertFalse(yes.send(Msg.Health.FoodRevoked).model.health.food)
@@ -1001,6 +1003,12 @@ class UpdateTest {
         var plated = 0
         var plateEdits = 0
         var runs = 0
+        var weighed = 0
+        var weightsDeleted = 0
+        var checkInsShown = 0
+        var checkInsTaken = 0
+        var checkInsKept = 0
+        var weightSynced = 0
         // Both workouts start with a hold and a max hold, so the hold timer comes up often.
         val fresh = freshState(WeightUnit.KG)
         val withHolds = fresh.copy(routines = fresh.routines.map { it.copy(slots = listOf(Slot("plank", 3, 30), Slot("deadHang", 2, null)) + it.slots) })
@@ -1430,6 +1438,60 @@ class UpdateTest {
             if (log.size > step.state.foodLog.size && msg is Msg.Food) foodLogged++
             if (msg is Msg.Food.Looked && msg.answer is ProductAnswer.Found && after.model.food.sheet is FoodSheet.Amount && step.model.food.sheet is FoodSheet.LookingUp) foodsFound++
             if (msg is Msg.Food.SaveOwn && after.state.foods.size > step.state.foods.size) ownFoodsSaved++
+            // The weight log: one weight a day, in order, every number in its limits.
+            val weightBroken = weightOutOfLimits(after.state)
+            assertTrue("$where: $weightBroken", weightBroken.isEmpty())
+            // The weights change only by the sheet's Save, its Delete and the Undo of it, a backup or a Reset.
+            if (after.state.weights != step.state.weights) {
+                assertTrue(where, msg == Msg.Weight.Save || msg == Msg.Weight.Delete || msg == Msg.Weight.UndoDelete || msg is Msg.Data)
+                if (msg == Msg.Weight.Save) {
+                    val sheet = step.model.weight.sheet
+                    assertNotNull(where, sheet)
+                    assertEquals(where, step.state.weights.filter { it.day != sheet!!.day }, after.state.weights.filter { it.day != sheet!!.day })
+                    weighed++
+                }
+                if (msg == Msg.Weight.Delete) weightsDeleted++
+            }
+            // The calorie target changes only by a tap on Take or by the goal sheet's Save (or a backup, a Reset); the
+            // goal pace and the check-in's answer only by those and by Keep.
+            if (after.state.foodGoal != step.state.foodGoal) assertTrue(where, msg == Msg.Weight.TakeCheckIn || msg is Msg.Food.SaveGoal || msg is Msg.Data)
+            if (after.state.weightGoal != step.state.weightGoal) assertTrue(where, msg == Msg.Weight.TakeCheckIn || msg == Msg.Weight.KeepCheckIn || msg is Msg.Food.SaveGoal || msg is Msg.Data)
+            val checkedBefore = io.github.alexanderop.eisen.app.elm.checkIn(step.model)
+            val checked = io.github.alexanderop.eisen.app.elm.checkIn(after.model)
+            if (msg == Msg.Weight.TakeCheckIn && after.state != step.state) {
+                // Only a card on screen can be taken, and its target is then the goal.
+                assertTrue(where, checkedBefore is io.github.alexanderop.eisen.app.elm.CheckIn.Shown)
+                assertEquals(where, (checkedBefore as io.github.alexanderop.eisen.app.elm.CheckIn.Shown).offer.target, after.state.foodGoal.kcal)
+                assertTrue(where, checked is io.github.alexanderop.eisen.app.elm.CheckIn.Taken)
+                checkInsTaken++
+            }
+            if (msg == Msg.Weight.KeepCheckIn && after.state != step.state) {
+                assertEquals(where, step.state.foodGoal, after.state.foodGoal)
+                assertTrue(where, checked is io.github.alexanderop.eisen.app.elm.CheckIn.Kept)
+                checkInsKept++
+            }
+            // The card counts as shown only once the Food tab shows it.
+            if (checked is io.github.alexanderop.eisen.app.elm.CheckIn.Shown && checkedBefore !is io.github.alexanderop.eisen.app.elm.CheckIn.Shown) {
+                assertTrue(where, io.github.alexanderop.eisen.app.elm.showsFood(after.model))
+                checkInsShown++
+            }
+            // The weight sheet is of a day that is not to come, at a number in the limits.
+            after.model.weight.sheet?.let { sheet ->
+                assertTrue(where, isPastOrToday(sheet.day, localDay(now, java.time.ZoneOffset.UTC)))
+                val kg = io.github.alexanderop.eisen.feature.food.bodyFrom(sheet.value, after.state.settings.unit)
+                assertTrue("$where: ${sheet.value}", kg in io.github.alexanderop.eisen.feature.food.MIN_BODY_KG - 0.05..io.github.alexanderop.eisen.feature.food.MAX_BODY_KG + 0.05)
+            }
+            // Health Connect follows the weights exactly while sync is on and weight may be written.
+            val weightWritten = health.filterIsInstance<HealthJob.Upsert>().flatMap { it.weights } + health.filterIsInstance<HealthJob.SyncPast>().flatMap { it.weights }
+            val weightRemoved = health.filterIsInstance<HealthJob.Delete>().flatMap { it.weights }
+            if (after.model.health.enabled && step.model.health.weight && after.model.health.weight && msg !is Msg.Health) {
+                val before = step.state.weights.associateBy { it.day }
+                assertEquals(where, after.state.weights.filter { before[it.day] != it }, weightWritten)
+                assertEquals(where, step.state.weights.map { it.day }.filter { day -> after.state.weights.none { it.day == day } }, weightRemoved)
+                if (weightWritten.isNotEmpty()) weightSynced++
+            } else if (msg !is Msg.Health && (!step.model.health.weight || !step.model.health.enabled)) {
+                assertEquals(where, emptyList<Any>(), weightWritten + weightRemoved)
+            }
             if (after.state.history.size > step.state.history.size && after.session.active == null) finished++
             if (after.model != step.model) changed++
             return Walk(after, opened)
@@ -1441,7 +1503,11 @@ class UpdateTest {
             val side = java.util.Random(seed * 7_919)
             // The food log's Msgs come from a dice of their own as well, now and then, so the walk stays the one it was.
             val food = java.util.Random(seed * 104_729)
-            var walk = Walk(stepOf(withHolds))
+            // And the weight log's, from a dice of its own. Every fourth walk starts with three weeks of weights and food
+            // before it, so the weekly check-in is due on its first day (1970-01-01, a Thursday).
+            val weighing = java.util.Random(seed * 15_485_863)
+            val start = if (seed % 4 == 0L) withHolds.copy(weights = threeWeeks.weights, foodLog = threeWeeks.foodLog, weightGoal = threeWeeks.weightGoal, foodGoal = threeWeeks.foodGoal) else withHolds
+            var walk = Walk(stepOf(start))
             var now = STARTED_AT
             val trail = mutableListOf<Sent>()
             var main: Sent? = null
@@ -1449,7 +1515,7 @@ class UpdateTest {
                 trail += sent
                 walk = runCatching { check(walk, sent) }.getOrElse { failure ->
                     // The walk is cut down to the Msgs the failure needs, so the report is a handful of lines and not three hundred.
-                    val shortest = shrink(trail) { part -> runCatching { part.fold(Walk(stepOf(withHolds)), ::check) }.isFailure }
+                    val shortest = shrink(trail) { part -> runCatching { part.fold(Walk(stepOf(start)), ::check) }.isFailure }
                     throw AssertionError("${failure.message}\nShortest walk that fails, ${shortest.size} of ${trail.size} Msgs:\n${shortest.joinToString("\n") { "  ${it.id} at ${it.now}: ${it.msg}" }}", failure)
                 }
             }
@@ -1462,6 +1528,7 @@ class UpdateTest {
                 go(sent)
                 // A Msg of the food log comes in between, from its own dice, so the walk's own Msgs stay the ones they were.
                 foodMsg(walk.step.model, food)?.let { go(Sent(it, now + 1 + food.nextInt(20), "f$seed-$turn")) }
+                weightMsg(walk.step.model, weighing)?.let { go(Sent(it, now + 21 + weighing.nextInt(20), "g$seed-$turn")) }
             }
         }
         assertTrue("only $finished workouts finished", finished >= 10)
@@ -1504,6 +1571,12 @@ class UpdateTest {
         assertTrue("only $plated foods went on the plate", plated >= 100)
         assertTrue("only $plateEdits items of the plate were changed", plateEdits >= 10)
         assertTrue("only $runs runs of barcodes started", runs >= 20)
+        assertTrue("only $weighed weights were saved", weighed >= 100)
+        assertTrue("only $weightsDeleted weights were deleted", weightsDeleted >= 20)
+        assertTrue("only $checkInsShown check-ins were shown", checkInsShown >= 20)
+        assertTrue("only $checkInsTaken check-ins were taken", checkInsTaken >= 5)
+        assertTrue("only $checkInsKept check-ins were kept", checkInsKept >= 5)
+        assertTrue("only $weightSynced weights went to Health Connect", weightSynced >= 5)
     }
 
     /** A Msg of the walk with the time and the id it was sent with, so a part of the walk can be sent again. */
@@ -1648,6 +1721,48 @@ class UpdateTest {
             { Msg.Food.OpenDay(dayBefore(io.github.alexanderop.eisen.app.elm.today(model))) }, { Msg.Food.OpenDay(io.github.alexanderop.eisen.app.elm.today(model)) },
         )
         return pick(choices)()
+    }
+
+    /**
+     * Three weeks before the walk's first day (Thursday 1970-01-01): 80 kg every morning, 2,500 kcal a day, a goal of 2,400
+     * kcal, to lose 0.5 kg a week with the check-in on.
+     */
+    private val threeWeeks = freshState(WeightUnit.KG).copy(
+        weights = (0..21).map { io.github.alexanderop.eisen.feature.food.WeightEntry(io.github.alexanderop.eisen.feature.food.plusDays("1969-12-07", it.toLong()), 80.0, 0) },
+        foodLog = (1..21).map { io.github.alexanderop.eisen.feature.food.FoodEntry("h$it", name = "Food", kcal = 2_500, at = 0, day = io.github.alexanderop.eisen.feature.food.plusDays("1969-12-07", it.toLong())) },
+        foodGoal = io.github.alexanderop.eisen.feature.food.FoodGoal(2_400, 160),
+        weightGoal = io.github.alexanderop.eisen.feature.food.WeightGoal(io.github.alexanderop.eisen.feature.food.GoalDirection.LOSE, 0.5),
+    )
+
+    /**
+     * Now and then a Msg of the weight log: the sheet and its numbers (also ones beyond every limit), days to come and
+     * days that are none, Take and Keep on a card that shows and on one that does not, the goal sheet's pace, and
+     * Health Connect's side of weight. Null most of the time.
+     */
+    private fun weightMsg(model: Model, dice: java.util.Random): Msg? {
+        val shown = io.github.alexanderop.eisen.app.elm.checkIn(model) is io.github.alexanderop.eisen.app.elm.CheckIn.Shown
+        if (dice.nextInt(if (model.weight.sheet != null || shown) 2 else 6) != 0) return null
+        fun <T> pick(items: List<T>): T = items[dice.nextInt(items.size)]
+        val today = io.github.alexanderop.eisen.app.elm.today(model)
+        if (model.weight.sheet != null && dice.nextInt(4) > 0) {
+            return pick(listOf(Msg.Weight.SetValue(pick(listOf(80.0, 82.4, 181.7, 1e9, -3.0, Double.NaN))), Msg.Weight.PreviousDay, Msg.Weight.NextDay, Msg.Weight.Save, Msg.Weight.Save, Msg.Weight.Delete, Msg.Weight.Close))
+        }
+        if (shown && dice.nextInt(3) > 0) return pick(listOf(Msg.Weight.TakeCheckIn, Msg.Weight.KeepCheckIn))
+        if (model.food.sheet == FoodSheet.Goal && dice.nextInt(2) == 0) {
+            val plan = io.github.alexanderop.eisen.feature.food.WeightGoal(pick(io.github.alexanderop.eisen.feature.food.GoalDirection.entries), pick(listOf(0.3, 0.8, 1e9, -1.0, Double.NaN)), dice.nextBoolean())
+            return Msg.Food.SaveGoal(pick(listOf(0, 2_400, Int.MAX_VALUE)), pick(listOf(0, 160)), 0, 0, plan)
+        }
+        return when (dice.nextInt(20)) {
+            0 -> Msg.Health.PermissionChecked(pick(PermissionCheck.entries), dice.nextBoolean(), dice.nextBoolean(), dice.nextBoolean())
+            1 -> Msg.Health.PermissionResult(dice.nextBoolean(), dice.nextBoolean(), dice.nextBoolean())
+            2 -> pick(listOf(Msg.Health.AllowWeight, Msg.Health.WeightRevoked))
+            3, 4 -> Msg.Food.Open
+            5 -> Msg.Food.OpenGoal
+            6 -> Msg.Nav.SelectTab(Tab.HISTORY)
+            7 -> pick(listOf(Msg.Weight.TakeCheckIn, Msg.Weight.KeepCheckIn, Msg.Weight.UndoDelete, Msg.Weight.Close))
+            8 -> Msg.Weight.Open(pick(listOf("2999-01-01", "not a day", dayBefore(today), "1969-12-20")))
+            else -> Msg.Weight.Open()
+        }
     }
 
     /** A Msg about the current model, or about things that are not there (an index too far, an id that is gone). */

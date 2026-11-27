@@ -107,6 +107,20 @@ import io.github.alexanderop.eisen.feature.food.numberText
 import io.github.alexanderop.eisen.feature.food.entryMinute
 import io.github.alexanderop.eisen.feature.food.minuteOfDay
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Switch
+import io.github.alexanderop.eisen.app.elm.LOGGED_DAY_NOTE
+import io.github.alexanderop.eisen.app.elm.goalWeightView
+import io.github.alexanderop.eisen.app.elm.noteText
+import io.github.alexanderop.eisen.core.counted
+import io.github.alexanderop.eisen.core.ui.ChoiceGroup
+import io.github.alexanderop.eisen.feature.food.Estimate
+import io.github.alexanderop.eisen.feature.food.GoalDirection
+import io.github.alexanderop.eisen.feature.food.PROTEIN_PER_KG
+import io.github.alexanderop.eisen.feature.food.WeightGoal
+import io.github.alexanderop.eisen.feature.food.bodyFrom
+import io.github.alexanderop.eisen.feature.food.bodyIn
+import io.github.alexanderop.eisen.feature.food.round1
 
 /** The one sheet over the Food screen, as the model says. */
 @Composable
@@ -117,7 +131,7 @@ internal fun FoodSheets(model: Model, dispatch: (Msg) -> Unit) {
         is FoodSheet.Amount -> AmountSheet(sheet, minuteOfDay(model.now, model.zone), dispatch, close)
         is FoodSheet.Quick -> QuickSheet(sheet.target, changing(model, sheet.target), minuteOfDay(model.now, model.zone), model.zone, dispatch, close)
         is FoodSheet.Own -> OwnSheet(sheet, sheet.id?.let { id -> model.state.foods.firstOrNull { it.id == id } }, dispatch, close)
-        FoodSheet.Goal -> GoalSheet(model.state.foodGoal, dispatch, close)
+        FoodSheet.Goal -> GoalSheet(model, dispatch, close)
         is FoodSheet.Barcode -> BarcodeSheet(sheet.note, dispatch, close)
         is FoodSheet.LookingUp -> LookupSheet(sheet.lookup, dispatch, close)
         FoodSheet.Credit -> CreditSheet(close)
@@ -361,20 +375,35 @@ private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Un
 
 /**
  * The calories, protein, carbs and fat a day should reach; 0 is no goal (carbs and fat are optional). "Fill carbs and
- * fat from the rest" works out the two from the calories left after protein, so nobody has to do the arithmetic.
+ * fat from the rest" works out the two from the calories left after protein, so nobody has to do the arithmetic. Below
+ * them the weight goal: lose, maintain or gain at a pace of at most 1 % of the trend weight a week, the calories that
+ * pace takes from what the lifter burns, and "Adjust my target each week" for the weekly check-in.
  */
 @Composable
-private fun GoalSheet(goal: io.github.alexanderop.eisen.feature.food.FoodGoal, dispatch: (Msg) -> Unit, close: () -> Unit) {
+private fun GoalSheet(model: Model, dispatch: (Msg) -> Unit, close: () -> Unit) {
+    val goal = model.state.foodGoal
+    val plan = model.state.weightGoal
+    val weight = goalWeightView(model)
+    val unit = weight.unit
     var kcal by rememberSaveable { mutableIntStateOf(goal.kcal ?: 0) }
     var protein by rememberSaveable { mutableIntStateOf(goal.protein ?: 0) }
     var carbs by rememberSaveable { mutableIntStateOf(goal.carbs ?: 0) }
     var fat by rememberSaveable { mutableIntStateOf(goal.fat ?: 0) }
+    var direction by rememberSaveable { mutableStateOf(plan.direction) }
+    // The pace in the unit of the settings, to a tenth.
+    var pace by rememberSaveable { mutableDoubleStateOf(round1(bodyIn(plan.pace, unit)).coerceAtMost(weight.maxPace)) }
+    var adjust by rememberSaveable { mutableStateOf(plan.adjust) }
+    val chosen = WeightGoal(direction, bodyFrom(pace, unit), adjust)
     FoodSheet("Goal per day", close) {
         Field("Calories") {
             IntStepper(value = kcal, onValueChange = { kcal = it }, label = "calorie goal", step = 50, snap = 1, min = 0, max = MAX_GOAL_KCAL, format = { if (it == 0) "None" else "${kcalText(it)} kcal" })
         }
         Field("Protein") {
             IntStepper(value = protein, onValueChange = { protein = it }, label = "protein goal", step = 5, snap = 1, min = 0, max = MAX_GOAL_PROTEIN, format = { if (it == 0) "None" else "$it g" })
+        }
+        weight.protein?.let { suggested ->
+            SecondaryButton("Protein from your weight: $suggested g") { protein = suggested }
+            Text("${numberText(PROTEIN_PER_KG)} g a day per kg of your trend weight.", color = EisenColors.MutedForeground, fontSize = 13.sp)
         }
         Field("Carbs (optional)") {
             IntStepper(value = carbs, onValueChange = { carbs = it }, label = "carbs goal", step = 5, snap = 1, min = 0, max = MAX_GOAL_CARBS, format = { if (it == 0) "None" else "$it g" })
@@ -390,7 +419,46 @@ private fun GoalSheet(goal: io.github.alexanderop.eisen.feature.food.FoodGoal, d
             }
             Text("Fat a quarter of the calories, carbs the rest after protein.", color = EisenColors.MutedForeground, fontSize = 13.sp)
         }
-        PrimaryButton("Save goal") { dispatch(Msg.Food.SaveGoal(kcal, protein, carbs, fat)) }
+        HorizontalDivider(color = EisenColors.Border)
+        Eyebrow("Weight goal")
+        ChoiceGroup(GoalDirection.entries, direction, { it.label }, { direction = it })
+        if (direction != GoalDirection.MAINTAIN) {
+            Field("Pace") {
+                Stepper(
+                    value = pace,
+                    onValueChange = { pace = it },
+                    step = 0.1,
+                    snap = 0.1,
+                    min = 0.0,
+                    max = weight.maxPace,
+                    label = "pace",
+                    format = { "${numberText(it)} ${unit.label} a week" },
+                )
+            }
+            Text("At most 1% of your weight a week: ${numberText(weight.maxPace)} ${unit.label}.", color = EisenColors.MutedForeground, fontSize = 13.sp)
+        }
+        when (val burn = weight.burn) {
+            is Estimate.Ready -> {
+                val target = weight.target(chosen) ?: burn.kcal
+                Text("You burn about ${kcalText(burn.kcal)} kcal. For this goal: ${kcalText(target)} kcal a day.", color = EisenColors.Foreground)
+                noteText(burn.note)?.let { Text(it, color = EisenColors.MutedForeground, fontSize = 13.sp) }
+                if (target != kcal) SecondaryButton("Use ${kcalText(target)} kcal") { kcal = target }
+            }
+            is Estimate.Learning -> Text("Learning what you burn: ${burn.days} of ${counted(burn.needed, "day")} with food and a weight.", color = EisenColors.MutedForeground)
+        }
+        Text(LOGGED_DAY_NOTE, color = EisenColors.MutedForeground, fontSize = 13.sp)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = adjust, role = Role.Switch, onValueChange = { adjust = it }),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Adjust my target each week", fontWeight = FontWeight.SemiBold)
+                Text("Each Monday a check-in offers a new target from what you ate and weighed. Nothing changes until you take it.", color = EisenColors.MutedForeground, fontSize = 13.sp)
+            }
+            Switch(checked = adjust, onCheckedChange = null)
+        }
+        PrimaryButton("Save goal") { dispatch(Msg.Food.SaveGoal(kcal, protein, carbs, fat, chosen)) }
     }
 }
 

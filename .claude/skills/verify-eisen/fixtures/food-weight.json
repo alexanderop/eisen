@@ -1,0 +1,1354 @@
+{
+    "version": 9,
+    "settings": {
+        "unit": "kg",
+        "bar": 20.0,
+        "restDone": 90,
+        "restMissed": 300,
+        "sound": true,
+        "haptics": true,
+        "restFullScreen": true,
+        "timerCalls": {
+            "minutes": 1,
+            "halfway": true,
+            "final": true,
+            "phases": true,
+            "beeps": true
+        },
+        "trackRir": true
+    },
+    "progress": {
+        "hackSquat": {
+            "weight": 80.0,
+            "fails": 0,
+            "increment": 5.0
+        },
+        "bench": {
+            "weight": 80.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "row": {
+            "weight": 60.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "ohp": {
+            "weight": 40.0,
+            "fails": 0,
+            "increment": 2.5
+        },
+        "deadlift": {
+            "weight": 100.0,
+            "fails": 0,
+            "increment": 5.0
+        }
+    },
+    "routines": [
+        {
+            "id": "A",
+            "name": "Workout A",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "bench",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "row",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "dips",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        },
+        {
+            "id": "B",
+            "name": "Workout B",
+            "slots": [
+                {
+                    "exerciseId": "hackSquat",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "ohp",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "deadlift",
+                    "sets": 5,
+                    "reps": 5
+                },
+                {
+                    "exerciseId": "pullups",
+                    "sets": 3,
+                    "reps": null
+                }
+            ]
+        }
+    ],
+    "nextRoutineId": "A",
+    "customExercises": [],
+    "active": null,
+    "history": [],
+    "pickedReps": false,
+    "foods": [
+        {
+            "id": "off:4056489000006",
+            "name": "Skyr Natur",
+            "brand": "Milbona",
+            "barcode": "4056489000006",
+            "kcal": 60.0,
+            "protein": 11.0,
+            "carbs": 4.0,
+            "fat": 0.2,
+            "unit": "g",
+            "serving": null,
+            "pack": 450.0,
+            "source": "scanned"
+        }
+    ],
+    "foodLog": [
+        {
+            "id": "fw1",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1792998000000,
+            "day": "2026-10-26"
+        },
+        {
+            "id": "fw2",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793014200000,
+            "day": "2026-10-26"
+        },
+        {
+            "id": "fw3",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 750,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793037600000,
+            "day": "2026-10-26"
+        },
+        {
+            "id": "fw4",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793084400000,
+            "day": "2026-10-27"
+        },
+        {
+            "id": "fw5",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793100600000,
+            "day": "2026-10-27"
+        },
+        {
+            "id": "fw6",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 980,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793124000000,
+            "day": "2026-10-27"
+        },
+        {
+            "id": "fw7",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793170800000,
+            "day": "2026-10-28"
+        },
+        {
+            "id": "fw8",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793187000000,
+            "day": "2026-10-28"
+        },
+        {
+            "id": "fw9",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1100,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793210400000,
+            "day": "2026-10-28"
+        },
+        {
+            "id": "fw10",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793257200000,
+            "day": "2026-10-29"
+        },
+        {
+            "id": "fw11",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793273400000,
+            "day": "2026-10-29"
+        },
+        {
+            "id": "fw12",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 840,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793296800000,
+            "day": "2026-10-29"
+        },
+        {
+            "id": "fw13",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793343600000,
+            "day": "2026-10-30"
+        },
+        {
+            "id": "fw14",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793359800000,
+            "day": "2026-10-30"
+        },
+        {
+            "id": "fw15",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1020,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793383200000,
+            "day": "2026-10-30"
+        },
+        {
+            "id": "fw16",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793430000000,
+            "day": "2026-10-31"
+        },
+        {
+            "id": "fw17",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793446200000,
+            "day": "2026-10-31"
+        },
+        {
+            "id": "fw18",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1200,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793469600000,
+            "day": "2026-10-31"
+        },
+        {
+            "id": "fw19",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793516400000,
+            "day": "2026-11-01"
+        },
+        {
+            "id": "fw20",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793532600000,
+            "day": "2026-11-01"
+        },
+        {
+            "id": "fw21",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 800,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793556000000,
+            "day": "2026-11-01"
+        },
+        {
+            "id": "fw22",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793602800000,
+            "day": "2026-11-02"
+        },
+        {
+            "id": "fw23",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793619000000,
+            "day": "2026-11-02"
+        },
+        {
+            "id": "fw24",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 750,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793642400000,
+            "day": "2026-11-02"
+        },
+        {
+            "id": "fw25",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793689200000,
+            "day": "2026-11-03"
+        },
+        {
+            "id": "fw26",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793705400000,
+            "day": "2026-11-03"
+        },
+        {
+            "id": "fw27",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 980,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793728800000,
+            "day": "2026-11-03"
+        },
+        {
+            "id": "fw28",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793862000000,
+            "day": "2026-11-05"
+        },
+        {
+            "id": "fw29",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793878200000,
+            "day": "2026-11-05"
+        },
+        {
+            "id": "fw30",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 840,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793901600000,
+            "day": "2026-11-05"
+        },
+        {
+            "id": "fw31",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793948400000,
+            "day": "2026-11-06"
+        },
+        {
+            "id": "fw32",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793964600000,
+            "day": "2026-11-06"
+        },
+        {
+            "id": "fw33",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1020,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1793988000000,
+            "day": "2026-11-06"
+        },
+        {
+            "id": "fw34",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794034800000,
+            "day": "2026-11-07"
+        },
+        {
+            "id": "fw35",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794051000000,
+            "day": "2026-11-07"
+        },
+        {
+            "id": "fw36",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1200,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794074400000,
+            "day": "2026-11-07"
+        },
+        {
+            "id": "fw37",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794121200000,
+            "day": "2026-11-08"
+        },
+        {
+            "id": "fw38",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794137400000,
+            "day": "2026-11-08"
+        },
+        {
+            "id": "fw39",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 800,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794160800000,
+            "day": "2026-11-08"
+        },
+        {
+            "id": "fw40",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794207600000,
+            "day": "2026-11-09"
+        },
+        {
+            "id": "fw41",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794223800000,
+            "day": "2026-11-09"
+        },
+        {
+            "id": "fw42",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 750,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794247200000,
+            "day": "2026-11-09"
+        },
+        {
+            "id": "fw43",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794294000000,
+            "day": "2026-11-10"
+        },
+        {
+            "id": "fw44",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794310200000,
+            "day": "2026-11-10"
+        },
+        {
+            "id": "fw45",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 980,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794333600000,
+            "day": "2026-11-10"
+        },
+        {
+            "id": "fw46",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794466800000,
+            "day": "2026-11-12"
+        },
+        {
+            "id": "fw47",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794483000000,
+            "day": "2026-11-12"
+        },
+        {
+            "id": "fw48",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 840,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794506400000,
+            "day": "2026-11-12"
+        },
+        {
+            "id": "fw49",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794553200000,
+            "day": "2026-11-13"
+        },
+        {
+            "id": "fw50",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794569400000,
+            "day": "2026-11-13"
+        },
+        {
+            "id": "fw51",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1020,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794592800000,
+            "day": "2026-11-13"
+        },
+        {
+            "id": "fw52",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794639600000,
+            "day": "2026-11-14"
+        },
+        {
+            "id": "fw53",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794655800000,
+            "day": "2026-11-14"
+        },
+        {
+            "id": "fw54",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1200,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794679200000,
+            "day": "2026-11-14"
+        },
+        {
+            "id": "fw55",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794726000000,
+            "day": "2026-11-15"
+        },
+        {
+            "id": "fw56",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794742200000,
+            "day": "2026-11-15"
+        },
+        {
+            "id": "fw57",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 800,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794765600000,
+            "day": "2026-11-15"
+        },
+        {
+            "id": "fw58",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794812400000,
+            "day": "2026-11-16"
+        },
+        {
+            "id": "fw59",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794828600000,
+            "day": "2026-11-16"
+        },
+        {
+            "id": "fw60",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 750,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794852000000,
+            "day": "2026-11-16"
+        },
+        {
+            "id": "fw61",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794898800000,
+            "day": "2026-11-17"
+        },
+        {
+            "id": "fw62",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794915000000,
+            "day": "2026-11-17"
+        },
+        {
+            "id": "fw63",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 980,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794938400000,
+            "day": "2026-11-17"
+        },
+        {
+            "id": "fw64",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1794985200000,
+            "day": "2026-11-18"
+        },
+        {
+            "id": "fw65",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795001400000,
+            "day": "2026-11-18"
+        },
+        {
+            "id": "fw66",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1100,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795024800000,
+            "day": "2026-11-18"
+        },
+        {
+            "id": "fw67",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795071600000,
+            "day": "2026-11-19"
+        },
+        {
+            "id": "fw68",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795087800000,
+            "day": "2026-11-19"
+        },
+        {
+            "id": "fw69",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 840,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795111200000,
+            "day": "2026-11-19"
+        },
+        {
+            "id": "fw70",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795158000000,
+            "day": "2026-11-20"
+        },
+        {
+            "id": "fw71",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795174200000,
+            "day": "2026-11-20"
+        },
+        {
+            "id": "fw72",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1020,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795197600000,
+            "day": "2026-11-20"
+        },
+        {
+            "id": "fw73",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795244400000,
+            "day": "2026-11-21"
+        },
+        {
+            "id": "fw74",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795260600000,
+            "day": "2026-11-21"
+        },
+        {
+            "id": "fw75",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 1200,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795284000000,
+            "day": "2026-11-21"
+        },
+        {
+            "id": "fw76",
+            "foodId": null,
+            "name": "Breakfast",
+            "amount": null,
+            "unit": "g",
+            "kcal": 650,
+            "protein": 40.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795330800000,
+            "day": "2026-11-22"
+        },
+        {
+            "id": "fw77",
+            "foodId": null,
+            "name": "Lunch",
+            "amount": null,
+            "unit": "g",
+            "kcal": 850,
+            "protein": 55.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795347000000,
+            "day": "2026-11-22"
+        },
+        {
+            "id": "fw78",
+            "foodId": null,
+            "name": "Dinner",
+            "amount": null,
+            "unit": "g",
+            "kcal": 800,
+            "protein": 60.0,
+            "carbs": null,
+            "fat": null,
+            "at": 1795370400000,
+            "day": "2026-11-22"
+        }
+    ],
+    "foodGoal": {
+        "kcal": 2400,
+        "protein": 160,
+        "carbs": null,
+        "fat": null
+    },
+    "meals": [],
+    "weights": [
+        {
+            "day": "2026-10-26",
+            "kg": 84.2,
+            "at": 1792994580000
+        },
+        {
+            "day": "2026-10-27",
+            "kg": 83.9,
+            "at": 1793080980000
+        },
+        {
+            "day": "2026-10-28",
+            "kg": 83.9,
+            "at": 1793167380000
+        },
+        {
+            "day": "2026-10-29",
+            "kg": 84.1,
+            "at": 1793253780000
+        },
+        {
+            "day": "2026-10-30",
+            "kg": 83.6,
+            "at": 1793340180000
+        },
+        {
+            "day": "2026-11-02",
+            "kg": 83.9,
+            "at": 1793599380000
+        },
+        {
+            "day": "2026-11-03",
+            "kg": 83.5,
+            "at": 1793685780000
+        },
+        {
+            "day": "2026-11-04",
+            "kg": 83.6,
+            "at": 1793772180000
+        },
+        {
+            "day": "2026-11-05",
+            "kg": 83.8,
+            "at": 1793858580000
+        },
+        {
+            "day": "2026-11-06",
+            "kg": 83.3,
+            "at": 1793944980000
+        },
+        {
+            "day": "2026-11-08",
+            "kg": 83.1,
+            "at": 1794117780000
+        },
+        {
+            "day": "2026-11-09",
+            "kg": 83.5,
+            "at": 1794204180000
+        },
+        {
+            "day": "2026-11-10",
+            "kg": 84.7,
+            "at": 1794290580000
+        },
+        {
+            "day": "2026-11-11",
+            "kg": 83.2,
+            "at": 1794376980000
+        },
+        {
+            "day": "2026-11-12",
+            "kg": 83.5,
+            "at": 1794463380000
+        },
+        {
+            "day": "2026-11-13",
+            "kg": 82.9,
+            "at": 1794549780000
+        },
+        {
+            "day": "2026-11-16",
+            "kg": 83.2,
+            "at": 1794808980000
+        },
+        {
+            "day": "2026-11-17",
+            "kg": 82.8,
+            "at": 1794895380000
+        },
+        {
+            "day": "2026-11-18",
+            "kg": 82.9,
+            "at": 1794981780000
+        },
+        {
+            "day": "2026-11-19",
+            "kg": 83.1,
+            "at": 1795068180000
+        },
+        {
+            "day": "2026-11-20",
+            "kg": 82.6,
+            "at": 1795154580000
+        },
+        {
+            "day": "2026-11-22",
+            "kg": 82.4,
+            "at": 1795327380000
+        }
+    ],
+    "weightGoal": {
+        "direction": "lose",
+        "pace": 0.5,
+        "adjust": true,
+        "checkIn": null
+    },
+    "timerPresets": [],
+    "timerSessions": [],
+    "timerConfigs": {
+        "tabata": {
+            "mode": "tabata",
+            "work": 20,
+            "rest": 10,
+            "rounds": 8
+        },
+        "emom": {
+            "mode": "emom",
+            "work": 60,
+            "rest": 0,
+            "rounds": 10
+        },
+        "amrap": {
+            "mode": "amrap",
+            "work": 600,
+            "rest": 0,
+            "rounds": 1
+        },
+        "forTime": {
+            "mode": "forTime",
+            "work": 1200,
+            "rest": 0,
+            "rounds": 1
+        },
+        "boxing": {
+            "mode": "boxing",
+            "work": 180,
+            "rest": 60,
+            "rounds": 6,
+            "boxing": {
+                "rounds": [
+                    {
+                        "theme": "jab",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "two",
+                        "every": 4,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "three",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "four",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "mix",
+                        "every": 6,
+                        "split": 30,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    },
+                    {
+                        "theme": "freestyle",
+                        "every": 6,
+                        "split": 0,
+                        "pick": [],
+                        "cues": "off",
+                        "burnout": 0
+                    }
+                ],
+                "style": "names",
+                "stance": "orthodox",
+                "room": "normal",
+                "own": []
+            }
+        }
+    },
+    "wods": []
+}
