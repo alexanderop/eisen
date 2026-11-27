@@ -53,6 +53,10 @@ search leaves the phone.
   gone for the week once answered, back after a restart while it is not.
 - `food-weight-progress` History › Progress › Weight: the weights as dots, the trend as a line, the range, the trend, its
   change a week and what the lifter burns, `Log weight`.
+- `food-icons` a picture of what each food is, left of its name: in the day's entries, the add screen's rows, the plate,
+  the "Again" chips, and 64 dp on top of the add sheet. A scanned product takes the picture of its Open Food Facts category,
+  a plain food its own, anything else the guess from its name (English and German), else a plate. A tap on the add sheet's
+  picture (or the own food form's) opens a grid of all 42; the choice is kept.
 
 ## How to get to it (user POV)
 
@@ -70,6 +74,10 @@ the day, `Next day`, the number (described `weight 82.4 kg`, a tap types it), `S
 goal sheet (`Change goal`) has `WEIGHT GOAL` below the macros: `Lose`, `Maintain`, `Gain`, the pace (described `pace 0.5 kg a
 week`), `Adjust my target each week`. History › `Progress` › `Weight`: `3 months`, `1 year`, `All`, the chart (described
 `Weight over time, N weights, trend ...`), `Trend`, `Change`, `You burn`, `Log weight`.
+
+The pictures are decoration next to a name and have no description of their own; the add sheet's picture and the own food
+form's are buttons described `Picture: Yogurt`, and open the sheet `Picture` with one cell per picture, each described by its
+name (`Milk`, `Protein shake`, `Oats and muesli`, ...) and selected or not.
 
 ## Driving it with eisenctl
 
@@ -326,6 +334,42 @@ jq -e '(.foodGoal.kcal == 2400) and (.weightGoal.adjust) and (.weightGoal.checkI
 eisenctl doctor && eisenctl cleanup
 ```
 
+**Pictures: a category's, a name's, and one chosen that stays** (`food-icons`, `food-lookup`, `food-own`). A typed barcode
+takes its category's picture, an own food's follows its name and changes, a wrong one corrected stays after a restart. Edeka's Milch (`4311501065525`, a saved real answer filed
+under `en:milks`) is answered from the local file and shows a milk carton; the Skyr the phone knew from build 25 has no
+picture stored and shows the yogurt its name gives. The Skyr's yogurt becomes ice cream from its plate item (Back first
+puts the grid away without a choice). A new own food starts on the plate and follows the name typed ("Hafermilch" is
+milk); the grid makes it oats. After a restart the Skyr still shows ice cream.
+
+```sh
+eisenctl launch --state food
+eisenctl adb shell "rm -rf /data/local/tmp/eisen-off" && eisenctl adb push apps/android/app/src/test/resources/off /data/local/tmp/eisen-off > /dev/null
+eisenctl adb shell "run-as io.github.alexanderop.eisen sh -c 'mkdir -p files/off/product && cp /data/local/tmp/eisen-off/product/4311501065525.json files/off/product/'"
+eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
+eisenctl type 4311501065525 && eisenctl tap "Look up" && eisenctl wait "Milch is on the plate, 1 food now.*"
+eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate, 2 foods now.*" && eisenctl tap "Close" && eisenctl wait "Log 910 kcal"
+eisenctl tap "Plate, 2 foods · 910 kcal" && eisenctl wait "Milch, 1000 ml, 640 kcal" && eisenctl shot 58-plate-pictures
+eisenctl tap "Milch, 1000 ml, 640 kcal" && eisenctl wait "Save 640 kcal" && eisenctl visible "Picture: Milk" "Save 640 kcal" && eisenctl shot 59-milk-sheet && eisenctl tap "Close"
+eisenctl wait "Skyr Natur, 450 g, 270 kcal" && eisenctl tap "Skyr Natur, 450 g, 270 kcal" && eisenctl wait "Save 270 kcal" && eisenctl has "Picture: Yogurt"
+eisenctl tap "Picture: Yogurt" && eisenctl wait "Ice cream" && eisenctl visible "Picture" "Close" "Ice cream" && eisenctl has "Milk" "Yogurt" "Cookie" && eisenctl small && eisenctl shot 60-picker
+eisenctl back && eisenctl wait "Save 270 kcal" && eisenctl has "Picture: Yogurt" && eisenctl tap "Picture: Yogurt" && eisenctl wait "Ice cream" && eisenctl tap "Ice cream"
+eisenctl wait "Picture: Ice cream" && eisenctl has "Save 270 kcal" && eisenctl shot 61-picked && eisenctl tap "Close"
+jq -e '(.foods | map(select(.id == "off:4311501065525"))[0].icon == "milk") and (.foods | map(select(.id == "off:4056489000006"))[0].icon == "ice_cream")' "$(eisenctl state 62-state)"
+eisenctl wait "Log 910 kcal" && eisenctl tap "Plate, 2 foods · 910 kcal" && eisenctl wait "Clear"
+for i in 1 2 3 4; do eisenctl visible "New food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "New food" && eisenctl wait "Save food" && eisenctl has "Picture: Plate"
+eisenctl tap "Name" && eisenctl type "Hafermilch" && eisenctl back && eisenctl wait "Picture: Milk" && eisenctl shot 63-own-follows-name
+eisenctl tap "Picture: Milk" && eisenctl wait "Oats and muesli" && eisenctl tap "Oats and muesli" && eisenctl wait "Picture: Oats and muesli"
+eisenctl tap "calories per 100 g 0 kcal" && eisenctl type 45 && eisenctl back && eisenctl tap "Save food" && eisenctl wait "Add 45 kcal to the plate" && eisenctl has "Picture: Oats and muesli" && eisenctl tap "Close"
+eisenctl wait "Log 910 kcal" && eisenctl tap "Log 910 kcal" && eisenctl wait "Logged 2 foods"
+jq -e '.foods | map(select(.source == "own" and .name == "Hafermilch"))[0].icon == "cereal"' "$(eisenctl state 64-state)"
+eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
+eisenctl tap "Food" && eisenctl wait "1,490 kcal left" && eisenctl tap "[0-9]{2}:[0-9]{2}, 2 foods, 910 kcal" && eisenctl wait "Skyr Natur, 450 g, 270 kcal" && eisenctl shot 65-day-after-restart
+eisenctl tap "Skyr Natur, 450 g, 270 kcal" && eisenctl wait "Save 270 kcal" && eisenctl has "Picture: Ice cream" && eisenctl tap "Close"
+eisenctl adb shell "rm -r /data/local/tmp/eisen-off"
+eisenctl doctor && eisenctl cleanup
+```
+
 ## Gotchas
 
 - `--state` moves the food log of a fixture by whole weeks so its newest day is one of the seven days before the phone's
@@ -360,6 +404,10 @@ eisenctl doctor && eisenctl cleanup
 - The goal sheet has the weight goal under the macros: "Save goal" is below the fold, the recipes scroll to it.
 - The check-in card is the first item of the Food tab: after the goal sheet, scrolled down to `Change goal`, the recipes
   scroll up before they look for it.
+- The pictures have no handle in a row (TalkBack reads the name once): the recipe checks them on the sheets
+  (`Picture: Milk`) and in the saved JSON (`"icon": "milk"`), and the shots show them. A food without a picture of its own
+  (the Skyr of the `food` fixture, saved by build 25) has no `icon` in the file at all.
+- The grid of pictures is a second sheet over the add sheet: `back` puts away the grid only; the sheet stays.
 - The real scanner is not driven here: on the emulator Google Play services first has to download its module
   ("Waiting for the Barcode UI module to be downloaded"), and then it needs a camera. `Scan` then opens
   `Type a barcode` with "Google Play services is downloading the scanner, once." (the app asks for the module; a second

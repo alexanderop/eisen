@@ -70,6 +70,15 @@ import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.Online
 import io.github.alexanderop.eisen.app.elm.againItems
+import io.github.alexanderop.eisen.app.elm.IconPicker
+import io.github.alexanderop.eisen.app.elm.canPickIcon
+import io.github.alexanderop.eisen.feature.food.FoodIcon
+import io.github.alexanderop.eisen.feature.food.guessIcon
+import io.github.alexanderop.eisen.feature.food.iconOf
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import io.github.alexanderop.eisen.app.elm.foodEntry
 import io.github.alexanderop.eisen.app.elm.foodResults
 import io.github.alexanderop.eisen.app.elm.onlineResults
@@ -128,7 +137,7 @@ internal fun FoodSheets(model: Model, dispatch: (Msg) -> Unit) {
     val close = { dispatch(Msg.Food.CloseSheet) }
     when (val sheet = model.food.sheet) {
         null -> Unit
-        is FoodSheet.Amount -> AmountSheet(sheet, minuteOfDay(model.now, model.zone), dispatch, close)
+        is FoodSheet.Amount -> AmountSheet(sheet, canPickIcon(model, sheet), minuteOfDay(model.now, model.zone), dispatch, close)
         is FoodSheet.Quick -> QuickSheet(sheet.target, changing(model, sheet.target), minuteOfDay(model.now, model.zone), model.zone, dispatch, close)
         is FoodSheet.Own -> OwnSheet(sheet, sheet.id?.let { id -> model.state.foods.firstOrNull { it.id == id } }, dispatch, close)
         FoodSheet.Goal -> GoalSheet(model, dispatch, close)
@@ -214,18 +223,22 @@ internal fun Field(label: String, control: @Composable () -> Unit) {
 internal fun per100Text(food: Food): String = "${numberText(food.kcal)} kcal · ${numberText(food.protein)} g protein"
 
 /**
- * The add sheet: what the food has per 100, the amount by chips (½, 1, 2 of the serving or the pack) or typed,
- * and a button that says what it adds.
+ * The add sheet: the food's picture (a tap changes it, when [canPick]), what the food has per 100, the amount by chips
+ * (½, 1, 2 of the serving or the pack) or typed, and a button that says what it adds.
  */
 @Composable
-private fun AmountSheet(sheet: FoodSheet.Amount, now: Int, dispatch: (Msg) -> Unit, close: () -> Unit) {
+private fun AmountSheet(sheet: FoodSheet.Amount, canPick: Boolean, now: Int, dispatch: (Msg) -> Unit, close: () -> Unit) {
     val food = sheet.food
     val adds = entryOf(food, sheet.amount, "", 0, "")
+    val icon = iconOf(food)
     FoodSheet(food.name, close) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (food.brand.isNotBlank()) Text(food.brand, color = EisenColors.MutedForeground)
-            Text(per100Text(food), fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text("per 100 ${food.unit.label}", color = EisenColors.MutedForeground)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            PictureButton(icon, enabled = canPick) { dispatch(Msg.Food.OpenIcons) }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (food.brand.isNotBlank()) Text(food.brand, color = EisenColors.MutedForeground)
+                Text(per100Text(food), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("per 100 ${food.unit.label}", color = EisenColors.MutedForeground)
+            }
         }
         val chips = amountChips(food)
         if (chips.isNotEmpty()) {
@@ -269,6 +282,26 @@ private fun AmountSheet(sheet: FoodSheet.Amount, now: Int, dispatch: (Msg) -> Un
                 Text("Edit food", fontWeight = FontWeight.SemiBold)
             }
         }
+    }
+    if (sheet.picker == IconPicker.Open) IconPickerSheet(icon, onPick = { dispatch(Msg.Food.PickIcon(it)) }, onClose = { dispatch(Msg.Food.CloseIcons) })
+}
+
+/**
+ * A food's picture on top of its sheet, 64 dp. A tap opens the grid of pictures; TalkBack says "Picture: Milk" and that a
+ * tap changes it. [enabled] false: the picture only shows (an entry whose food is gone).
+ */
+@Composable
+private fun PictureButton(icon: FoodIcon, enabled: Boolean, onOpen: () -> Unit) {
+    Box(
+        Modifier
+            .size(HeaderIconSize + 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(EisenColors.Muted)
+            .then(if (enabled) Modifier.clickable(role = Role.Button, onClickLabel = "Change the picture") { onOpen() } else Modifier)
+            .semantics(mergeDescendants = true) { contentDescription = "Picture: ${icon.label}" },
+        contentAlignment = Alignment.Center,
+    ) {
+        FoodIconImage(icon, size = HeaderIconSize)
     }
 }
 
@@ -336,17 +369,22 @@ private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Un
     var carbs by rememberSaveable { mutableDoubleStateOf(editing?.carbs ?: 0.0) }
     var fat by rememberSaveable { mutableDoubleStateOf(editing?.fat ?: 0.0) }
     var serving by rememberSaveable { mutableDoubleStateOf(editing?.serving ?: 0.0) }
+    // Until a picture is chosen, the one the name typed suggests.
+    val icon = sheet.icon ?: guessIcon(name) ?: FoodIcon.PLATE
     FoodSheet(if (editing == null) "New food" else "Edit food", close) {
         sheet.note?.let { Text(it, color = EisenColors.Warn) }
         (editing?.barcode ?: sheet.barcode)?.let { Text("Barcode $it", color = EisenColors.MutedForeground) }
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it.take(MAX_FOOD_NAME) },
-            label = { Text("Name") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            PictureButton(icon, enabled = true) { dispatch(Msg.Food.OpenIcons) }
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it.take(MAX_FOOD_NAME) },
+                label = { Text("Name") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                modifier = Modifier.weight(1f),
+            )
+        }
         Eyebrow("Per 100 g")
         Field("Calories") {
             Stepper(value = kcal, onValueChange = { kcal = it }, step = 5.0, snap = 0.1, min = 0.0, max = MAX_KCAL_PER_100, label = "calories per 100 g", format = { "${numberText(it)} kcal" })
@@ -371,6 +409,7 @@ private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Un
             Text("What you logged of it keeps its numbers.", color = EisenColors.MutedForeground, fontSize = 13.sp)
         }
     }
+    if (sheet.picker == IconPicker.Open) IconPickerSheet(icon, onPick = { dispatch(Msg.Food.PickIcon(it)) }, onClose = { dispatch(Msg.Food.CloseIcons) })
 }
 
 /**

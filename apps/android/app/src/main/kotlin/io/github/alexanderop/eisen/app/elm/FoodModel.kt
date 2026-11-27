@@ -1,6 +1,7 @@
 package io.github.alexanderop.eisen.app.elm
 
 import io.github.alexanderop.eisen.feature.food.Food
+import io.github.alexanderop.eisen.feature.food.FoodIcon
 import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.MealItem
 import io.github.alexanderop.eisen.feature.food.PlateItem
@@ -76,7 +77,14 @@ sealed interface FoodSheet {
      * The add sheet of [food] with [amount] chosen, in its unit, and [target], where that amount goes. [minute]: the time
      * of day an entry of the log is set to (null: it keeps the one it has, or has none).
      */
-    data class Amount(val food: Food, val amount: Double, val target: AmountFor = AmountFor.Log, val minute: Int? = null) : FoodSheet
+    data class Amount(
+        val food: Food,
+        val amount: Double,
+        val target: AmountFor = AmountFor.Log,
+        val minute: Int? = null,
+        /** The grid of pictures over it: the food's picture can be changed, see [IconPicker]. */
+        val picker: IconPicker = IconPicker.Closed,
+    ) : FoodSheet
 
     /** Quick kcal for a meal out: logged, put on the plate, or a quick entry or plate item changed. */
     data class Quick(val target: AmountFor = AmountFor.Log) : FoodSheet
@@ -84,9 +92,18 @@ sealed interface FoodSheet {
     /**
      * The form of an own food. [id]: the food it edits, null for a new one. [barcode] and [name]: filled in from a
      * lookup that found nothing to log. [note]: what the form says above it, why it opened. [direct]: the food goes
-     * straight onto the plate once it is saved (it came from a run of barcodes or a `+`).
+     * straight onto the plate once it is saved (it came from a run of barcodes or a `+`). [icon]: the picture the lifter
+     * chose (the one the food has, when it is edited); null while he has not, and then the picture follows the name typed.
      */
-    data class Own(val id: String? = null, val barcode: String? = null, val name: String = "", val note: String? = null, val direct: Boolean = false) : FoodSheet
+    data class Own(
+        val id: String? = null,
+        val barcode: String? = null,
+        val name: String = "",
+        val note: String? = null,
+        val direct: Boolean = false,
+        val icon: FoodIcon? = null,
+        val picker: IconPicker = IconPicker.Closed,
+    ) : FoodSheet
 
     data object Goal : FoodSheet
 
@@ -101,6 +118,25 @@ sealed interface FoodSheet {
 
     /** Making, changing and deleting meals, see [MealSheet]. */
     data class Meal(val sheet: MealSheet) : FoodSheet
+}
+
+/**
+ * The grid of the 42 pictures, a sheet over the add sheet of a food or over the own food form. [iconAfter] (UpdateFood.kt)
+ * is the one place it changes.
+ *
+ *   ┌────────┐ OpenIcons ┌──────┐ PickIcon(icon): the picture of the food (or of the form) is [FoodIcon] icon
+ *   │ Closed │ ────────▶ │ Open │ ───────────────────────────────────────────────────────────────────────▶ Closed
+ *   └────────┘ ◀──────── └──────┘
+ *              CloseIcons (its close button, Back, a swipe down): nothing changes
+ *
+ *   Only over the add sheet of a food the phone knows (or one it is about to log) and over the own food form; anywhere
+ *   else OpenIcons and PickIcon change nothing. A food the phone keeps takes the picture at once and keeps it; a plain
+ *   food keeps it in [io.github.alexanderop.eisen.app.state.AppState.plainIcons]. A picture changes no number.
+ */
+sealed interface IconPicker {
+    data object Closed : IconPicker
+
+    data object Open : IconPicker
 }
 
 /**

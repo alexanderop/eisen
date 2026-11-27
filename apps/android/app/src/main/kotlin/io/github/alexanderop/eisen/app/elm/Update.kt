@@ -336,6 +336,7 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
             model.weight.sheet != null && !showsWorkout(model) -> return weight(Msg.Weight.Close, model, env)
             showsWorkout(model) -> nav.copy(workoutOpen = false)
             // A sheet over the Food tab or its add screen goes first, then the add screen, then the tab.
+            iconPickerOpen(model) -> return food(Msg.Food.CloseIcons, model, env)
             model.food.sheet != null -> return food(Msg.Food.CloseSheet, model, env)
             model.food.add != null -> return food(Msg.Food.CloseAdd, model, env)
             nav.tab == Tab.WORKOUTS && openRoutine(model) != null -> nav.copy(routine = null)

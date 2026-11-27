@@ -9,6 +9,9 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
 
 - `layout-visible` every screen shows what it is for: its title or main action, its controls, the tabs.
 - `layout-targets` nothing on a screen can be tapped on less than 48 dp either way (`eisenctl small`).
+- `layout-food-icons` the pictures of the foods next to their names (the add screen's rows, the plate, the day's entries,
+  the "Again" chips) and the 64 dp picture on top of an item's add sheet, which is a button of 48 dp or more: no name loses
+  its room to a picture.
 - `layout-food` the "Food today" card under the workout, which never pushes "Start workout" off the first screen,
   the Food tab with its week strip, its summary (calories, protein, carbs, fat) and its buttons, the add screen with
   its common foods and the plate pinned at the bottom, the add sheet of an item of the plate with its chips, grams and
@@ -35,7 +38,7 @@ screens and checks each with `visible` (the handles on screen, not cut off, tapp
 `small` (no clickable node of the screen under 48 dp). About four minutes each. The weight log has a recipe of its own on
 `--state food-weight` (a check-in due), which goes through the three scales one after the other.
 
-**At font scale 1.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`).
+**At font scale 1.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`, `layout-food-icons`).
 
 ```sh
 eisenctl launch --state short-timers
@@ -50,7 +53,7 @@ eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl visible "Back"
 for i in 1 2 3; do eisenctl visible "Put Banana on the plate" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl visible "Plate, 1 food · 105 kcal" "Clear" "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl small && eisenctl shot 11e-add-plate
 eisenctl tap "Plate, 1 food · 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl visible "Banana, 118 g, 105 kcal" "Log 105 kcal" && eisenctl small
-eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 11f-plate-item
+eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "Picture: Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 11f-plate-item
 eisenctl tap "Save 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
 for i in 1 2 3 4; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save as meal" && eisenctl wait "Save meal"
@@ -83,7 +86,7 @@ eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
-**At font scale 1.3** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`).
+**At font scale 1.3** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`, `layout-food-icons`).
 
 ```sh
 eisenctl launch --state short-timers
@@ -98,7 +101,7 @@ eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl visible "Back"
 for i in 1 2 3; do eisenctl visible "Put Banana on the plate" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl visible "Plate, 1 food · 105 kcal" "Clear" "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl small && eisenctl shot 21e-add-plate
 eisenctl tap "Plate, 1 food · 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl visible "Banana, 118 g, 105 kcal" "Log 105 kcal" && eisenctl small
-eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 21f-plate-item
+eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "Picture: Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 21f-plate-item
 eisenctl tap "Save 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
 for i in 1 2 3 4; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save as meal" && eisenctl wait "Save meal"
@@ -131,7 +134,7 @@ eisenctl back && eisenctl wait "Log"
 eisenctl doctor && eisenctl cleanup
 ```
 
-**At font scale 2.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`), the largest Android offers.
+**At font scale 2.0** (`layout-visible`, `layout-targets`, `layout-rest-clock`, `layout-food`, `layout-food-icons`), the largest Android offers.
 
 ```sh
 eisenctl launch --state short-timers
@@ -146,7 +149,7 @@ eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl visible "Back"
 for i in 1 2 3; do eisenctl visible "Put Banana on the plate" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl visible "Plate, 1 food · 105 kcal" "Clear" "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl small && eisenctl shot 31e-add-plate
 eisenctl tap "Plate, 1 food · 105 kcal" && eisenctl wait "Banana, 118 g, 105 kcal" && eisenctl visible "Banana, 118 g, 105 kcal" "Log 105 kcal" && eisenctl small
-eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 31f-plate-item
+eisenctl tap "Banana, 118 g, 105 kcal" && eisenctl wait "Save 105 kcal" && eisenctl visible "Banana" "Picture: Banana" "89 kcal · 1.1 g protein" "½ = 59 g" "1 serving 118 g" "2 = 236 g" "amount 118 g" "Save 105 kcal" && eisenctl small && eisenctl shot 31f-plate-item
 eisenctl tap "Save 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
 for i in 1 2 3 4; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save as meal" && eisenctl wait "Save meal"
@@ -245,6 +248,10 @@ eisenctl doctor && eisenctl cleanup
 - The weight recipe walks the three scales in one run: the Food tab keeps its scroll, so each scale scrolls up first, and
   it goes Home before tapping `Food`, which History › Progress also has as the title of its Food section.
   "Take" and "Keep" are below the fold at 2.0; the recipe scrolls to them.
+- A picture next to a name is 40 dp up to a font scale of 1.3 and 32 dp above it; on a screen narrower than 200 dp per font
+  scale (320 dp at 2.0, checked by hand with `wm density 540`) the rows leave it out so the name keeps its room. On the
+  emulator's 411 dp it shows at every scale. The pictures have no handle (TalkBack reads the name once); the add sheet's
+  `Picture: Banana` is the one the recipes check, the shots show the rest.
 - `font` changes a system setting; `cleanup` puts back the scale the run found. A run that stops half-way
   must still be cleaned up, or the emulator keeps the large font.
 - The result's middle scrolls when it does not fit (a narrow phone at 2.0: 320 dp, checked by hand with

@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.feature.food
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.math.BigDecimal
@@ -31,8 +33,12 @@ enum class FoodSource {
 /**
  * A food with its numbers per 100 g (or 100 ml when [unit] is millilitres). [serving] and [pack] are
  * amounts in the same unit, when known: they give the chips of the add sheet. [carbs] and [fat] are kept,
- * not shown in the lifter's face; null when the source does not say.
+ * not shown in the lifter's face; null when the source does not say. [icon] is the food's own picture (from its Open Food
+ * Facts category, the plain foods' asset, or the lifter's choice); null shows the guess from its name, see [iconOf]. It
+ * came after build 25, whose files have none; it is left out of the file when null, and a name this build does not know
+ * reads as none.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class Food(
     val id: String,
@@ -47,6 +53,7 @@ data class Food(
     val serving: Double? = null,
     val pack: Double? = null,
     val source: FoodSource,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @Serializable(with = FoodIconOrNone::class) val icon: FoodIcon? = null,
 )
 
 /**

@@ -62,7 +62,12 @@ import io.github.alexanderop.eisen.app.elm.Online
 import io.github.alexanderop.eisen.app.elm.addSuggestions
 import io.github.alexanderop.eisen.app.elm.foodResults
 import io.github.alexanderop.eisen.app.elm.onlineResults
+import io.github.alexanderop.eisen.app.elm.plateIcon
 import io.github.alexanderop.eisen.app.elm.plateItemOfFood
+import io.github.alexanderop.eisen.feature.food.FoodIcon
+import io.github.alexanderop.eisen.feature.food.MEAL_ICON
+import io.github.alexanderop.eisen.feature.food.iconOfHit
+import io.github.alexanderop.eisen.feature.food.iconOf
 import io.github.alexanderop.eisen.core.counted
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Eyebrow
@@ -115,7 +120,7 @@ fun AddFoodScreen(model: Model, dispatch: (Msg) -> Unit, snackbars: @Composable 
             }
             Box(Modifier.align(Alignment.BottomCenter)) { snackbars() }
         }
-        if (model.food.plate.isNotEmpty()) PlateBar(model.food.plate, plateRoom, dispatch)
+        if (model.food.plate.isNotEmpty()) PlateBar(model, model.food.plate, plateRoom, dispatch)
     }
     }
     }
@@ -152,6 +157,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.suggestions(model: Mo
             val adds = entryOf(item.food, item.amount, "", 0, "")
             FoodRow(
                 name = item.food.name,
+                icon = iconOf(item.food),
                 detail = "${amountText(item.amount, item.food.unit)} · ${kcalText(adds.kcal)} kcal",
                 onPlate = plateItemOfFood(model, item.food.id),
                 onOpen = { dispatch(Msg.Food.Pick(item.food.id)) },
@@ -169,6 +175,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.suggestions(model: Mo
         items(meals, key = { "meal-${it.id}" }) { meal ->
             FoodRow(
                 name = meal.name,
+                icon = MEAL_ICON,
                 detail = "${counted(meal.items.size, "food")} · ${kcalText(mealTotals(meal).kcal)} kcal",
                 onPlate = null,
                 onOpen = { dispatch(Msg.Food.PlateMeal(meal.id)) },
@@ -196,6 +203,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(model: Model,
         val brand = food.brand.takeIf { it.isNotBlank() }?.let { "$it · " }.orEmpty()
         FoodRow(
             name = food.name,
+            icon = iconOf(food),
             detail = "$brand${per100Text(food)} per 100 ${food.unit.label}",
             onPlate = plateItemOfFood(model, food.id),
             onOpen = { dispatch(Msg.Food.Pick(food.id)) },
@@ -224,6 +232,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(model: Model,
                 val food = hit.food
                 FoodRow(
                     name = hit.name,
+                    icon = iconOfHit(hit),
                     detail = "$brand${if (food != null) "${per100Text(food)} per 100 ${food.unit.label}" else "tap to look up its calories"}",
                     onPlate = plateItemOfFood(model, hit.id),
                     onOpen = { dispatch(Msg.Food.Pick(hit.id)) },
@@ -239,12 +248,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.results(model: Model,
 }
 
 /**
- * A food (or a meal) of the add screen: a tap on the row opens its amount, `+` puts it on the plate. A food on the plate
- * shows a check instead, which takes it off again.
+ * A food (or a meal) of the add screen: its picture, a tap on the row opens its amount, `+` puts it on the plate. A food
+ * on the plate shows a check instead, which takes it off again. The picture is decoration: the row reads the name.
  */
 @Composable
-private fun FoodRow(name: String, detail: String, onPlate: PlateItem?, onOpen: () -> Unit, onPlus: () -> Unit, dispatch: (Msg) -> Unit) {
+private fun FoodRow(name: String, icon: FoodIcon, detail: String, onPlate: PlateItem?, onOpen: () -> Unit, onPlus: () -> Unit, dispatch: (Msg) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        RowIcon(icon)
         Column(
             Modifier
                 .weight(1f)
@@ -278,7 +288,7 @@ private fun FoodRow(name: String, detail: String, onPlate: PlateItem?, onOpen: (
  * changes the amount, the cross takes one off), "Clear", and one button that logs it all.
  */
 @Composable
-private fun PlateBar(plate: List<PlateItem>, room: androidx.compose.ui.unit.Dp, dispatch: (Msg) -> Unit) {
+private fun PlateBar(model: Model, plate: List<PlateItem>, room: androidx.compose.ui.unit.Dp, dispatch: (Msg) -> Unit) {
     var open by rememberSaveable { mutableStateOf(false) }
     val totals = plateTotals(plate)
     val summary = "${counted(plate.size, "food")} · ${kcalText(totals.kcal)} kcal"
@@ -310,7 +320,8 @@ private fun PlateBar(plate: List<PlateItem>, room: androidx.compose.ui.unit.Dp, 
                     if (index > 0) HorizontalDivider(color = EisenColors.Border)
                     val entry = item.entry
                     val amount = entry.amount?.let { amountText(it, entry.unit) }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        RowIcon(plateIcon(model, item))
                         Column(
                             Modifier
                                 .weight(1f)

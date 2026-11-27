@@ -25,7 +25,7 @@ import kotlinx.serialization.json.intOrNull
  * which it works out from it.
  */
 const val PRODUCT_FIELDS = "code,product_name,product_name_en,generic_name,brands,quantity,product_quantity,product_quantity_unit," +
-    "serving_quantity,serving_quantity_unit,nutrition_data_per,nutriments"
+    "serving_quantity,serving_quantity_unit,nutrition_data_per,nutriments,categories_tags"
 
 /** Products per search: one page, the first that fits on the sheet. */
 const val SEARCH_PAGE_SIZE = 20
@@ -55,14 +55,18 @@ sealed interface ProductAnswer {
 
 /**
  * A product the search found. [food] is null when the search does not carry its calories (its index leaves out
- * `nutriments` for many products): a tap then looks the product up by its [barcode], which has them.
+ * `nutriments` for many products): a tap then looks the product up by its [barcode], which has them. [icon]: the
+ * picture of its categories, when the search carries them, also without its calories.
  */
-data class SearchHit(val barcode: String, val name: String, val brand: String, val food: Food?) {
+data class SearchHit(val barcode: String, val name: String, val brand: String, val food: Food?, val icon: FoodIcon? = null) {
     val id: String get() = "off:$barcode"
 }
 
+/** The picture of a hit: its food's, else its categories', else the guess from its name, else the plate. */
+fun iconOfHit(hit: SearchHit): FoodIcon = hit.food?.let(::iconOf) ?: hit.icon ?: guessIcon(hit.name) ?: FoodIcon.PLATE
+
 /** A food as a search hit with its numbers. */
-fun hitOf(food: Food): SearchHit = SearchHit(food.barcode ?: food.id.removePrefix("off:"), food.name, food.brand, food)
+fun hitOf(food: Food): SearchHit = SearchHit(food.barcode ?: food.id.removePrefix("off:"), food.name, food.brand, food, food.icon)
 
 /** What a search came to. */
 sealed interface SearchAnswer {
@@ -78,7 +82,7 @@ sealed interface SearchAnswer {
 fun searchFields(lang: String): String {
     val local = lang.lowercase().takeIf { it.matches(Regex("[a-z]{2}")) && it != "en" }?.let { "product_name_$it," }.orEmpty()
     return "code,product_name,${local}product_name_en,generic_name,brands,quantity,product_quantity,product_quantity_unit," +
-        "serving_quantity,serving_quantity_unit,nutrition_data_per,nutriments"
+        "serving_quantity,serving_quantity_unit,nutrition_data_per,nutriments,categories"
 }
 
 /** The languages a search looks in: the phone's, then English. */
@@ -141,7 +145,7 @@ fun searchAnswer(status: Int, body: String?, lang: String = "en"): SearchAnswer 
         val code = product["code"].text()?.let(::normalBarcode)?.takeIf { barcodeProblem(it) == null } ?: return@mapNotNull null
         val name = nameOf(product, lang).takeIf { it.isNotEmpty() } ?: return@mapNotNull null
         val food = foodOf(product, code, lang)
-        SearchHit(code, food?.name ?: name, food?.brand ?: brandOf(product), food)
+        SearchHit(code, food?.name ?: name, food?.brand ?: brandOf(product), food, iconOfCategories(categoriesOf(product)))
     }
     return SearchAnswer.Found(hits.distinctBy { it.barcode }.take(SEARCH_PAGE_SIZE))
 }
@@ -174,9 +178,17 @@ private fun foodOf(product: JsonObject, barcode: String, lang: String = "en"): F
             serving = inUnit(product["serving_quantity"].number(), servingUnit),
             pack = inUnit(product["product_quantity"].number(), packUnit),
             source = FoodSource.SCANNED,
+            icon = iconOfCategories(categoriesOf(product)),
         ),
     )
 }
+
+/**
+ * The categories of a product, broad to specific: `categories_tags` in a product read, `categories` in a search (which
+ * Search-a-licious fills from `categories_tags`). Empty when the product has none.
+ */
+private fun categoriesOf(product: JsonObject): List<String> =
+    ((product["categories_tags"] ?: product["categories"]) as? JsonArray).orEmpty().mapNotNull { it.text() }
 
 private fun nameOf(product: JsonObject, lang: String = "en"): String =
     (listOfNotNull("product_name_${lang.lowercase()}".takeIf { lang.lowercase() != "en" }) + listOf("product_name", "product_name_en", "generic_name"))
@@ -218,7 +230,7 @@ private const val MINUTE_MILLIS = 60_000L
 
 /**
  * The plain foods of the app's asset `foods/plain.json`, made by `scripts/plain-foods.py` from USDA FoodData
- * Central. Each entry: `id`, `name`, `kcal`, `protein`, `carbs`, `fat` per 100 g and an optional `serving`.
+ * Central. Each entry: `id`, `name`, `kcal`, `protein`, `carbs`, `fat` per 100 g, an optional `serving`, and its `icon`.
  * A broken asset gives none, never a crash.
  */
 fun parsePlainFoods(json: String): List<Food> {
@@ -243,6 +255,7 @@ fun parsePlainFoods(json: String): List<Food> {
                 unit = if (item["unit"].text() == "ml") FoodUnit.ML else FoodUnit.G,
                 serving = item["serving"].number(),
                 source = FoodSource.PLAIN,
+                icon = foodIconNamed(item["icon"].text()),
             ),
         )
     }.distinctBy { it.id }

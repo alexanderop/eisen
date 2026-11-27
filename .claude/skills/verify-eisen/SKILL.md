@@ -76,8 +76,9 @@ Every journey runs the debug build; builds 22 and 23 broke only under R8. This r
 debug app's files, uninstalls it (the release key is another signature), installs the release APK muted with the
 animations off, and drives it: Home, a workout started and discarded, Workouts, a timer's setup, the Food tab, its add
 screen, Scan (the scanner's own screen, or the typed barcode while Play services fetches the scanner), a typed barcode
-looked up in airplane mode ("No network": a release build reads no local answers), a new own food put on the plate and
-logged, Settings behind the gear, History › Progress and a weight logged in its Weight section. It **fails on a crash, an ANR, or a `ClassNotFoundException`,
+looked up in airplane mode ("No network": a release build reads no local answers), a new own food (its picture following its name, the grid of pictures, one picked)
+put on the plate and logged, Settings behind the gear, History › Progress and a weight logged in its Weight section. Before it installs anything it counts the pictures of the foods in the APK's resource table (`aapt2 dump resources`): one
+missing, as resource shrinking could drop it, fails. It **fails on a crash, an ANR, or a `ClassNotFoundException`,
 `NoSuchMethodException` or `ComponentDiscovery` warning of the app's process in logcat**, and on any step that does
 not show. Then, failed or not, the debug build goes back on with its files, airplane mode off, animations and font as
 found. Evidence: `verify/android/<date-time>-release/`. It needs no open run and leaves none; it stamps nothing. About

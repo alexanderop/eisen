@@ -40,6 +40,7 @@ import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.FoodGoal
 import io.github.alexanderop.eisen.feature.food.entryWithin
+import io.github.alexanderop.eisen.feature.food.foodIconNamed
 import io.github.alexanderop.eisen.feature.food.foodWithin
 import io.github.alexanderop.eisen.feature.food.goalWithin
 import io.github.alexanderop.eisen.feature.food.MAX_MEALS
@@ -97,6 +98,12 @@ data class AppState(
      * no such field and older builds ignore it: no migration.
      */
     val foods: List<Food> = emptyList(),
+    /**
+     * The pictures the lifter chose for plain foods, by the food's id, as the picture's name (`"fdc:173944": "banana"`): the
+     * plain foods themselves are the app's and are not kept here. Older files have no such field and older builds ignore
+     * it: no migration. A name this build does not know is dropped when the file is read.
+     */
+    val plainIcons: Map<String, String> = emptyMap(),
     /** What was eaten, in the order it was logged. Each entry keeps its own numbers. */
     val foodLog: List<FoodEntry> = emptyList(),
     /** The calories and protein a day should reach; either may be missing. */
@@ -212,6 +219,7 @@ private fun inLimits(state: AppState): AppState {
         timerPresets = state.timerPresets.map { it.copy(config = boxing(it.config)) },
         timerSessions = state.timerSessions.map { it.copy(config = boxing(it.config)) },
         foods = state.foods.map(::foodWithin).distinctBy { it.id },
+        plainIcons = state.plainIcons.filter { (id, icon) -> id.isNotBlank() && foodIconNamed(icon) != null }.mapValues { (_, icon) -> icon.trim() },
         foodLog = state.foodLog.map(::entryWithin).distinctBy { it.id },
         foodGoal = goalWithin(state.foodGoal),
         meals = state.meals.mapNotNull(::mealWithin).distinctBy { it.id }.take(MAX_MEALS),

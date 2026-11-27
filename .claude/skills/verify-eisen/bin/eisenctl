@@ -426,6 +426,12 @@ $(echo "$ignored" | cut -c1-160)"
       (cd "$ROOT/apps/android" && EISEN_KEYSTORE="$keystore" EISEN_KEYSTORE_PASSWORD="$password" ./gradlew assembleRelease -q) || die "the release build failed"
     fi
     [ -f "$apk" ] || die "no release APK at $apk: build it (see SKILL.md) or pass --build"
+    # Resource shrinking must keep every picture of a food: each is in the APK's resource table, under its own name.
+    aapt2="$(ls -d "$SDK"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)"
+    [ -x "$aapt2" ] || die "no aapt2 under $SDK/build-tools"
+    pictures="$("$aapt2" dump resources "$apk" | grep -oE 'drawable/food_[a-z_]+' | sort -u | wc -l | tr -d ' ')"
+    wanted="$(ls "$ROOT/apps/android/app/src/main/res/drawable-nodpi" | grep -c '^food_')"
+    [ "$pictures" = "$wanted" ] || die "the release APK holds $pictures of the $wanted pictures of the foods"
     [ -f "$APK" ] || (cd "$ROOT/apps/android" && ./gradlew assembleDebug -q) || die "the debug build failed, and it has to come back afterwards"
     run="$BASE/$(date +%Y%m%d-%H%M%S)-release"; mkdir -p "$run"; echo "$run" > "$STATE/run"
     # The debug app's files, kept here and put back into the debug build afterwards: the release build has another
@@ -482,7 +488,11 @@ $(echo "$ignored" | cut -c1-160)"
     "$ADB" shell cmd connectivity airplane-mode disable > /dev/null 2>&1
     go tap "Close" && go wait "Search foods"
     # Where a barcode nobody knows lands: the own food form, saved and on the plate, then logged.
-    go tap "New food" && go wait "Save food" && go tap "Name" && go type "Smoke" && go back && go tap "Save food" && go wait "Add .* kcal to the plate" && go tap "Add .* kcal to the plate"
+    # Its picture follows the name, and the grid of the 42 pictures opens and picks one (the pictures are resources R8 and
+    # resource shrinking must keep).
+    go tap "New food" && go wait "Save food" && go tap "Name" && go type "Smoke Milch" && go back && go wait "Picture: Milk"
+    go tap "Picture: Milk" && go wait "Ice cream" && go shot 07b-pictures && go tap "Oats and muesli" && go wait "Picture: Oats and muesli"
+    go tap "Save food" && go wait "Add .* kcal to the plate" && go has "Picture: Oats and muesli" && go tap "Add .* kcal to the plate"
     go wait "Log .* kcal" && go tap "Log .* kcal" && go wait "Logged 1 food" && go shot 08-logged && seen
     # Settings behind the gear on Home, History and its Progress.
     go tap "Home" && go wait "Start workout" && go tap "Settings" && go wait "Weights" && go shot 09-settings && go back && go wait "Start workout"

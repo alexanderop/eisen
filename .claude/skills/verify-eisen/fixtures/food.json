@@ -119,6 +119,7 @@
             "source": "scanned"
         }
     ],
+    "plainIcons": {},
     "foodLog": [],
     "foodGoal": {
         "kcal": 2400,

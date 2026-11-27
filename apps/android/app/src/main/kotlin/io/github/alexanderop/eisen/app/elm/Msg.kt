@@ -574,6 +574,17 @@ sealed interface Msg {
         /** Deletes an own food. What was logged of it keeps its numbers. */
         data class DeleteOwn(val id: String) : Food
 
+        // The pictures, see [IconPicker]
+
+        /** A tap on the picture of the add sheet or the own food form: the grid of pictures opens. */
+        data object OpenIcons : Food
+
+        /** A picture of the grid: the food (or the form) has it from now on, and the grid closes. */
+        data class PickIcon(val icon: io.github.alexanderop.eisen.feature.food.FoodIcon) : Food
+
+        /** The grid is put away without a choice: its close button, Back or a swipe down. */
+        data object CloseIcons : Food
+
         data object OpenGoal : Food
 
         /**

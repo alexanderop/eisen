@@ -3,6 +3,8 @@ package io.github.alexanderop.eisen.app.elm
 import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.FoodGoal
+import io.github.alexanderop.eisen.feature.food.FoodIcon
+import io.github.alexanderop.eisen.feature.food.key
 import io.github.alexanderop.eisen.feature.food.FoodSource
 import io.github.alexanderop.eisen.feature.food.FoodUnit
 import io.github.alexanderop.eisen.feature.food.MAX_AMOUNT
@@ -18,6 +20,7 @@ import io.github.alexanderop.eisen.feature.food.dayAfter
 import io.github.alexanderop.eisen.feature.food.dayBefore
 import io.github.alexanderop.eisen.feature.food.entryOf
 import io.github.alexanderop.eisen.feature.food.foodOfEntry
+import io.github.alexanderop.eisen.feature.food.foodIconNamed
 import io.github.alexanderop.eisen.feature.food.foodWithin
 import io.github.alexanderop.eisen.feature.food.goalWithin
 import io.github.alexanderop.eisen.feature.food.isPastOrToday
@@ -136,9 +139,10 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
         Msg.Food.OpenQuick -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Quick(if (add != null) AmountFor.Plate else AmountFor.Log)) }.only()
         is Msg.Food.SaveQuick -> saveQuick(timed, msg, env, today)
         is Msg.Food.NewOwn -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Own(name = msg.name.trim())) }.only()
-        is Msg.Food.EditOwn ->
-            if (!open || model.state.foods.none { it.id == msg.id && it.source == FoodSource.OWN }) model.only()
-            else timed.food { it.copy(sheet = FoodSheet.Own(id = msg.id)) }.only()
+        is Msg.Food.EditOwn -> {
+            val own = model.state.foods.firstOrNull { it.id == msg.id && it.source == FoodSource.OWN }
+            if (!open || own == null) model.only() else timed.food { it.copy(sheet = FoodSheet.Own(id = msg.id, icon = own.icon)) }.only()
+        }
         is Msg.Food.SaveOwn -> saveOwn(timed, msg, env)
         is Msg.Food.DeleteOwn -> {
             if (model.state.foods.none { it.id == msg.id && it.source == FoodSource.OWN }) return model.only()
@@ -148,6 +152,9 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
             // What was logged of it, and what is on the plate, stays as it was: they keep their own numbers.
             timed.withState { state -> state.copy(foods = state.foods.filter { it.id != msg.id }) }.food { it.copy(sheet = if (stays) sheet else null) }.only()
         }
+        Msg.Food.OpenIcons -> iconAfter(IconEvent.Open, model)
+        is Msg.Food.PickIcon -> iconAfter(IconEvent.Pick(msg.icon), model)
+        Msg.Food.CloseIcons -> iconAfter(IconEvent.Close, model)
         Msg.Food.OpenGoal -> if (!open || add != null) model.only() else timed.food { it.copy(sheet = FoodSheet.Goal) }.only()
         is Msg.Food.SaveGoal -> {
             if (model.food.sheet != FoodSheet.Goal) return model.only()
@@ -224,8 +231,17 @@ internal fun Model.onFoodTab(today: String): Model =
 /** The day what is logged now goes to: the one the Food screen shows, else today. */
 private fun logDay(model: Model, today: String): String = model.food.day ?: today
 
-/** A food the phone knows: one it keeps (scanned or own) or a plain one. */
-fun knownFood(model: Model, id: String): Food? = model.state.foods.firstOrNull { it.id == id } ?: model.plainFoods.firstOrNull { it.id == id }
+/** A food the phone knows: one it keeps (scanned or own) or a plain one, with the picture the lifter chose for it. */
+fun knownFood(model: Model, id: String): Food? =
+    model.state.foods.firstOrNull { it.id == id } ?: model.plainFoods.firstOrNull { it.id == id }?.let { withPlainIcon(model, it) }
+
+/** A plain food with the picture the lifter chose for it, if he chose one. */
+internal fun withPlainIcon(model: Model, food: Food): Food =
+    model.state.plainIcons[food.id]?.let(::foodIconNamed)?.let { food.copy(icon = it) } ?: food
+
+/** The plain foods, each with the picture the lifter chose for it. */
+fun plainFoodsOf(model: Model): List<Food> =
+    if (model.state.plainIcons.isEmpty()) model.plainFoods else model.plainFoods.map { withPlainIcon(model, it) }
 
 /** The food the phone keeps for [barcode], the lifter's own before a scanned one. */
 fun foodWithBarcode(model: Model, barcode: String): Food? =
@@ -333,6 +349,7 @@ private fun saveOwn(model: Model, msg: Msg.Food.SaveOwn, env: Env): Next {
             serving = given(msg.serving),
             pack = old?.pack,
             source = FoodSource.OWN,
+            icon = sheet.icon,
         ),
     )
     // Entries already logged keep their numbers; only the food changes. Then it can be logged, or it goes on the plate.
@@ -359,6 +376,54 @@ internal fun landed(model: Model, food: Food, direct: Boolean, env: Env): Next {
             if (put.food.plate == model.food.plate) addAfter(AddEvent.SheetClosed, put).let { (ended, more) -> ended to cmds + more }
             else addAfter(AddEvent.Landed(food.name), put).let { (next, more) -> next to cmds + more }
         }
+    }
+}
+
+// The pictures
+
+internal sealed interface IconEvent {
+    data object Open : IconEvent
+    data class Pick(val icon: FoodIcon) : IconEvent
+    data object Close : IconEvent
+}
+
+/**
+ * Whether the add sheet [sheet] offers its food's picture to change: for a food the phone knows, or one it is about to
+ * log or put on the plate (a hit of the search, kept once it is logged). Not for an entry whose food is gone.
+ */
+fun canPickIcon(model: Model, sheet: FoodSheet.Amount): Boolean =
+    sheet.target == AmountFor.Log || sheet.target == AmountFor.Plate || knownFood(model, sheet.food.id) != null
+
+/** The grid of pictures after [event]. The one place it changes, see [IconPicker]. A picture changes no number. */
+internal fun iconAfter(event: IconEvent, model: Model): Next {
+    val sheet = model.food.sheet
+    fun with(next: FoodSheet) = model.food { it.copy(sheet = next) }
+    return when (sheet) {
+        is FoodSheet.Own -> when (event) {
+            IconEvent.Open -> if (sheet.picker == IconPicker.Open) model.only() else with(sheet.copy(picker = IconPicker.Open)).only()
+            IconEvent.Close -> if (sheet.picker == IconPicker.Closed) model.only() else with(sheet.copy(picker = IconPicker.Closed)).only()
+            // The form keeps it until "Save food".
+            is IconEvent.Pick -> if (sheet.picker == IconPicker.Closed) model.only() else with(sheet.copy(icon = event.icon, picker = IconPicker.Closed)).only()
+        }
+        is FoodSheet.Amount -> when (event) {
+            IconEvent.Open -> if (sheet.picker == IconPicker.Open || !canPickIcon(model, sheet)) model.only() else with(sheet.copy(picker = IconPicker.Open)).only()
+            IconEvent.Close -> if (sheet.picker == IconPicker.Closed) model.only() else with(sheet.copy(picker = IconPicker.Closed)).only()
+            is IconEvent.Pick -> {
+                if (sheet.picker == IconPicker.Closed) return model.only()
+                val food = sheet.food
+                val shown = with(sheet.copy(food = food.copy(icon = event.icon), picker = IconPicker.Closed))
+                // Kept at once: the food's entries show it, and it stays after a restart.
+                when {
+                    model.state.foods.any { it.id == food.id } ->
+                        shown.withState { state -> state.copy(foods = state.foods.map { if (it.id == food.id) it.copy(icon = event.icon) else it }) }.only()
+                    model.plainFoods.any { it.id == food.id } ->
+                        shown.withState { state -> state.copy(plainIcons = state.plainIcons + (food.id to event.icon.key)) }.only()
+                    // A hit of the search the phone does not keep yet: the picture goes with it onto the plate or into the log.
+                    else -> shown.only()
+                }
+            }
+        }
+        else -> model.only()
     }
 }
 

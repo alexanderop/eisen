@@ -90,6 +90,8 @@ import io.github.alexanderop.eisen.app.elm.ScanFailure
 import io.github.alexanderop.eisen.app.elm.foodToday
 import io.github.alexanderop.eisen.app.elm.openFoodDay
 import io.github.alexanderop.eisen.feature.food.Food
+import io.github.alexanderop.eisen.feature.food.FoodIcon
+import io.github.alexanderop.eisen.app.elm.iconPickerOpen
 import io.github.alexanderop.eisen.feature.food.FoodSource
 import io.github.alexanderop.eisen.feature.food.FoodUnit
 import io.github.alexanderop.eisen.feature.food.PRODUCT_REQUESTS_PER_MINUTE
@@ -992,6 +994,7 @@ class UpdateTest {
         var foodChanged = 0
         var ownFoodsSaved = 0
         var foodsEdited = 0
+        var iconsPicked = 0
         var lookups = 0
         var searches = 0
         var mealsSaved = 0
@@ -1438,6 +1441,21 @@ class UpdateTest {
             if (log.size > step.state.foodLog.size && msg is Msg.Food) foodLogged++
             if (msg is Msg.Food.Looked && msg.answer is ProductAnswer.Found && after.model.food.sheet is FoodSheet.Amount && step.model.food.sheet is FoodSheet.LookingUp) foodsFound++
             if (msg is Msg.Food.SaveOwn && after.state.foods.size > step.state.foods.size) ownFoodsSaved++
+            // A picture changes no number: of no entry, no food, nothing on the plate.
+            if (msg is Msg.Food.PickIcon || msg == Msg.Food.OpenIcons || msg == Msg.Food.CloseIcons) {
+                assertEquals(where, step.state.foodLog, log)
+                assertEquals(where, step.state.foods.map { it.copy(icon = null) }, after.state.foods.map { it.copy(icon = null) })
+                assertEquals(where, step.model.food.plate, after.model.food.plate)
+                if (after.state != step.state) iconsPicked++
+            }
+            // The picture of a food the phone keeps changes only by the grid, its own form, a new answer of Open Food Facts
+            // that is kept (a lookup, or a hit added or logged), a backup or a Reset; the choices for plain foods only by the grid.
+            for (food in after.state.foods) {
+                val old = step.state.foods.firstOrNull { it.id == food.id } ?: continue
+                val kept = msg is Msg.Food.Looked || msg == Msg.Food.ConfirmAmount || msg == Msg.Food.LogPlate
+                if (old.icon != food.icon) assertTrue(where, msg is Msg.Food.PickIcon || msg is Msg.Food.SaveOwn || kept || msg is Msg.Data)
+            }
+            if (after.state.plainIcons != step.state.plainIcons) assertTrue(where, msg is Msg.Food.PickIcon || msg is Msg.Data)
             // The weight log: one weight a day, in order, every number in its limits.
             val weightBroken = weightOutOfLimits(after.state)
             assertTrue("$where: $weightBroken", weightBroken.isEmpty())
@@ -1560,6 +1578,7 @@ class UpdateTest {
         assertTrue("only $foodChanged entries were changed", foodChanged >= 20)
         assertTrue("only $ownFoodsSaved own foods were saved", ownFoodsSaved >= 10)
         assertTrue("only $foodsEdited own foods were edited or deleted", foodsEdited >= 10)
+        assertTrue("only $iconsPicked pictures were chosen", iconsPicked >= 10)
         assertTrue("only $lookups barcodes were looked up", lookups >= 30)
         assertTrue("only $searches searches were sent", searches >= 20)
         assertTrue("only $mealsSaved meals were saved", mealsSaved >= 20)
@@ -1642,6 +1661,12 @@ class UpdateTest {
         if (looking != null && food.nextInt(3) > 0) {
             return Msg.Food.Looked(looking, pick(listOf(ProductAnswer.Found(found), ProductAnswer.Found(found), ProductAnswer.NotFound, ProductAnswer.NoKcal("Cornedbeef"), ProductAnswer.Offline, ProductAnswer.Busy)))
         }
+        // The grid of pictures over the add sheet or the own food form: opened, a picture chosen, or put away.
+        if ((sheet is FoodSheet.Amount || sheet is FoodSheet.Own) && food.nextInt(5) == 0) {
+            val any = FoodIcon.entries
+            return if (iconPickerOpen(model)) pick(listOf(Msg.Food.PickIcon(pick(any)), Msg.Food.PickIcon(pick(any)), Msg.Food.CloseIcons, Msg.Nav.Back))
+            else pick(listOf(Msg.Food.OpenIcons, Msg.Food.OpenIcons, Msg.Food.PickIcon(pick(any))))
+        }
         // An open sheet is used most of the time, as the lifter would: an amount chosen and added, a quick entry saved.
         if (sheet is FoodSheet.Amount && food.nextInt(3) > 0) return pick(listOf(Msg.Food.SetAmount(pick(listOf(12.5, 80.0, 225.0, 450.0, 1e9))), Msg.Food.SetTime(pick(listOf(0, 450, 1439))), Msg.Food.ConfirmAmount))
         if (sheet is FoodSheet.Quick && food.nextInt(3) > 0) return Msg.Food.SaveQuick(pick(listOf(0, 500, 850, Int.MAX_VALUE)), pick(listOf(null, 40)), pick(listOf("", "Pizza")), pick(listOf(null, 0, 720, Int.MIN_VALUE)))
@@ -1711,6 +1736,7 @@ class UpdateTest {
             { Msg.Food.ClearPlate }, { Msg.Food.LogPlate },
             { Msg.Food.Searched(pick(listOf("sky", "oats")), SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(found)))) },
             { Msg.Food.OpenCredit }, { Msg.Food.CloseSheet },
+            { Msg.Food.OpenIcons }, { Msg.Food.PickIcon(pick(FoodIcon.entries)) }, { Msg.Food.CloseIcons },
             { Msg.Food.NewMeal }, { Msg.Food.NewMeal }, { Msg.Food.OpenMeals }, { Msg.Food.EditMeal(mealId) },
             { Msg.Food.AddMeal(mealId) }, { Msg.Food.AddMeal(mealId) }, { Msg.Food.UndoAdded },
             { Msg.Food.CopyDayBefore }, { Msg.Food.CopyDayBefore }, { Msg.Food.DeleteMeal(mealId) },

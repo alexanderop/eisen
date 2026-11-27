@@ -978,6 +978,7 @@
     ],
     "pickedReps": false,
     "foods": [],
+    "plainIcons": {},
     "foodLog": [],
     "foodGoal": {
         "kcal": null,

@@ -89,6 +89,9 @@ import io.github.alexanderop.eisen.app.elm.Model
 import io.github.alexanderop.eisen.app.elm.Msg
 import io.github.alexanderop.eisen.app.elm.CopyOffer
 import io.github.alexanderop.eisen.app.elm.againItems
+import io.github.alexanderop.eisen.app.elm.entryIcon
+import io.github.alexanderop.eisen.feature.food.FoodIcon
+import io.github.alexanderop.eisen.feature.food.iconOf
 import io.github.alexanderop.eisen.app.elm.canSaveMeal
 import io.github.alexanderop.eisen.app.elm.copyOffer
 import io.github.alexanderop.eisen.core.counted
@@ -171,7 +174,7 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                 if (single != null && group.minute != null) {
                     item(key = "one-${single.id}") {
                         SwipeToDelete(single.name, onDelete = { dispatch(Msg.Food.DeleteEntry(single.id)) }, modifier = Modifier.animateItem()) {
-                            EntryRow(single, time = clockText(group.minute), onOpen = { dispatch(Msg.Food.OpenEntry(single.id)) })
+                            EntryRow(single, entryIcon(model, single), time = clockText(group.minute), onOpen = { dispatch(Msg.Food.OpenEntry(single.id)) })
                         }
                     }
                 } else {
@@ -182,7 +185,7 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                     if (shown) {
                         items(group.entries, key = { it.id }) { entry ->
                             SwipeToDelete(entry.name, onDelete = { dispatch(Msg.Food.DeleteEntry(entry.id)) }, modifier = Modifier.animateItem().padding(start = 16.dp)) {
-                                EntryRow(entry, time = null, onOpen = { dispatch(Msg.Food.OpenEntry(entry.id)) })
+                                EntryRow(entry, entryIcon(model, entry), time = null, onOpen = { dispatch(Msg.Food.OpenEntry(entry.id)) })
                             }
                         }
                         if (model.state.meals.size < MAX_MEALS) {
@@ -401,9 +404,12 @@ private fun GroupRow(group: TimeGroup, open: Boolean, modifier: Modifier, onTogg
     }
 }
 
-/** An entry: its time when it stands alone in the timeline, its name, its amount and its calories. A tap changes it. */
+/**
+ * An entry: its time when it stands alone in the timeline, its picture, its name, its amount and its calories. A tap
+ * changes it. The picture is decoration: the row reads the name.
+ */
 @Composable
-private fun EntryRow(entry: FoodEntry, time: String?, onOpen: () -> Unit) {
+private fun EntryRow(entry: FoodEntry, icon: FoodIcon, time: String?, onOpen: () -> Unit) {
     val amount = entry.amount?.let { amountText(it, entry.unit) }
     Row(
         Modifier
@@ -418,6 +424,7 @@ private fun EntryRow(entry: FoodEntry, time: String?, onOpen: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (time != null) Text(time, fontWeight = FontWeight.Bold, color = EisenColors.MutedForeground)
+        RowIcon(icon)
         Column(Modifier.weight(1f)) {
             Text(entry.name, fontWeight = FontWeight.SemiBold, color = EisenColors.Foreground)
             if (amount != null) Text(amount, color = EisenColors.MutedForeground, fontSize = 14.sp)
@@ -442,7 +449,10 @@ private fun CopyButton(offer: CopyOffer, onCopy: () -> Unit) {
     }
 }
 
-/** The foods logged most often lately: one tap logs one again, with Undo. */
+/** The picture in a chip of "Again". */
+private val ChipIconSize = 24.dp
+
+/** The foods logged most often lately, each with its picture: one tap logs one again, with Undo. */
 @Composable
 internal fun AgainChips(items: List<AgainItem>, modifier: Modifier = Modifier, onAdd: (AgainItem) -> Unit) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -453,6 +463,8 @@ internal fun AgainChips(items: List<AgainItem>, modifier: Modifier = Modifier, o
                 SuggestionChip(
                     onClick = { onAdd(item) },
                     label = { Text(text, fontWeight = FontWeight.SemiBold) },
+                    // A small picture: at a font of 1.3 the chips of usual names still keep one line.
+                    icon = { FoodIconImage(iconOf(item.food), size = ChipIconSize) },
                     modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Add $text again" },
                     colors = SuggestionChipDefaults.suggestionChipColors(containerColor = EisenColors.Muted, labelColor = EisenColors.Foreground),
                     border = BorderStroke(1.dp, EisenColors.Border),

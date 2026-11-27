@@ -170,7 +170,7 @@ class FoodTest {
         assertEquals(Loaded.Ok(state), loadState(encodeState(state)))
         assertEquals(Loaded.Ok(state), loadState(encodeState(state, pretty = true)))
         // A file from before the feature: no field of it, everything else as it was.
-        val old = encodeState(freshState(WeightUnit.KG)).replace(Regex(""","foods":\[\],"foodLog":\[\],"foodGoal":\{[^}]*\}"""), "")
+        val old = encodeState(freshState(WeightUnit.KG)).replace(Regex(""","foods":\[\],"plainIcons":\{\},"foodLog":\[\],"foodGoal":\{[^}]*\}"""), "")
         assertTrue(old, "food" !in old)
         val loaded = loadState(old) as Loaded.Ok
         assertEquals(freshState(WeightUnit.KG), loaded.state)
