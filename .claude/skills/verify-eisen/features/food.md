@@ -20,6 +20,11 @@ is added from a photo of its nutrition table, read on the phone. Nothing but a b
   opens a day, a day to come is not tappable, the arrows (or a swipe) move a week, never into the future.
 - `food-macros` calories, protein, carbs and fat against their goals; past a goal "N over" in the same colours.
 - `food-goal` the goal sheet: calories, protein, carbs and fat (the last two optional), "Fill carbs and fat from the rest".
+- `food-dish` "Photo of a dish" under `COOKED IT YOURSELF?` on the add screen, only on a phone that has Gemini Nano
+  (Android's AICore, asked through ML Kit's Prompt API each time the add screen opens): the camera app or the photo
+  picker, the photo shown to the model on the phone and thrown away, the foods it names found among the foods the phone
+  knows at the grams it guessed, `Put 3 foods on the plate`, and `Search` for a name the phone knows no food for. The
+  calories are the foods', never the model's.
 - `food-copy` "Copy day as Markdown" in the Food tab's bar: the day shown, as Markdown, on the clipboard; "Share" on its
   snackbar opens the share sheet with the same text.
 - `food-add` the add screen: search, Scan, `USUAL AT THIS TIME`, `RECENT` (or `COMMON FOODS` on a new phone), `MEALS`,
@@ -439,6 +444,46 @@ eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Put Oats,
 eisenctl tap "Copy day as Markdown" && eisenctl wait "Copied as Markdown" && eisenctl has "Share" && eisenctl shot 80-copied
 eisenctl tap "Share" && eisenctl wait "## Food · [A-Z][a-z]{2}, [A-Z][a-z]{2} [0-9]+, 20[0-9]{2}&#10;&#10;\*\*408 kcal\*\* of 2,400 · Protein 12\.1 of 160 g · Carbs 81\.9 g · Fat 5\.1 g&#10;.*\| Oats, rolled \| 80 g \| 303 \| 10\.8 g \| 55 g \| 4\.7 g \|&#10;.*\| \*\*Total\*\* \|  \| \*\*408\*\* \| \*\*12\.1 g\*\* \| \*\*81\.9 g\*\* \| \*\*5\.1 g\*\* \|&#10;" && eisenctl shot 81-share && eisenctl back
 eisenctl wait "Copy day as Markdown" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Search foods" && eisenctl adb shell input keyevent 279 && eisenctl wait "## Food · .*\*\*408 kcal\*\* of 2,400 · Protein"
+eisenctl cleanup
+```
+
+**A photo of a dish: hidden without the model, and with it the foods named go onto the plate** (`food-dish`,
+`food-plate`, `food-credit`). The emulator has no Gemini Nano, so the first half is the real answer of the phone: the
+button is not there, and the log says `dish model: MISSING`. For the second half `eisenctl dish` writes `files/dish-ai.txt`,
+which a debug build answers with instead of asking a model (a release build never reads it; `cleanup` clears it with the
+app's data): the screens, the reading of the answer and the matching are the app's own, the model's judgement is not
+tested here. That needs a phone that has the model. Any photo serves: the answer is the file's.
+
+```sh
+eisenctl launch --fresh && eisenctl tap "Food" && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5; do eisenctl visible "Quick kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl has "Photo of the label" && eisenctl gone "Photo of a dish" "COOKED IT YOURSELF\?" && grep -q "EisenFood: dish model: MISSING" "$(eisenctl log)" && eisenctl shot 82-dish-no-model
+eisenctl dish "rice, cooked; 180\nchicken breast, grilled; 150\n- **Broccoli, cooked**; 90 g\nchicken curry; 250"
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/nutella-front.jpg /sdcard/Pictures/eisen-label-dish.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+eisenctl tap "Back" && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5; do eisenctl visible "Quick kcal" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "COOKED IT YOURSELF\?" "Photo of a dish" "NO BARCODE\?" "Photo of the label" "Quick kcal" && eisenctl small && eisenctl shot 83-dish-entry
+eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl visible "Photo of a dish" "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 84-dish-choice
+eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Put 3 foods on the plate · 493 kcal" 20
+eisenctl visible "Rice, white, cooked, 180 g, 234 kcal" "Chicken breast, grilled, 150 g, 227 kcal" "Broccoli, cooked, 90 g, 32 kcal" "NOT ON THIS PHONE" "chicken curry" "Search chicken curry" "Another photo" && eisenctl small && eisenctl shot 85-dish-found
+grep -q "EisenFood: dish photo read" "$(eisenctl log)"
+eisenctl tap "Put 3 foods on the plate · 493 kcal" && eisenctl wait "Log 493 kcal" && eisenctl has "Plate, 3 foods · 493 kcal" && eisenctl shot 86-dish-plate
+for i in 1 2 3 4 5 6 7 8; do eisenctl visible "Photo of a dish" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Search chicken curry" 20
+eisenctl tap "Another photo" && eisenctl wait "Choose a photo" && eisenctl tap "Close" && eisenctl wait "Log 493 kcal"
+eisenctl tap "Log 493 kcal" && eisenctl wait "Logged 3 foods" && eisenctl has "493 kcal eaten" && eisenctl shot 87-dish-logged
+eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5; do eisenctl visible "Photo of a dish" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Search chicken curry" 20
+eisenctl tap "Search chicken curry" && eisenctl wait "Nothing on this phone matches “chicken curry”\." && eisenctl has "Log 493 kcal" && eisenctl shot 88-dish-search
+eisenctl font 2.0 && eisenctl tap "Back" && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do eisenctl visible "Photo of a dish" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "COOKED IT YOURSELF\?" "Photo of a dish" && eisenctl small && eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl visible "Take a photo" "Choose a photo" "Close" && eisenctl small
+eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Rice, white, cooked, 180 g, 234 kcal" 20 && eisenctl small && eisenctl shot 89-dish-found-2x
+for i in 1 2 3 4 5 6; do eisenctl visible "Another photo" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Search chicken curry" "Put 3 foods on the plate · 493 kcal" "Another photo" && eisenctl small && eisenctl tap "Close" && eisenctl font 1.0
+eisenctl tap "Back" && eisenctl wait "Food data" && eisenctl tap "Food data" && eisenctl wait "A photo of a dish is shown to Gemini Nano.*" && eisenctl tap "Close"
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
 eisenctl cleanup
 ```
 

@@ -650,6 +650,15 @@ $(echo "$bad" | cut -c1-220 | head -20)"
     restore
     ;;
   adb) shift; touched; "$ADB" "$@" ;;
+  dish)
+    # What a debug build answers for a photo of a dish instead of asking a model (the emulator has none): written to the
+    # app's files/dish-ai.txt, "\n" between its lines. `cleanup` clears it with the app's data; a release build never reads it.
+    [ -n "${2:-}" ] || die 'dish "<answer>", such as "rice, cooked; 180\negg, fried; 50"'
+    [ -d "$STATE" ] || die "no run is open (eisenctl launch)"
+    touched
+    printf '%b\n' "$2" > "$STATE/dish-ai.txt"
+    "$ADB" shell "run-as $PKG sh -c 'cat > files/dish-ai.txt'" < "$STATE/dish-ai.txt"
+    ;;
   cleanup)
     [ -d "$STATE" ] || { echo "nothing to clean up"; exit 0; }
     if [ -n "$(device)" ]; then

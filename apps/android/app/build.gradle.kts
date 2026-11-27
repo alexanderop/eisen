@@ -77,6 +77,9 @@ dependencies {
     implementation(libs.code.scanner)
     // ML Kit's text recognition, bundled: reads a photographed nutrition table on the phone, no download, no network.
     implementation(libs.text.recognition)
+    // Gemini Nano through Android's AICore, where the phone has it: names the foods on a photo of a plate, on the phone.
+    // The model is the system's, not the app's: nothing of it is in the APK.
+    implementation(libs.genai.prompt)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.archunit)

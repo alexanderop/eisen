@@ -153,6 +153,7 @@ internal fun FoodSheets(model: Model, dispatch: (Msg) -> Unit) {
         FoodSheet.Credit -> CreditSheet(close)
         is FoodSheet.Meal -> MealSheets(model, sheet.sheet, dispatch, close)
         is FoodSheet.Photo -> PhotoSheet(sheet.step, dispatch, close)
+        is FoodSheet.Dish -> DishSheet(model, sheet.step, dispatch, close)
     }
 }
 
@@ -506,7 +507,7 @@ private fun PhotoSheet(step: LabelStep, dispatch: (Msg) -> Unit, close: () -> Un
 }
 
 @Composable
-private fun Waiting(text: String) {
+internal fun Waiting(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         CircularProgressIndicator(Modifier.size(24.dp), color = EisenColors.Primary, strokeWidth = 3.dp)
         Text(text)
@@ -672,5 +673,6 @@ private fun CreditSheet(close: () -> Unit) {
         )
         Text("A barcode you scan or type, and a search you send, go to Open Food Facts. Nothing else leaves the phone: what you eat stays on it. With Health Connect sync on in Settings, it is also written to Health Connect, on this phone.")
         Text("A photo of a label is read on this phone and then thrown away: it is not kept, and not sent anywhere.")
+        Text("A photo of a dish is shown to Gemini Nano, the model Android keeps on this phone, and then thrown away: it is not kept, and not sent anywhere. The model names the foods and guesses their amounts; the calories come from the foods on this phone.")
     }
 }

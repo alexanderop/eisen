@@ -1,5 +1,6 @@
 package io.github.alexanderop.eisen.app.elm
 
+import io.github.alexanderop.eisen.feature.food.DishAi
 import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodIcon
 import io.github.alexanderop.eisen.feature.food.FoodEntry
@@ -15,6 +16,7 @@ import io.github.alexanderop.eisen.feature.food.SearchHit
  * the screen or the tab is left, and is kept in a file of its own across a restart (see [Cmd.SavePlate]). [lookups] and
  * [searches] are when the last requests to Open Food Facts went out, within the last minute, to keep its rate limits.
  * Only the plate is saved: after a restart the day, the screens and a lookup that was going are gone, the log is not.
+ * [dishAi]: whether the phone has the model that names the foods on a photo of a dish, asked each time the add screen opens.
  */
 data class FoodModel(
     val day: String? = null,
@@ -23,6 +25,7 @@ data class FoodModel(
     val plate: List<PlateItem> = emptyList(),
     val lookups: List<Long> = emptyList(),
     val searches: List<Long> = emptyList(),
+    val dishAi: DishAi = DishAi.MISSING,
 )
 
 /**
@@ -73,6 +76,7 @@ sealed interface AmountFor {
  *   Amount of an own food ── EditOwn ──▶ Own(id)
  *   Scanned, LookUp, Retry: the lookup, see [Lookup]; a run of barcodes onto the plate, see [AddScreen]
  *   ReadLabel on the add screen or a new food's form ──▶ Photo: the photo of a label, see [LabelStep]
+ *   ReadDish on the add screen ──▶ Dish: the photo of a dish, see [DishStep]
  */
 sealed interface FoodSheet {
     /**
@@ -129,6 +133,50 @@ sealed interface FoodSheet {
      * started from (a barcode nobody knew, a name typed), or null when it was started on the add screen.
      */
     data class Photo(val step: LabelStep, val form: Own? = null) : FoodSheet
+
+    /** The photo of a dish being taken and read by the phone's model, see [DishStep]. */
+    data class Dish(val step: DishStep) : FoodSheet
+}
+
+/** What a photo is taken for: the nutrition table of a label, or the foods of a dish. */
+enum class PhotoFor { LABEL, DISH }
+
+/** Why a photo of a dish gave nothing: no camera app, a photo that could not be opened, or a model that did not answer. */
+enum class DishFailure { NO_APP, UNREADABLE, MODEL }
+
+/**
+ * A photo of a dish, read by Gemini Nano on the phone and thrown away. The model names the foods and guesses their grams;
+ * each name is looked for among the foods the phone knows, and what is found goes onto the plate, where every amount can
+ * still be changed. Nothing is logged here. Offered only while the phone has the model, see
+ * [io.github.alexanderop.eisen.feature.food.DishAi]. [dishAfter] (UpdateDish.kt) is the one place it changes.
+ *
+ *   ReadDish  ┌────────┐ ChoosePhoto(source) ┌─────────────────┐ PhotoChosen ┌─────────┐ DishRead(foods)
+ *   ────────▶ │ Choose │ ──────────────────▶ │ Waiting(source) │ ──────────▶ │ Reading │ ───────────────▶ ┌───────┐
+ *             └────────┘  (model READY)      └─────────────────┘             └─────────┘                  │ Found │
+ *               ▲   │ DownloadDishAi (DOWNLOADABLE):    │ PhotoCancelled:      │ │ DishRead(no food)       └───────┘
+ *               │   └ the model downloads, still Choose │ closed               │ └──▶ NothingFound    PutDish: its foods on
+ *               │                                                              │ DishFailed(why),     the plate, closed
+ *               └──── RetryPhoto (Found, NothingFound, Failed) ◀── Failed(why) ┘ also from Waiting    SearchDish(name): the
+ *                                                                                                     same, and the search
+ *   CloseSheet, Back: from each step, closed. An answer that comes when none is awaited changes nothing.   holds that name
+ */
+sealed interface DishStep {
+    data object Choose : DishStep
+
+    data class Waiting(val source: PhotoSource) : DishStep
+
+    /** The model looks at the photo. */
+    data object Reading : DishStep
+
+    /**
+     * What the model saw: [items] are the foods the phone knows, each at the grams guessed, ready for the plate; [missing]
+     * are the names it knows no food for.
+     */
+    data class Found(val items: List<PlateItem>, val missing: List<String>) : DishStep
+
+    data object NothingFound : DishStep
+
+    data class Failed(val why: DishFailure) : DishStep
 }
 
 /** Where the photo of a label comes from: the phone's camera app, or the system's photo picker. */

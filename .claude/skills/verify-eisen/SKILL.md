@@ -121,6 +121,11 @@ nothing fails, and a journey that carries on after a miss proves nothing. When a
 says before changing the recipe. The journeys with their real handles are in `features/`; read
 `features/README.md` first.
 
+The emulator has no Gemini Nano, so the photo of a dish cannot ask a model there. `eisenctl dish "rice, cooked; 180\negg, fried; 50"`
+writes the answer a debug build gives instead (`files/dish-ai.txt`; a release build never reads it, and `cleanup` clears
+it with the app's data). It proves the screens, the reading of the answer and the matching, not the model's judgement:
+that needs a phone that has the model.
+
 ## Evidence
 
 ```sh

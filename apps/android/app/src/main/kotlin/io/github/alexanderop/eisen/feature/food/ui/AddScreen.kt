@@ -73,6 +73,7 @@ import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Eyebrow
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.feature.food.AgainItem
+import io.github.alexanderop.eisen.feature.food.DishAi
 import io.github.alexanderop.eisen.feature.food.MAX_FOOD_QUERY
 import io.github.alexanderop.eisen.feature.food.PlateItem
 import io.github.alexanderop.eisen.feature.food.amountText
@@ -187,6 +188,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.suggestions(model: Mo
     item(key = "ways") {
         Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SecondaryButton("Type a barcode") { dispatch(Msg.Food.TypeBarcode) }
+            // Only on a phone that has the model: it names the foods on a photo, on the phone.
+            if (model.food.dishAi != DishAi.MISSING) {
+                Eyebrow("Cooked it yourself?", Modifier.padding(top = 6.dp))
+                SecondaryButton("Photo of a dish") { dispatch(Msg.Food.ReadDish) }
+            }
             // A product without a barcode: its nutrition table, read from a photo.
             Eyebrow("No barcode?", Modifier.padding(top = 6.dp))
             SecondaryButton("Photo of the label") { dispatch(Msg.Food.ReadLabel()) }

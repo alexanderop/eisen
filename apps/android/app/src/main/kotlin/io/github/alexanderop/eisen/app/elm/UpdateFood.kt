@@ -64,7 +64,8 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
     val add = model.food.add
     return when (msg) {
         Msg.Food.Open -> timed.onFoodTab(today).food { it.copy(day = today, add = null, sheet = null) }.only()
-        Msg.Food.OpenAdd -> addAfter(AddEvent.Open, timed.onFoodTab(today))
+        // The phone is asked for its model each time: it may have come, or gone, since the last one.
+        Msg.Food.OpenAdd -> addAfter(AddEvent.Open, timed.onFoodTab(today)).let { (next, cmds) -> if (next.food.add == null) next and cmds else next and cmds + Cmd.CheckDishAi }
         Msg.Food.OpenScan -> timed.onFoodTab(today).food { it.copy(day = today, add = null, sheet = null) } and Cmd.Ui(UiEvent.ScanBarcode)
         Msg.Food.CloseAdd -> addAfter(AddEvent.Close, model)
         Msg.Food.PreviousWeek -> if (add != null) model.only() else model.food.day?.let { day -> timed.food { it.copy(day = plusDays(day, -7)) }.only() } ?: model.only()
@@ -154,9 +155,13 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
             // What was logged of it, and what is on the plate, stays as it was: they keep their own numbers.
             timed.withState { state -> state.copy(foods = state.foods.filter { it.id != msg.id }) }.food { it.copy(sheet = if (stays) sheet else null) }.only()
         }
+        is Msg.Food.DishAiChecked, Msg.Food.ReadDish, Msg.Food.DownloadDishAi, Msg.Food.DishAiDownloadFailed, is Msg.Food.DishRead,
+        is Msg.Food.DishFailed, Msg.Food.PutDish, is Msg.Food.SearchDish,
+        -> dishAfter(msg, model, env)
+        // The camera and the photo picker serve the label and the dish: the sheet that is open says which.
         is Msg.Food.ReadLabel, is Msg.Food.ChoosePhoto, Msg.Food.PhotoChosen, Msg.Food.PhotoCancelled, is Msg.Food.LabelRecognized,
         is Msg.Food.LabelFailed, Msg.Food.RetryPhoto, Msg.Food.TypeItIn,
-        -> labelAfter(msg, model)
+        -> if (model.food.sheet is FoodSheet.Dish) dishAfter(msg, model, env) else labelAfter(msg, model)
         Msg.Food.OpenIcons -> iconAfter(IconEvent.Open, model)
         is Msg.Food.PickIcon -> iconAfter(IconEvent.Pick(msg.icon), model)
         Msg.Food.CloseIcons -> iconAfter(IconEvent.Close, model)

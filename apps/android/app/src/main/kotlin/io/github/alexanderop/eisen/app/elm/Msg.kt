@@ -603,6 +603,32 @@ sealed interface Msg {
         /** "Type it in" after nothing was found or the photo failed: the own food form, empty. */
         data object TypeItIn : Food
 
+        // The photo of a dish, see [DishStep]. ChoosePhoto, PhotoChosen, PhotoCancelled and RetryPhoto serve it too.
+
+        /** What the phone answered when asked for its model, see [Cmd.CheckDishAi]. */
+        data class DishAiChecked(val status: io.github.alexanderop.eisen.feature.food.DishAi) : Food
+
+        /** "Photo of a dish" on the add screen: the choice of camera or photo, or the download of the model first. */
+        data object ReadDish : Food
+
+        /** "Download" on that sheet: Android fetches the model, once. */
+        data object DownloadDishAi : Food
+
+        /** The download of the model stopped. */
+        data object DishAiDownloadFailed : Food
+
+        /** What the model wrote about the photo, see [io.github.alexanderop.eisen.feature.food.readDish]. */
+        data class DishRead(val answer: String) : Food
+
+        /** The photo gave nothing: no camera app, a photo that could not be opened, or a model that did not answer. */
+        data class DishFailed(val why: DishFailure) : Food
+
+        /** "Put 3 on the plate": the foods found go onto the plate, each to be changed there. */
+        data object PutDish : Food
+
+        /** "Search" beside a name the phone knows no food for: the foods found go onto the plate and the search holds [name]. */
+        data class SearchDish(val name: String) : Food
+
         // The pictures, see [IconPicker]
 
         /** A tap on the picture of the add sheet or the own food form: the grid of pictures opens. */

@@ -103,6 +103,12 @@ sealed interface Cmd {
     /** Asks Open Food Facts to search for [query]. Answers with [Msg.Food.Searched]. */
     data class SearchFoods(val query: String) : Cmd
 
+    /** Asks the phone whether it has the model that reads a photo of a dish. Answers with [Msg.Food.DishAiChecked]. */
+    data object CheckDishAi : Cmd
+
+    /** Has Android download that model. Answers with [Msg.Food.DishAiChecked] or [Msg.Food.DishAiDownloadFailed]. */
+    data object DownloadDishAi : Cmd
+
     /** Something the screen shows or does once. See [UiEvent]. */
     data class Ui(val event: UiEvent) : Cmd
 }
@@ -190,8 +196,8 @@ sealed interface UiEvent {
     /** Google's code scanner, for the barcodes of products. Answers with [Msg.Food.Scanned] or [Msg.Food.ScanFailed]. */
     data object ScanBarcode : UiEvent
 
-    /** The camera app or the photo picker, for a photo of a label: read on the phone and thrown away. */
-    data class TakePhoto(val source: PhotoSource) : UiEvent
+    /** The camera app or the photo picker, for a photo of a label or of a dish: read on the phone and thrown away. */
+    data class TakePhoto(val source: PhotoSource, val purpose: PhotoFor = PhotoFor.LABEL) : UiEvent
 }
 
 /** What the Health Connect adapter does, one job after the other in the order they come. */

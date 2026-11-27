@@ -32,7 +32,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,8 +57,11 @@ import io.github.alexanderop.eisen.feature.food.ui.FoodScreen
 import io.github.alexanderop.eisen.feature.food.ui.AddFoodScreen
 import io.github.alexanderop.eisen.feature.food.ui.WeightSheet
 import io.github.alexanderop.eisen.feature.food.platform.BarcodeScanner
+import io.github.alexanderop.eisen.feature.food.platform.DishReader
 import io.github.alexanderop.eisen.feature.food.platform.LabelReader
+import io.github.alexanderop.eisen.app.elm.DishFailure
 import io.github.alexanderop.eisen.app.elm.PhotoFailure
+import io.github.alexanderop.eisen.app.elm.PhotoFor
 import io.github.alexanderop.eisen.app.elm.PhotoSource
 import androidx.activity.result.PickVisualMediaRequest
 import android.net.Uri
@@ -264,9 +271,21 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
         dispatch(Msg.Health.PermissionResult(HealthSync.WRITE_PERMISSION in granted, HealthSync.FOOD_PERMISSION in granted, HealthSync.WEIGHT_PERMISSION in granted))
     }
     // A photo of a label: read on the phone, the text goes to the program, the photo is thrown away.
+    // What the photo being taken is for. Kept across a recreated activity: the camera app may push this one out of memory.
+    var photoFor by rememberSaveable { mutableStateOf(PhotoFor.LABEL) }
     fun readPhoto(uri: Uri) {
         dispatch(Msg.Food.PhotoChosen)
-        LabelReader.read(context, uri) { text -> dispatch(if (text != null) Msg.Food.LabelRecognized(text) else Msg.Food.LabelFailed(PhotoFailure.UNREADABLE)) }
+        when (photoFor) {
+            PhotoFor.LABEL -> LabelReader.read(context, uri) { text -> dispatch(if (text != null) Msg.Food.LabelRecognized(text) else Msg.Food.LabelFailed(PhotoFailure.UNREADABLE)) }
+            // A photo of a dish: shown to the phone's model, what it wrote goes to the program, the photo is thrown away.
+            PhotoFor.DISH -> DishReader.read(
+                context,
+                uri,
+                done = { dispatch(Msg.Food.DishRead(it)) },
+                unreadable = { dispatch(Msg.Food.DishFailed(DishFailure.UNREADABLE)) },
+                failed = { dispatch(Msg.Food.DishFailed(DishFailure.MODEL)) },
+            )
+        }
     }
     // The system's camera app: no camera permission. The photo picker: no storage permission.
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
@@ -296,9 +315,13 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
                     context.startActivity(Intent.createChooser(send, null))
                 }
                 UiEvent.ScanBarcode -> activity?.let { BarcodeScanner.scan(it, dispatch) } ?: dispatch(Msg.Food.ScanFailed(ScanFailure.UNAVAILABLE))
-                is UiEvent.TakePhoto -> when (event.source) {
-                    PhotoSource.CAMERA -> runCatching { camera.launch(LabelReader.newCameraUri(context)) }.onFailure { dispatch(Msg.Food.LabelFailed(PhotoFailure.NO_APP)) }
-                    PhotoSource.PICKER -> runCatching { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }.onFailure { dispatch(Msg.Food.LabelFailed(PhotoFailure.NO_APP)) }
+                is UiEvent.TakePhoto -> {
+                    photoFor = event.purpose
+                    val noApp = if (event.purpose == PhotoFor.DISH) Msg.Food.DishFailed(DishFailure.NO_APP) else Msg.Food.LabelFailed(PhotoFailure.NO_APP)
+                    when (event.source) {
+                        PhotoSource.CAMERA -> runCatching { camera.launch(LabelReader.newCameraUri(context)) }.onFailure { dispatch(noApp) }
+                        PhotoSource.PICKER -> runCatching { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }.onFailure { dispatch(noApp) }
+                    }
                 }
                 is UiEvent.Snackbar, is UiEvent.DismissSnackbar -> Unit
             }

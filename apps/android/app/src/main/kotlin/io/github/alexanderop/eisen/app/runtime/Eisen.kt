@@ -24,6 +24,8 @@ import io.github.alexanderop.eisen.feature.workout.platform.RestSystem
 import io.github.alexanderop.eisen.feature.timer.platform.TimerSounds
 import io.github.alexanderop.eisen.feature.timer.platform.TimerSystem
 import io.github.alexanderop.eisen.feature.home.platform.HomeSurfaces
+import io.github.alexanderop.eisen.feature.food.DishAi
+import io.github.alexanderop.eisen.feature.food.platform.DishReader
 import io.github.alexanderop.eisen.feature.food.platform.OpenFoodFactsClient
 import io.github.alexanderop.eisen.feature.food.platform.PlainFoodAsset
 import java.time.ZoneId
@@ -173,6 +175,8 @@ object Eisen {
                 is Cmd.SavePlate -> PlateFile.write(app, cmd.plate)
                 is Cmd.LookUpProduct -> OpenFoodFactsClient.product(app, cmd.barcode) { dispatch(Msg.Food.Looked(cmd.barcode, it)) }
                 is Cmd.SearchFoods -> OpenFoodFactsClient.search(app, cmd.query) { dispatch(Msg.Food.Searched(cmd.query, it)) }
+                Cmd.CheckDishAi -> DishReader.check(app) { dispatch(Msg.Food.DishAiChecked(it)) }
+                Cmd.DownloadDishAi -> DishReader.download { ready -> dispatch(if (ready) Msg.Food.DishAiChecked(DishAi.READY) else Msg.Food.DishAiDownloadFailed) }
                 // Listed one by one, so a new UiEvent does not compile until it says where it goes.
                 is Cmd.Ui -> when (val event = cmd.event) {
                     is UiEvent.Snackbar -> snackbars.show(event)
