@@ -10,20 +10,41 @@ EMULATOR="$SDK/emulator/emulator"
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
 export ANDROID_HOME="$SDK"
 PKG=io.github.alexanderop.eisen
-AVD=eisen
+# Two emulators with the same screen can run at once (`journeys`): EISEN_AVD says which one this command
+# drives. Each has its port, so its serial is known before it runs, and every adb call below goes to it.
+AVDS="eisen eisen361"
+AVD="${EISEN_AVD:-eisen}"
+case "$AVD" in eisen) PORT=5554; OWN="";; eisen361) PORT=5556; OWN="-$AVD";; *) echo "eisenctl: no AVD '$AVD' here, there are: $AVDS" >&2; exit 1;; esac
+export ANDROID_SERIAL="emulator-$PORT"
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 APK="$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk"
 BASE="$ROOT/verify/android"
-STATE="$BASE/.state"
+STATE="$BASE/.state$OWN"
 FILES="eisen.json timer-run.json wod-draft.json plate.json"
 FIXTURES="$ROOT/.claude/skills/verify-eisen/fixtures"
 
 TAB="$(printf '\t')"
 die() { echo "eisenctl: $*" >&2; exit 1; }
-device() { "$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}'; }
+device() { "$ADB" devices | awk -v s="$ANDROID_SERIAL" 'NR>1 && $1==s && $2=="device" {print $1; exit}'; }
 booted() { [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; }
 run_dir() { [ -f "$STATE/run" ] || die "no run: start one with 'eisenctl launch'"; cat "$STATE/run"; }
-dump() { "$ADB" exec-out uiautomator dump /dev/tty 2>/dev/null; }
+# Reading the screen takes two seconds, and it was most of a journey's time: a line such as
+# `wait A && has B && visible C && tap D` read the same screen four times. So the last read is kept
+# and used again while it can still be true: nothing was sent to the phone since (`touched` forgets it)
+# and it is at most $KEEP seconds old. A check that fails on a kept read is made again on a fresh one
+# (`on_screen`), so a kept read never fails a check; `gone`, `texts` and a waiting `wait` always read.
+KEEP=2
+SCREEN="$STATE/screen.xml"
+touched() { /bin/rm -f "$SCREEN"; }
+kept() { [ -s "$SCREEN" ] && [ $(( $(date +%s) - $(stat -f %m "$SCREEN") )) -le "$KEEP" ]; }
+fresh() {
+  mkdir -p "$STATE"
+  "$ADB" exec-out uiautomator dump /dev/tty 2>/dev/null > "$SCREEN.$$"
+  if grep -q '<node' "$SCREEN.$$"; then mv "$SCREEN.$$" "$SCREEN"; cat "$SCREEN"; else cat "$SCREEN.$$"; /bin/rm -f "$SCREEN.$$" "$SCREEN"; fi
+}
+dump() { if kept; then cat "$SCREEN"; else fresh; fi; }
+# Runs "$@", a check that reads the screen: on the kept read first, and when that fails, on a fresh one.
+on_screen() { if kept; then "$@" 2>/dev/null && return 0; touched; fi; "$@"; }
 # One line per node that has a text or a description: "kind=value<TAB>[x1,y1][x2,y2]".
 # The tab ends the value, so "Timer" does not match "Timer voice".
 nodes() {
@@ -88,11 +109,11 @@ case "${1:-}" in
       esac
       shift
     done
-    mkdir -p "$STATE"
+    mkdir -p "$STATE"; touched
     [ -f "$STATE/run" ] && die "a run is open ($(cat "$STATE/run")): finish it with 'eisenctl cleanup' first"
     if [ -z "$(device)" ]; then
       "$EMULATOR" -list-avds | grep -qx "$AVD" || die "no AVD named $AVD (emulator -list-avds)"
-      nohup "$EMULATOR" -avd "$AVD" -no-audio -no-snapshot-save -no-boot-anim > "$STATE/emulator.log" 2>&1 &
+      nohup "$EMULATOR" -avd "$AVD" -port "$PORT" -no-audio -no-snapshot-save -no-boot-anim > "$STATE/emulator.log" 2>&1 &
       echo $! > "$STATE/emulator.pid"
       "$ADB" wait-for-device
     fi
@@ -106,7 +127,7 @@ case "${1:-}" in
       [ -n "${EISEN_JOURNEY:-}" ] && cat "$STATE/hash" >> "$EISEN_JOURNEY"
     fi
     [ -f "$APK" ] || die "no APK at $APK"
-    run="$BASE/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$run"; echo "$run" > "$STATE/run"
+    run="$BASE/$(date +%Y%m%d-%H%M%S)$OWN"; mkdir -p "$run"; echo "$run" > "$STATE/run"
     # What the emulator's app held before this run comes back in cleanup.
     if "$ADB" shell pm list packages | grep -q "package:$PKG\$"; then
       "$ADB" shell am force-stop $PKG
@@ -150,7 +171,7 @@ case "${1:-}" in
     "$ADB" shell date +%m-%d_%H:%M:%S.000 | tr -d '\r' | tr _ ' ' > "$STATE/started"
     "$ADB" shell am start -n $PKG/.MainActivity > /dev/null
     # Ready is the app's first screen with its texts: the five tabs, or a workout or timer that runs.
-    shown() { dump | grep -qE "text=\"[^\"]+\"[^>]* package=\"$PKG\""; }
+    shown() { fresh | grep -qE "text=\"[^\"]+\"[^>]* package=\"$PKG\""; }
     deadline=$(( $(date +%s) + 30 ))
     until shown || [ "$(date +%s)" -ge "$deadline" ]; do :; done
     shown || die "the app did not show its first screen within 30s, see 'eisenctl texts'"
@@ -171,24 +192,39 @@ case "${1:-}" in
     check "no crash since launch" '! "$ADB" logcat -d | grep -q "FATAL EXCEPTION"'
     exit $ok
     ;;
-  texts) nodes ;;
+  texts) touched; nodes ;;
   has)
-    # Several handles are checked on one dump: a dump takes about two seconds.
+    # Several handles are checked on one read of the screen.
     shift; [ $# -gt 0 ] || die "has <regex>..."
-    screen="$(nodes)"
-    for handle in "$@"; do echo "$screen" | grep -qE "^(text|content-desc)=($handle)$TAB" || { echo "eisenctl: '$handle' is not on screen" >&2; exit 1; }; done
+    has_all() {
+      local screen handle; screen="$(nodes)"
+      for handle in "$@"; do echo "$screen" | grep -qE "^(text|content-desc)=($handle)$TAB" || { echo "eisenctl: '$handle' is not on screen" >&2; return 1; }; done
+    }
+    on_screen has_all "$@" || exit 1
+    ;;
+  gone)
+    # None of the handles is on screen, on a fresh read: a kept one could still show what has left since.
+    # (`! eisenctl has` would pass on a kept read; a journey refuses it.)
+    shift; [ $# -gt 0 ] || die "gone <regex>..."
+    touched; screen="$(nodes)"
+    [ -n "$screen" ] || die "the screen could not be read"
+    for handle in "$@"; do echo "$screen" | grep -qE "^(text|content-desc)=($handle)$TAB" && { echo "eisenctl: '$handle' is on screen" >&2; exit 1; }; done
+    exit 0
     ;;
   wait)
-    # By the clock: a dump takes about two seconds, so counting tries would wait three times as long.
+    # By the clock: a read takes about two seconds, so counting tries would wait three times as long.
+    # The kept read answers at once when it has the handle; after that every try reads.
     deadline=$(( $(date +%s) + ${3:-15} ))
     while :; do
       nodes | grep -qE "^(text|content-desc)=($2)$TAB" && exit 0
+      touched
       [ "$(date +%s)" -lt "$deadline" ] || break
     done
     die "'$2' did not appear within ${3:-15}s"
     ;;
   tap|hold)
-    line="$(nodes | grep -E "^(text|content-desc)=($2)$TAB" | sed -n "${3:-1}p")"
+    find_line() { local line; line="$(nodes | grep -E "^(text|content-desc)=($1)$TAB" | sed -n "${2:-1}p")"; [ -n "$line" ] && echo "$line"; }
+    line="$(on_screen find_line "$2" "${3:-1}")"
     [ -n "$line" ] || die "nothing on screen matches '$2' (see 'eisenctl texts')"
     action="$1"; set -- $(echo "$line" | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]$' | grep -oE '[0-9]+')
     x=$(( ($1 + $3) / 2 )); y=$(( ($2 + $4) / 2 ))
@@ -196,15 +232,18 @@ case "${1:-}" in
     # A tap moves two pixels on its way, as a finger does: `input tap` sends a down and an up with
     # nothing between, and a tap that only works without a move does not work on a phone.
     if [ "$action" = hold ]; then "$ADB" shell input swipe $x $y $x $y 1000; else "$ADB" shell input swipe $x $y $((x + 2)) $((y + 1)) 60; fi
+    touched
     sleep 0.6
     ;;
   doubletap)
     # Two taps on one place from one dump, [gap] ms apart (default 150): a bounce of a sweaty thumb.
     [ -n "${2:-}" ] || die "doubletap <regex> [n] [gap-ms]"
-    line="$(nodes | grep -E "^(text|content-desc)=($2)$TAB" | sed -n "${3:-1}p")"
+    find_line() { local line; line="$(nodes | grep -E "^(text|content-desc)=($1)$TAB" | sed -n "${2:-1}p")"; [ -n "$line" ] && echo "$line"; }
+    line="$(on_screen find_line "$2" "${3:-1}")"
     [ -n "$line" ] || die "nothing on screen matches '$2' (see 'eisenctl texts')"
     set -- "${4:-150}" $(corners "${line##*$TAB}")
     taps $(( ($2 + $4) / 2 )) $(( ($3 + $5) / 2 )) "$1"
+    touched
     sleep 0.6
     ;;
   font)
@@ -212,6 +251,7 @@ case "${1:-}" in
     [ -n "${2:-}" ] || die "font <scale>, such as 1.3 or 2.0"
     run_dir > /dev/null
     "$ADB" shell settings put system font_scale "$2"
+    touched
     # The app redraws with the new scale; give it the moment it needs.
     sleep 1.5
     ;;
@@ -219,30 +259,35 @@ case "${1:-}" in
     # Each handle on screen in one dump: its bounds not empty and inside the screen, and what a tap on
     # it reaches (itself or the clickable around it) at least 48 dp each way.
     shift; [ $# -gt 0 ] || die "visible <regex>..."
-    screen="$(tree)"; dp="$(density)"; read -r width height <<< "$(screen_size)"; min=$(( 48 * dp / 160 - 1 ))
-    bad=0
-    for handle in "$@"; do
-      line="$(echo "$screen" | grep -E "^(text|content-desc)=($handle)$TAB" | head -1)"
-      if [ -z "$line" ]; then echo "eisenctl: '$handle' is not on screen" >&2; bad=1; continue; fi
-      read -r x1 y1 x2 y2 <<< "$(corners "$(echo "$line" | cut -f2)")"
-      if [ "$x2" -le "$x1" ] || [ "$y2" -le "$y1" ] || [ "$x1" -lt 0 ] || [ "$y1" -lt 0 ] || [ "$x2" -gt "$width" ] || [ "$y2" -gt "$height" ]; then
-        echo "eisenctl: '$handle' is cut off or empty at $(echo "$line" | cut -f2)" >&2; bad=1; continue
-      fi
-      reach="$(echo "$line" | cut -f3)"
-      if [ "$(echo "$line" | cut -f4)" = cut ]; then echo "eisenctl: '$handle' is at the edge of its list, which may cut it off: scroll first" >&2; bad=1; continue; fi
-      [ "$reach" = - ] && continue
-      read -r x1 y1 x2 y2 <<< "$(corners "$reach")"
-      if [ $(( x2 - x1 )) -lt "$min" ] || [ $(( y2 - y1 )) -lt "$min" ]; then
-        echo "eisenctl: '$handle' is tapped on $(( (x2 - x1) * 160 / dp ))×$(( (y2 - y1) * 160 / dp )) dp, under 48 dp" >&2; bad=1
-      fi
-    done
-    exit $bad
+    visible_all() {
+      local screen dp width height min bad handle line x1 y1 x2 y2 reach
+      screen="$(tree)"; dp="$(density)"; read -r width height <<< "$(screen_size)"; min=$(( 48 * dp / 160 - 1 ))
+      bad=0
+      for handle in "$@"; do
+        line="$(echo "$screen" | grep -E "^(text|content-desc)=($handle)$TAB" | head -1)"
+        if [ -z "$line" ]; then echo "eisenctl: '$handle' is not on screen" >&2; bad=1; continue; fi
+        read -r x1 y1 x2 y2 <<< "$(corners "$(echo "$line" | cut -f2)")"
+        if [ "$x2" -le "$x1" ] || [ "$y2" -le "$y1" ] || [ "$x1" -lt 0 ] || [ "$y1" -lt 0 ] || [ "$x2" -gt "$width" ] || [ "$y2" -gt "$height" ]; then
+          echo "eisenctl: '$handle' is cut off or empty at $(echo "$line" | cut -f2)" >&2; bad=1; continue
+        fi
+        reach="$(echo "$line" | cut -f3)"
+        if [ "$(echo "$line" | cut -f4)" = cut ]; then echo "eisenctl: '$handle' is at the edge of its list, which may cut it off: scroll first" >&2; bad=1; continue; fi
+        [ "$reach" = - ] && continue
+        read -r x1 y1 x2 y2 <<< "$(corners "$reach")"
+        if [ $(( x2 - x1 )) -lt "$min" ] || [ $(( y2 - y1 )) -lt "$min" ]; then
+          echo "eisenctl: '$handle' is tapped on $(( (x2 - x1) * 160 / dp ))×$(( (y2 - y1) * 160 / dp )) dp, under 48 dp" >&2; bad=1
+        fi
+      done
+      return $bad
+    }
+    on_screen visible_all "$@" || exit 1
     ;;
   small)
     # Every clickable node of the app on screen under 48 dp either way, with its label. Fails when there is one.
-    screen="$(tree)"; dp="$(density)"; min=$(( 48 * dp / 160 - 1 ))
+    small_ones() {
+    local screen dp min; screen="$(tree)"; dp="$(density)"; min=$(( 48 * dp / 160 - 1 ))
     # A clickable node without a label of its own is named by the first text or description in it.
-    found="$(echo "$screen" | awk -F"$TAB" -v min="$min" -v dp="$dp" '
+    echo "$screen" | awk -F"$TAB" -v min="$min" -v dp="$dp" '
       $3 != "-" && $4 != "cut" {
         if (!($3 in label)) { order[++n] = $3; label[$3] = "" }
         if (label[$3] == "" && $1 != "clickable=") label[$3] = $1
@@ -252,7 +297,12 @@ case "${1:-}" in
           split(order[i], c, /[^0-9]+/); w = c[4] - c[2]; h = c[5] - c[3]
           if (w > 0 && h > 0 && (w < min || h < min)) printf "%d×%d dp  %s  %s\n", w * 160 / dp, h * 160 / dp, order[i], (label[order[i]] == "" ? "(no label)" : label[order[i]])
         }
-      }')"
+      }'
+    }
+    # Something small on a kept read is looked at again on a fresh one before it counts.
+    was_kept=0; kept && was_kept=1
+    found="$(small_ones)"
+    if [ -n "$found" ] && [ "$was_kept" = 1 ]; then touched; found="$(small_ones)"; fi
     [ -z "$found" ] && exit 0
     echo "$found"; exit 1
     ;;
@@ -277,7 +327,7 @@ $(echo "$ignored" | cut -c1-160)"
     [ -n "${2:-}" ] || die "journey <feature> [recipe], features: $(/bin/ls "$ROOT/.claude/skills/verify-eisen/features" | sed -n 's/\.md$//p' | grep -v README | tr '\n' ' ')"
     file="$ROOT/.claude/skills/verify-eisen/features/$2.md"
     [ -f "$file" ] || die "no feature file $file"
-    work="$BASE/.journey"; mkdir -p "$work"; /bin/rm -f "$work"/*
+    work="$BASE/.journey$OWN"; mkdir -p "$work"; /bin/rm -f "$work"/*
     # One script per recipe: from a line that launches to the line that cleans up, the sh blocks in order.
     # Each command of a line (split at a top-level && or ;) is checked on its own.
     perl -e '
@@ -317,6 +367,7 @@ $(echo "$ignored" | cut -c1-160)"
         if ($line =~ /^```/) { $block = 0; next; }
         if (!$block) { @names = () if $line =~ /^## /; push @names, $1 while $line =~ /\*\*([^*]+)\*\*/g; next; }
         next if $line =~ /^\s*(#|$)/;
+        die "$file: `! eisenctl has` passes on a kept read of the screen; write `eisenctl gone <regex>`:\n  $line\n" if $line =~ /!\s*eisenctl\s+has\b/;
         if (!$out && $line =~ /^eisenctl launch/) {
           $n++; open $out, ">", "$work/$n.sh";
           print $out "# recipe $n\n";
@@ -370,10 +421,72 @@ $(echo "$ignored" | cut -c1-160)"
       echo "journey $2: passed, sources $now stamped as verified on the emulator"
     fi
     ;;
-  type) "$ADB" shell input text "$(echo "$2" | sed 's/ /%s/g')" ;;
-  back) "$ADB" shell input keyevent KEYCODE_BACK; sleep 0.6 ;;
+  journeys)
+    # Several features at once, one emulator each taking the next feature that is free: the time of the
+    # whole set is about that of its longest half. Every journey still runs each recipe from its first
+    # command to its last and stamps as `journey` does. Without arguments: every feature file.
+    shift
+    all="$(/bin/ls "$ROOT/.claude/skills/verify-eisen/features" | sed -n 's/\.md$//p' | grep -v README)"
+    # The long ones first, so the two emulators end close to each other.
+    features="${*:-$(for f in layout food interval-timers; do echo "$all" | grep -qx "$f" && echo "$f"; done; echo "$all" | grep -vxE 'layout|food|interval-timers')}"
+    for f in $features; do [ -f "$ROOT/.claude/skills/verify-eisen/features/$f.md" ] || die "no feature '$f', there are: $(echo $all)"; done
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    logs="$BASE/journeys-$(date +%Y%m%d-%H%M%S)"; claims="$logs/.claims"; mkdir -p "$claims"
+    # One build for all: two emulators' first recipes would otherwise wait on each other's Gradle.
+    (cd "$ROOT/apps/android" && ./gradlew assembleDebug -q) || die "the debug build failed"
+    avds=""; started=""
+    for avd in $AVDS; do "$EMULATOR" -list-avds | grep -qx "$avd" && avds="$avds $avd"; done
+    [ "$(echo $features | wc -w)" -lt 2 ] && avds="$(echo $avds | cut -d" " -f1)"
+    # An emulator a recipe's `launch` starts is stopped by that recipe's `cleanup`; started here, it stays
+    # up for all of them and is stopped at the end. One that already ran is left running.
+    for avd in $avds; do
+      (
+        export EISEN_AVD="$avd"; case "$avd" in eisen) port=5554;; *) port=5556;; esac; export ANDROID_SERIAL="emulator-$port"
+        if ! "$ADB" devices | grep -q "^$ANDROID_SERIAL${TAB}device"; then
+          nohup "$EMULATOR" -avd "$avd" -port "$port" -no-audio -no-snapshot-save -no-boot-anim > "$logs/emulator-$avd.log" 2>&1 &
+          echo "$avd" >> "$claims/started"
+          "$ADB" wait-for-device
+        fi
+        for _ in $(seq 120); do [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] && break; sleep 2; done
+        # Booted is not yet ready: an emulator that had not run for days read no screen for its first
+        # minutes, and every recipe's launch gave up after its 30 s. Wait until a read returns nodes.
+        for _ in $(seq 90); do "$ADB" exec-out uiautomator dump /dev/tty 2>/dev/null | grep -q '<node' && break; sleep 2; done
+      ) &
+    done
+    wait
+    start=$(date +%s)
+    for avd in $avds; do
+      (
+        for f in $features; do
+          mkdir "$claims/$f" 2>/dev/null || continue
+          began=$(date +%s)
+          if EISEN_AVD="$avd" "$self" journey "$f" > "$logs/$f.log" 2>&1; then result=passed; else result=FAILED; EISEN_AVD="$avd" "$self" cleanup > /dev/null 2>&1; fi
+          took=$(( $(date +%s) - began ))
+          echo "$result" > "$claims/$f/result"
+          echo "journeys: $f $result on $avd in $((took / 60)):$(printf %02d $((took % 60)))  ($logs/$f.log)"
+        done
+      ) &
+    done
+    wait
+    for avd in $(cat "$claims/started" 2>/dev/null); do
+      case "$avd" in eisen) port=5554;; *) port=5556;; esac
+      ANDROID_SERIAL="emulator-$port" "$ADB" emu kill > /dev/null 2>&1
+    done
+    took=$(( $(date +%s) - start )); failed=""
+    for f in $features; do [ "$(cat "$claims/$f/result" 2>/dev/null)" = passed ] || failed="$failed $f"; done
+    [ -z "$failed" ] || die "journeys: failed after $((took / 60)):$(printf %02d $((took % 60))):$failed"
+    # Every feature file passed on these sources: what the push gate asks for.
+    if [ "$(echo $features | tr ' ' '\n' | sort | tr '\n' ' ')" = "$(echo $all | tr ' ' '\n' | sort | tr '\n' ' ')" ] \
+      && [ "$(cd "$ROOT" && . .githooks/lib.sh && eisen_verified | grep -c emulator)" = 1 ]; then
+      (cd "$ROOT" && . .githooks/lib.sh && eisen_stamp journeys)
+    fi
+    echo "journeys: all passed in $((took / 60)):$(printf %02d $((took % 60))) on$avds"
+    ;;
+  type) "$ADB" shell input text "$(echo "$2" | sed 's/ /%s/g')"; touched ;;
+  back) "$ADB" shell input keyevent KEYCODE_BACK; touched; sleep 0.6 ;;
   scroll)
     case "${2:-down}" in down) "$ADB" shell input swipe 540 1700 540 800 300;; up) "$ADB" shell input swipe 540 800 540 1700 300;; *) die "scroll down|up";; esac
+    touched
     # The list keeps rolling after the swipe, and a tap on a rolling list only stops it.
     sleep 1.5
     ;;
@@ -382,6 +495,11 @@ $(echo "$ignored" | cut -c1-160)"
     "$ADB" exec-out screencap -p > "$run/$2.png"
     nodes > "$run/$2.txt"
     echo "$run/$2.png"
+    ;;
+  backup)
+    # Where `launch` kept a file the emulator's app held before the run (each emulator has its own place).
+    [ -n "${2:-}" ] || die "backup <file>, one of: $FILES"
+    echo "$STATE/backup/$2"
     ;;
   state)
     # The saved state as the app wrote it: the second, read-only view of what a screen claims.
@@ -433,7 +551,7 @@ $(echo "$ignored" | cut -c1-160)"
     wanted="$(ls "$ROOT/apps/android/app/src/main/res/drawable-nodpi" | grep -c '^food_')"
     [ "$pictures" = "$wanted" ] || die "the release APK holds $pictures of the $wanted pictures of the foods"
     [ -f "$APK" ] || (cd "$ROOT/apps/android" && ./gradlew assembleDebug -q) || die "the debug build failed, and it has to come back afterwards"
-    run="$BASE/$(date +%Y%m%d-%H%M%S)-release"; mkdir -p "$run"; echo "$run" > "$STATE/run"
+    run="$BASE/$(date +%Y%m%d-%H%M%S)-release$OWN"; mkdir -p "$run"; echo "$run" > "$STATE/run"
     # The debug app's files, kept here and put back into the debug build afterwards: the release build has another
     # signature, so the debug one is uninstalled with its data.
     mkdir -p "$STATE/backup"
@@ -469,7 +587,8 @@ $(echo "$ignored" | cut -c1-160)"
     "$ADB" shell wm dismiss-keyguard
     "$ADB" logcat -c
     "$ADB" shell am start -n $PKG/.MainActivity > /dev/null
-    go() { "$self" "$@" || fail "$*"; }
+    # Every step reads the screen itself: this run also sends input the kept read does not know of.
+    go() { touched; "$self" "$@" || fail "$*"; }
     pids=""
     seen() { pids="$pids $("$ADB" shell pidof $PKG | tr -d '\r')"; }
     go wait "Start workout" 30 && seen && go shot 01-home
@@ -530,7 +649,7 @@ $(echo "$bad" | cut -c1-220 | head -20)"
     echo "release-smoke: passed, pids $pids, log $run/logcat.txt"
     restore
     ;;
-  adb) shift; "$ADB" "$@" ;;
+  adb) shift; touched; "$ADB" "$@" ;;
   cleanup)
     [ -d "$STATE" ] || { echo "nothing to clean up"; exit 0; }
     if [ -n "$(device)" ]; then
@@ -558,9 +677,12 @@ eisenctl launch [--fresh] [--no-build] [--state <name>] [--animations]
                                          build, install, start; --fresh starts from empty app data,
                                          --state from fixtures/<name>.json (implies --fresh): $(fixtures)
                                          --animations leaves the animation scales at 1, as on a phone
+eisenctl journeys [feature...]           several features at once, spread over the emulators ($AVDS); all without arguments
+eisenctl backup <file>                   the path of a file the app held before this run (eisen.json, ...)
 eisenctl doctor                          read-only: is this instance worth driving?
 eisenctl texts                           what is on screen: text=... and content-desc=... with bounds
 eisenctl has <regex>...                  exit 0 when each regex matches a whole text or description
+eisenctl gone <regex>...                 exit 0 when none of them is on screen (a fresh read; not `! eisenctl has`)
 eisenctl wait <regex> [seconds]          until it appears (default 15)
 eisenctl tap <regex> [n]                 tap the n-th match (default the first)
 eisenctl doubletap <regex> [n] [gap-ms]  two finger taps from one dump, gap-ms apart (default 150)

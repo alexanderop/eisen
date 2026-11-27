@@ -238,7 +238,7 @@ eisenctl tap "Back" && eisenctl wait "On the plate: 1 food · 105 kcal" && eisen
 eisenctl adb shell "run-as io.github.alexanderop.eisen cat files/plate.json" | grep -q '"name":"Banana"'
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
 eisenctl tap "Food" && eisenctl wait "On the plate: 1 food · 105 kcal" && eisenctl tap "On the plate: 1 food · 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl shot 30-plate-after-restart
-eisenctl tap "Clear" && eisenctl wait "COMMON FOODS" && ! eisenctl has "Log 105 kcal" 2> /dev/null
+eisenctl tap "Clear" && eisenctl wait "COMMON FOODS" && eisenctl gone "Log 105 kcal"
 ! eisenctl adb shell "run-as io.github.alexanderop.eisen ls files" | grep -q plate.json
 jq -e '.foodLog == []' "$(eisenctl state 31-state)"
 eisenctl doctor && eisenctl cleanup
@@ -311,10 +311,10 @@ eisenctl launch --state food-weight
 eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN"
 eisenctl visible "WEEKLY CHECK-IN" "Last week: 2,456 kcal a day, 7 days logged." "Trend −0.4 kg: 83.7 kg to 83.3 kg." "You burn about 2,740 kcal." "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" && eisenctl small && eisenctl shot 49-check-in
 eisenctl tap "Take 2,200 kcal" && eisenctl wait "Target this week: 2,200 kcal" && eisenctl has "2,200 kcal left" && eisenctl shot 50-taken
-! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+eisenctl gone "WEEKLY CHECK-IN"
 jq -e '(.foodGoal.kcal == 2200) and (.weightGoal.checkIn | .took and .target == 2200 and .was == 2400)' "$(eisenctl state 51-state)"
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
-eisenctl tap "Food" && eisenctl wait "2,200 kcal left" && ! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+eisenctl tap "Food" && eisenctl wait "2,200 kcal left" && eisenctl gone "WEEKLY CHECK-IN"
 for i in 1 2 3 4; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "WEIGHT" "Weight trend 83.3 kg, (down|up) 0\.[0-9] kg a week|Weight trend 83.3 kg, steady" "Log weight" && eisenctl shot 52-weight-card
 eisenctl tap "History" && eisenctl tap "Progress" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
@@ -338,13 +338,13 @@ eisenctl tap "Change goal" && eisenctl wait "Goal per day" && eisenctl has "Prot
 for i in 1 2 3 4; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "WEIGHT GOAL" "Lose" "Maintain" "Gain" "pace 0.5 kg a week" "Adjust my target each week" "Save goal" && eisenctl has "At most 1% of your weight a week: 0.8 kg." "You burn about [0-9],[0-9]{3} kcal. For this goal: [0-9],[0-9]{3} kcal a day." && eisenctl small && eisenctl shot 54-goal-pace
 eisenctl tap "Increase pace" && eisenctl wait "pace 0.6 kg a week" && eisenctl tap "Adjust my target each week" && eisenctl tap "Save goal" && eisenctl wait "Change goal"
-eisenctl scroll up && eisenctl scroll up && eisenctl wait "2,400 kcal left" && ! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+eisenctl scroll up && eisenctl scroll up && eisenctl wait "2,400 kcal left" && eisenctl gone "WEEKLY CHECK-IN"
 eisenctl shot 55-switch-off
 jq -e '(.weightGoal == {"direction": "lose", "pace": 0.6, "adjust": false, "checkIn": null}) and (.foodGoal == {"kcal": 2400, "protein": 160, "carbs": null, "fat": null})' "$(eisenctl state 56-state)"
 eisenctl tap "Change goal" && eisenctl wait "Goal per day" && for i in 1 2 3 4; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Adjust my target each week" && eisenctl tap "Save goal" && eisenctl wait "Food data" && eisenctl scroll up && eisenctl scroll up
 eisenctl wait "WEEKLY CHECK-IN" && eisenctl has "New target: 2,100 kcal \(was 2,400\)" "Keep 2,400 kcal" && eisenctl tap "Keep 2,400 kcal"
-eisenctl wait "2,400 kcal left" && ! eisenctl has "WEEKLY CHECK-IN" 2> /dev/null
+eisenctl wait "2,400 kcal left" && eisenctl gone "WEEKLY CHECK-IN"
 jq -e '(.foodGoal.kcal == 2400) and (.weightGoal.adjust) and (.weightGoal.checkIn | (.took | not) and .target == 2100 and .was == 2400)' "$(eisenctl state 57-state)"
 eisenctl doctor && eisenctl cleanup
 ```

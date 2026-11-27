@@ -1,0 +1,26 @@
+#!/bin/bash
+# The push gate. While building, only the recipes a change touches are run; before a push everything
+# runs once (`eisenctl journeys`, which stamps the sources "journeys"). This asks for that stamp when
+# the push carries a change to the Android sources. Mode as for the commit gate:
+# git config eisen.gate off|observe|enforce (default observe). observe says what enforce would block.
+set -u
+. "$(git rev-parse --show-toplevel)/.githooks/lib.sh"
+mode="$(git config --get eisen.gate || echo observe)"
+[ "$mode" = off ] && exit 0
+android=0
+while read -r _ local_sha _ remote_sha; do
+  case "$local_sha" in *[!0]*) ;; *) continue;; esac # a branch being deleted
+  case "$remote_sha" in *[!0]*) range="$remote_sha..$local_sha";; *) range="$local_sha";; esac # a new branch
+  [ -n "$(git diff --name-only "$range" -- apps/android 2>/dev/null | head -1)" ] && android=1
+done
+[ "$android" = 1 ] || exit 0
+# The stamp is of the files on disk: it speaks for the commit only when they are the commit.
+if ! eisen_dirty && eisen_stamped journeys; then exit 0; fi
+dir="$(eisen_dir)"
+echo "$(date +%Y-%m-%dT%H:%M:%S) push without all journeys: $(git log -1 --format=%s)" >> "$dir/gate.log"
+if [ "$mode" = observe ]; then
+  echo "gate (observe): these Android sources have not passed all journeys. Run .claude/skills/verify-eisen/bin/eisenctl journeys." >&2
+  exit 0
+fi
+echo "gate: these Android sources have not passed all journeys. Run .claude/skills/verify-eisen/bin/eisenctl journeys, or push with --no-verify." >&2
+exit 1

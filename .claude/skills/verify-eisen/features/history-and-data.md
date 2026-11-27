@@ -61,14 +61,14 @@ eisenctl doctor && eisenctl cleanup
 ```
 
 **An update keeps the data** (`data-update`). Without `--fresh` or `--state`, `launch` installs the
-new build over the data the emulator's app has; `verify/android/.state/backup/eisen.json` is that
+new build over the data the emulator's app has; `eisenctl backup eisen.json` prints where that
 file as it was before the install. Every workout and session is still there, nothing is running
 that was not, and the app wrote no `files/eisen.unreadable.json`. Skip it, and say so, when the
 emulator's app has no data (`backup/eisen.json` is missing).
 
 ```sh
-eisenctl launch && test -s verify/android/.state/backup/eisen.json && eisenctl shot 05-after-update
-after="$(eisenctl state 06-after-update)" && jq -e --slurpfile before verify/android/.state/backup/eisen.json '([.history[].id] == [$before[0].history[].id]) and ([.timerSessions[].id] == [$before[0].timerSessions[].id]) and (.active.id == $before[0].active.id) and (.version == 9)' "$after"
+eisenctl launch && test -s "$(eisenctl backup eisen.json)" && eisenctl shot 05-after-update
+after="$(eisenctl state 06-after-update)" && jq -e --slurpfile before "$(eisenctl backup eisen.json)" '([.history[].id] == [$before[0].history[].id]) and ([.timerSessions[].id] == [$before[0].timerSessions[].id]) and (.active.id == $before[0].active.id) and (.version == 9)' "$after"
 ! eisenctl adb shell "run-as io.github.alexanderop.eisen ls files" | grep -q "eisen.unreadable.json"
 eisenctl doctor && eisenctl cleanup
 ```

@@ -88,13 +88,13 @@ A slide from set 2 to `4 reps` and letting go logs 4 in one step.
 eisenctl launch --fresh
 eisenctl tap "Start workout" && eisenctl wait "Finish" && eisenctl has "Tap: all reps\. Hold: pick the reps\." && eisenctl shot 10-hint
 eisenctl hold "5" 1 && eisenctl has "5 reps" "4 reps" "3 reps" "2 reps" "1 rep" "0 reps" && eisenctl shot 11-picker
-eisenctl back && ! eisenctl has "4 reps" && jq -e '.active.exercises[0].sets == [null, null, null, null, null]' "$(eisenctl state 12-closed)"
+eisenctl back && eisenctl gone "4 reps" && jq -e '.active.exercises[0].sets == [null, null, null, null, null]' "$(eisenctl state 12-closed)"
 eisenctl hold "5" 1 && eisenctl tap "3 reps" && eisenctl wait "Set 1 of 5 done" && eisenctl has "Missed reps\. Rest longer\." "of 5:00" && eisenctl shot 13-picked-3
 jq -e '.pickedReps and .active.exercises[0].sets == [3, null, null, null, null]' "$(eisenctl state 14-picked-3)"
 eisenctl tap "4 reps" && eisenctl has "80kg × 4" "Missed reps\. Rest longer\." && eisenctl shot 15-corrected
 jq -e '.active.exercises[0].sets == [4, null, null, null, null]' "$(eisenctl state 16-corrected)"
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity
-eisenctl wait "Finish" && ! eisenctl has "Tap: all reps\. Hold: pick the reps\." && eisenctl shot 17-no-hint
+eisenctl wait "Finish" && eisenctl gone "Tap: all reps\. Hold: pick the reps\." && eisenctl shot 17-no-hint
 # The slide: a press that stays down, moves over the numbers and lifts (see Gotchas).
 at() { eisenctl texts | grep -E "^(text|content-desc)=($1)$(printf '\t')" | sed -n "${2:-1}p" | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]$' | grep -oE '[0-9]+' | tr '\n' ' ' | awk '{ print int(($1 + $3) / 2), int(($2 + $4) / 2) }'; }
 read -r x y <<< "$(at 5 1)" && eisenctl adb shell input motionevent DOWN "$x" "$y" && sleep 1

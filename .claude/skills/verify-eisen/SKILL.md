@@ -101,6 +101,7 @@ eisenctl doubletap "5" 1 150   # two taps from one dump, 150 ms apart (the defau
 eisenctl hold "Hold to finish" # press it for a second
 eisenctl wait "Rest" 10        # until it is on screen, at most 10 s (default 15); fails otherwise
 eisenctl has "Completed" "2 rounds"   # each one on screen, checked on one dump
+eisenctl gone "Undo"                  # none of them on screen, on a fresh read; never `! eisenctl has`
 eisenctl type "murph"          # into the focused field
 eisenctl back                  # the system back key
 eisenctl scroll down           # one screen; it waits for the list to settle
@@ -110,8 +111,12 @@ eisenctl small                 # fails listing every clickable node on screen un
 eisenctl adb shell ...         # plain adb when nothing else fits
 ```
 
-Every look at the screen is a `uiautomator` dump that takes about two seconds: check several
-handles with one `has`, and give `wait` real seconds. Chain a journey with `&&`: a `tap` that finds
+A read of the screen is a `uiautomator` dump that takes about two seconds, so `eisenctl` keeps the
+last one and uses it again while nothing was sent to the phone since and it is at most two seconds
+old: in `tap A && wait B && has C && visible D && shot e` only the `wait` reads. A check that fails
+on a kept read is made again on a fresh one, so a kept read never fails a check. It could pass one
+that asks for something to be absent, which is why that is `gone` (always a fresh read) and a
+journey refuses `! eisenctl has`. Give `wait` real seconds. Chain a journey with `&&`: a `tap` that finds
 nothing fails, and a journey that carries on after a miss proves nothing. When a handle is missing, run `eisenctl texts` and read what the screen really
 says before changing the recipe. The journeys with their real handles are in `features/`; read
 `features/README.md` first.
@@ -158,6 +163,28 @@ Runs a feature file's `sh` blocks as written, recipe by recipe, and stops at the
 also one in the middle of `a && b && c` (under `bash -e` such a failure is hidden). On a failure it runs
 `doctor` and `cleanup` and says which command failed. It prints each recipe's time. A journey whose every
 recipe passed on APKs built from the current sources stamps them; it is the only thing that does.
+
+### How much to run, and when
+
+A full run of everything used to take most of an hour, and it was run after every change. Now:
+
+- **While building**, run the recipes the change touches: `eisenctl journey food 11`, or a regex on the
+  recipe's heading. A recipe takes one to two minutes.
+- **Before a push**, run everything once: `eisenctl journeys`. It spreads the feature files over two
+  emulators with the same screen (`eisen` on port 5554, `eisen361` on 5556; `EISEN_AVD=eisen361 eisenctl …`
+  drives the second one by hand), each taking the next feature that is free, and writes one log per
+  feature. A pass of all of them stamps the sources `journeys`, and `.githooks/pre-push` refuses a push
+  of Android sources without that stamp (`git push --no-verify` is the way around it, for you to
+  decide, not for a recipe).
+- `eisenctl journeys food layout` runs just those two side by side.
+
+The second emulator is started by `journeys` when it does not run and stopped by it at the end; one
+that already ran is left running.
+
+**`journeys` has not passed a full run yet.** Its two tries ended with recipes failing at their first
+check on both emulators (the second try was cut off from outside, so its failures may be that); a single
+`journey` on either emulator passes. Until a full run passes, run the features one after the other before
+a push, and treat the push gate's stamp as not reachable.
 
 ## Cleanup
 
