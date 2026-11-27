@@ -286,6 +286,12 @@ fun dayTitle(day: String, today: String): String = when (day) {
     else -> date(day)?.let { "${it.dayOfWeek.name.take(3).lowercase().replaceFirstChar(Char::uppercase)}, ${it.month.name.take(3).lowercase().replaceFirstChar(Char::uppercase)} ${it.dayOfMonth}" } ?: day
 }
 
+/** "Fri, Nov 27, 2026": the date itself, never "Today", since the text is read later and elsewhere. */
+fun dayDate(day: String): String = date(day)?.let {
+    "${it.dayOfWeek.name.take(3).lowercase().replaceFirstChar(Char::uppercase)}, " +
+        "${it.month.name.take(3).lowercase().replaceFirstChar(Char::uppercase)} ${it.dayOfMonth}, ${it.year}"
+} ?: day
+
 /** The entries of [day], in the order they were eaten. */
 fun entriesOf(log: List<FoodEntry>, day: String): List<FoodEntry> = log.filter { it.day == day }.sortedBy { it.at }
 

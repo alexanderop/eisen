@@ -1757,6 +1757,7 @@ class UpdateTest {
             { Msg.Food.ClearPlate }, { Msg.Food.LogPlate },
             { Msg.Food.Searched(pick(listOf("sky", "oats")), SearchAnswer.Found(listOf(io.github.alexanderop.eisen.feature.food.hitOf(found)))) },
             { Msg.Food.OpenCredit }, { Msg.Food.CloseSheet },
+            { Msg.Food.CopyDay }, { Msg.Food.ShareDay },
             { Msg.Food.OpenIcons }, { Msg.Food.PickIcon(pick(FoodIcon.entries)) }, { Msg.Food.CloseIcons },
             { Msg.Food.NewMeal }, { Msg.Food.NewMeal }, { Msg.Food.OpenMeals }, { Msg.Food.EditMeal(mealId) },
             { Msg.Food.AddMeal(mealId) }, { Msg.Food.AddMeal(mealId) }, { Msg.Food.UndoAdded },

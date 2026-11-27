@@ -634,6 +634,12 @@ sealed interface Msg {
         /** "Food data" on the Food screen. */
         data object OpenCredit : Food
 
+        /** "Copy day as Markdown" on the Food screen: the day it shows goes to the clipboard. */
+        data object CopyDay : Food
+
+        /** "Share" on the snackbar after [CopyDay]: the same text to the share sheet. */
+        data object ShareDay : Food
+
         /** A sheet is put away: its close button, a swipe down, a tap beside it or Back. */
         data object CloseSheet : Food
 

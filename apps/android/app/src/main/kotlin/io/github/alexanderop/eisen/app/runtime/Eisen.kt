@@ -181,6 +181,8 @@ object Eisen {
                     UiEvent.RequestNotificationPermission,
                     UiEvent.RequestHealthPermission,
                     is UiEvent.ShareBackup,
+                    is UiEvent.CopyText,
+                    is UiEvent.ShareText,
                     UiEvent.ScanBarcode,
                     is UiEvent.TakePhoto,
                     -> events.trySend(event)

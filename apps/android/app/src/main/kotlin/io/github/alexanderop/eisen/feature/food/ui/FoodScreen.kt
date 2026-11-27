@@ -112,6 +112,7 @@ import io.github.alexanderop.eisen.feature.food.kcalText
 import io.github.alexanderop.eisen.feature.food.plateTotals
 
 private val ChevronLeft = pathIcon("ChevronLeft", "m15 18-6-6 6-6")
+private val Copy = pathIcon("Copy", "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z", "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2")
 private val Info = pathIcon("Info", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "M12 16v-4", "M12 8h.01")
 internal val ScanIcon = pathIcon("Scan", "M3 7V5a2 2 0 0 1 2-2h2", "M17 3h2a2 2 0 0 1 2 2v2", "M21 17v2a2 2 0 0 1-2 2h-2", "M7 21H5a2 2 0 0 1-2-2v-2", "M7 8v8", "M11 8v8", "M14 8v8", "M17 8v8")
 private val RowShape = RoundedCornerShape(14.dp)
@@ -148,6 +149,7 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                 )
             },
             actions = {
+                IconButton(onClick = { dispatch(Msg.Food.CopyDay) }) { Icon(Copy, contentDescription = "Copy day as Markdown") }
                 IconButton(onClick = { dispatch(Msg.Food.OpenCredit) }) { Icon(Info, contentDescription = "Food data") }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = EisenColors.Background),

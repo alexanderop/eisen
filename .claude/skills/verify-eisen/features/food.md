@@ -20,6 +20,8 @@ is added from a photo of its nutrition table, read on the phone. Nothing but a b
   opens a day, a day to come is not tappable, the arrows (or a swipe) move a week, never into the future.
 - `food-macros` calories, protein, carbs and fat against their goals; past a goal "N over" in the same colours.
 - `food-goal` the goal sheet: calories, protein, carbs and fat (the last two optional), "Fill carbs and fat from the rest".
+- `food-copy` "Copy day as Markdown" in the Food tab's bar: the day shown, as Markdown, on the clipboard; "Share" on its
+  snackbar opens the share sheet with the same text.
 - `food-add` the add screen: search, Scan, `USUAL AT THIS TIME`, `RECENT` (or `COMMON FOODS` on a new phone), `MEALS`,
   `Type a barcode`, `NO BARCODE?` with `Photo of the label`, `New food`, `Quick kcal`; `+` on a row, a check on a row that
   is on the plate.
@@ -423,6 +425,21 @@ jq -e '(.foods | length == 2) and (.foodLog | length == 1)' "$(eisenctl state 75
 eisenctl tap "Back" && eisenctl wait "Food data" && eisenctl tap "Food data" && eisenctl wait "A photo of a label is read on this phone and then thrown away: it is not kept, and not sent anywhere." && eisenctl tap "Close"
 eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
 eisenctl doctor && eisenctl cleanup
+```
+
+**Copy the day as Markdown, and share it** (`food-copy`). `Copy day as Markdown` in the Food tab's bar puts the day
+shown on the clipboard: a heading with the date, the totals against the goal, a table of what was eaten with a total
+row, and that day's weight. An empty day says so and copies nothing. The clipboard is read back by pasting it into the
+search field (which keeps its first characters); `Share` on the snackbar opens the system's share sheet with the same text.
+
+```sh
+eisenctl launch --state food && eisenctl tap "Food" && eisenctl wait "Copy day as Markdown" && eisenctl visible "Copy day as Markdown" "Food data"
+eisenctl tap "Copy day as Markdown" && eisenctl wait "Nothing is logged on this day\."
+eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Put Oats, rolled on the plate" && eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 408 kcal" && eisenctl tap "Log 408 kcal" && eisenctl wait "1,992 kcal left"
+eisenctl tap "Copy day as Markdown" && eisenctl wait "Copied as Markdown" && eisenctl has "Share" && eisenctl shot 80-copied
+eisenctl tap "Share" && eisenctl wait "## Food · [A-Z][a-z]{2}, [A-Z][a-z]{2} [0-9]+, 20[0-9]{2}&#10;&#10;\*\*408 kcal\*\* of 2,400 · Protein 12\.1 of 160 g · Carbs 81\.9 g · Fat 5\.1 g&#10;.*\| Oats, rolled \| 80 g \| 303 \| 10\.8 g \| 55 g \| 4\.7 g \|&#10;.*\| \*\*Total\*\* \|  \| \*\*408\*\* \| \*\*12\.1 g\*\* \| \*\*81\.9 g\*\* \| \*\*5\.1 g\*\* \|&#10;" && eisenctl shot 81-share && eisenctl back
+eisenctl wait "Copy day as Markdown" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Search foods" && eisenctl adb shell input keyevent 279 && eisenctl wait "## Food · .*\*\*408 kcal\*\* of 2,400 · Protein"
+eisenctl cleanup
 ```
 
 ## Gotchas

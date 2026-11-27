@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import io.github.alexanderop.eisen.core.ui.LocalHapticsEnabled
 import android.Manifest
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -286,6 +287,13 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
                     runCatching { health.launch(HealthSync.PERMISSIONS) }.onFailure { dispatch(Msg.Health.PermissionRequestFailed) }
                 is UiEvent.ShareBackup -> scope.launch {
                     runCatching { shareBackup(context, event.fileName, event.json) }.onFailure { dispatch(Msg.Data.SendFailed) }
+                }
+                is UiEvent.CopyText -> runCatching {
+                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Eisen", event.text))
+                }
+                is UiEvent.ShareText -> runCatching {
+                    val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, event.text) }
+                    context.startActivity(Intent.createChooser(send, null))
                 }
                 UiEvent.ScanBarcode -> activity?.let { BarcodeScanner.scan(it, dispatch) } ?: dispatch(Msg.Food.ScanFailed(ScanFailure.UNAVAILABLE))
                 is UiEvent.TakePhoto -> when (event.source) {

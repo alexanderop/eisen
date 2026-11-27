@@ -181,6 +181,12 @@ sealed interface UiEvent {
     /** Writes [json] to a file named [fileName] and opens the share sheet with it. Fails with [Msg.Data.SendFailed]. */
     data class ShareBackup(val fileName: String, val json: String) : UiEvent
 
+    /** Puts [text] on the clipboard. */
+    data class CopyText(val text: String) : UiEvent
+
+    /** Opens the share sheet with [text]. */
+    data class ShareText(val text: String) : UiEvent
+
     /** Google's code scanner, for the barcodes of products. Answers with [Msg.Food.Scanned] or [Msg.Food.ScanFailed]. */
     data object ScanBarcode : UiEvent
 

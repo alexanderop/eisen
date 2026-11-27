@@ -5,6 +5,8 @@ import io.github.alexanderop.eisen.feature.food.FoodEntry
 import io.github.alexanderop.eisen.feature.food.FoodGoal
 import io.github.alexanderop.eisen.feature.food.FoodIcon
 import io.github.alexanderop.eisen.feature.food.key
+import io.github.alexanderop.eisen.feature.food.dayMarkdown
+import io.github.alexanderop.eisen.feature.food.weightOf
 import io.github.alexanderop.eisen.feature.food.FoodSource
 import io.github.alexanderop.eisen.feature.food.FoodUnit
 import io.github.alexanderop.eisen.feature.food.MAX_AMOUNT
@@ -173,6 +175,14 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
         Msg.Food.SubmitSearch -> onlineAfter(timed, OnlineEvent.Submit, env)
         is Msg.Food.Searched -> onlineAfter(model, OnlineEvent.Answer(msg.query, msg.answer), env)
         Msg.Food.OpenCredit -> if (!open) model.only() else timed.food { it.copy(sheet = FoodSheet.Credit) }.only()
+        // The day on screen as Markdown. Nothing of the app changes: the text is worked out again for "Share".
+        Msg.Food.CopyDay, Msg.Food.ShareDay -> {
+            val day = openFoodDay(model) ?: return model.only()
+            if (day.entries.isEmpty()) return model and Cmd.Ui(UiEvent.Snackbar("Nothing is logged on this day."))
+            val text = dayMarkdown(day.day, day.entries, day.goal, model.zone, weightOf(model.state.weights, day.day), model.state.settings.unit)
+            if (msg == Msg.Food.ShareDay) model and Cmd.Ui(UiEvent.ShareText(text))
+            else model and listOf(Cmd.Ui(UiEvent.CopyText(text)), Cmd.Ui(UiEvent.Snackbar("Copied as Markdown", actionLabel = "Share", onAction = Msg.Food.ShareDay)))
+        }
         Msg.Food.CloseSheet -> if (model.food.sheet == null) model.only() else addAfter(AddEvent.SheetClosed, model.food { it.copy(sheet = null) })
         // A bar of the week: that day, never one to come.
         is Msg.Food.OpenDay -> if (!isPastOrToday(msg.day, today)) model.only() else timed.onFoodTab(today).food { it.copy(day = msg.day, add = null, sheet = null) }.only()
