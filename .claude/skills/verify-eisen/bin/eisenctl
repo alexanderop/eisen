@@ -441,7 +441,12 @@ $(echo "$ignored" | cut -c1-160)"
     for scale in window_animation_scale transition_animation_scale animator_duration_scale; do "$ADB" shell settings get global $scale | tr -d '\r' > "$STATE/$scale"; done
     "$ADB" shell settings get system font_scale | tr -d '\r' > "$STATE/font_scale"
     self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    # The photo of a label the release build reads through the photo picker; it goes again in restore.
+    label="$ROOT/.claude/skills/verify-eisen/fixtures/labels/vanille-eis.jpg"
+    [ -f "$label" ] || die "no label photo at $label"
     restore() {
+      "$ADB" shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" > /dev/null 2>&1
+      "$ADB" shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1
       "$ADB" shell cmd connectivity airplane-mode disable > /dev/null 2>&1
       "$ADB" uninstall $PKG > /dev/null 2>&1
       "$ADB" install "$APK" > "$run/install-debug.log" 2>&1 || echo "eisenctl: the debug build did not go back on, see $run/install-debug.log" >&2
@@ -490,10 +495,24 @@ $(echo "$ignored" | cut -c1-160)"
     # Where a barcode nobody knows lands: the own food form, saved and on the plate, then logged.
     # Its picture follows the name, and the grid of the 42 pictures opens and picks one (the pictures are resources R8 and
     # resource shrinking must keep).
+    for _ in 1 2 3 4; do "$self" visible "New food" 2> /dev/null && break; "$self" scroll down; done
     go tap "New food" && go wait "Save food" && go tap "Name" && go type "Smoke Milch" && go back && go wait "Picture: Milk"
     go tap "Picture: Milk" && go wait "Ice cream" && go shot 07b-pictures && go tap "Oats and muesli" && go wait "Picture: Oats and muesli"
     go tap "Save food" && go wait "Add .* kcal to the plate" && go has "Picture: Oats and muesli" && go tap "Add .* kcal to the plate"
     go wait "Log .* kcal" && go tap "Log .* kcal" && go wait "Logged 1 food" && go shot 08-logged && seen
+    # A photo of a label through the system's photo picker, read on the phone by ML Kit (its native library, its models and
+    # its components under R8): the form must show the label's values, each read. Gut & Günstig's Vanille Eis: 200 kcal,
+    # 1.6 g protein, 25.5 g carbs, 10.1 g fat, a portion of 50 g.
+    "$ADB" shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && "$ADB" push "$label" /sdcard/Pictures/eisen-label-vanille-eis.jpg > /dev/null \
+      && "$ADB" shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null || fail "the label photo did not reach the pictures"
+    go tap "\\+ Add" && go wait "Search foods"
+    for _ in 1 2 3 4 5 6; do "$self" visible "Photo of the label" 2> /dev/null && break; "$self" scroll down; done
+    go tap "Photo of the label" && go wait "Choose a photo" && go tap "Choose a photo" && go wait "Photo taken on .*" 20 && go tap "Photo taken on .*" 1
+    go wait "Calories read from the photo" 30 && go back
+    go has "Calories read from the photo" "Protein read from the photo" "calories per 100 g 200 kcal" "protein per 100 g 1.6 g" && go shot 08b-label-read && seen
+    for _ in 1 2 3; do "$self" visible "Save food" 2> /dev/null && break; "$self" scroll down; done
+    go has "Carbs read from the photo" "Fat read from the photo" "carbs per 100 g 25.5 g" "fat per 100 g 10.1 g" "serving 50 g" && go shot 08c-label-read-below
+    go tap "Close" && go wait "Search foods" && go tap "Back" && go wait "Food data"
     # Settings behind the gear on Home, History and its Progress.
     go tap "Home" && go wait "Start workout" && go tap "Settings" && go wait "Weights" && go shot 09-settings && go back && go wait "Start workout"
     go tap "History" && go tap "Progress" && go wait "Finish your first workout and your progress shows up here." && go shot 10-progress && seen
@@ -501,10 +520,11 @@ $(echo "$ignored" | cut -c1-160)"
     for _ in 1 2 3; do "$self" has "Log weight" 2> /dev/null && break; "$self" scroll down; done
     go tap "Log weight" && go wait "Save 80 kg" && go tap "Save 80 kg" && go wait "Weight over time, 1 weight, trend 80 kg.*" && go shot 11-weight && seen
     "$ADB" logcat -d -v threadtime > "$run/logcat.txt"
-    # What breaks under R8: a crash, an ANR, a class or a method it took away, ML Kit's components not found.
+    # What breaks under R8: a crash, an ANR, a class or a method it took away, ML Kit's components not found, a native
+    # method it renamed.
     pids="$(echo $pids | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ')"
     ours="$(awk -v pids=" $pids " 'index(pids, " " $3 " ")' "$run/logcat.txt")"
-    bad="$( { echo "$ours" | grep -E "FATAL EXCEPTION|ClassNotFoundException|NoSuchMethodException|ComponentDiscovery"; grep -E "FATAL EXCEPTION|ANR in $PKG|Process: $PKG" "$run/logcat.txt"; } | sort -u)"
+    bad="$( { echo "$ours" | grep -E "FATAL EXCEPTION|ClassNotFoundException|NoSuchMethodException|NoSuchMethodError|UnsatisfiedLinkError|ComponentDiscovery|label photo could not|text recognition could not"; grep -E "FATAL EXCEPTION|ANR in $PKG|Process: $PKG" "$run/logcat.txt"; } | sort -u)"
     [ -z "$bad" ] || fail "the log of the release build says:
 $(echo "$bad" | cut -c1-220 | head -20)"
     echo "release-smoke: passed, pids $pids, log $run/logcat.txt"

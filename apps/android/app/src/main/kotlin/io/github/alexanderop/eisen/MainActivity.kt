@@ -52,6 +52,11 @@ import io.github.alexanderop.eisen.feature.food.ui.FoodScreen
 import io.github.alexanderop.eisen.feature.food.ui.AddFoodScreen
 import io.github.alexanderop.eisen.feature.food.ui.WeightSheet
 import io.github.alexanderop.eisen.feature.food.platform.BarcodeScanner
+import io.github.alexanderop.eisen.feature.food.platform.LabelReader
+import io.github.alexanderop.eisen.app.elm.PhotoFailure
+import io.github.alexanderop.eisen.app.elm.PhotoSource
+import androidx.activity.result.PickVisualMediaRequest
+import android.net.Uri
 import io.github.alexanderop.eisen.app.elm.ScanFailure
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.Alignment
@@ -257,6 +262,21 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
     val health = rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { granted ->
         dispatch(Msg.Health.PermissionResult(HealthSync.WRITE_PERMISSION in granted, HealthSync.FOOD_PERMISSION in granted, HealthSync.WEIGHT_PERMISSION in granted))
     }
+    // A photo of a label: read on the phone, the text goes to the program, the photo is thrown away.
+    fun readPhoto(uri: Uri) {
+        dispatch(Msg.Food.PhotoChosen)
+        LabelReader.read(context, uri) { text -> dispatch(if (text != null) Msg.Food.LabelRecognized(text) else Msg.Food.LabelFailed(PhotoFailure.UNREADABLE)) }
+    }
+    // The system's camera app: no camera permission. The photo picker: no storage permission.
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        if (taken) readPhoto(LabelReader.cameraUri(context)) else {
+            LabelReader.discard(context)
+            dispatch(Msg.Food.PhotoCancelled)
+        }
+    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) readPhoto(uri) else dispatch(Msg.Food.PhotoCancelled)
+    }
     LaunchedEffect(Unit) {
         Eisen.uiEvents.collect { event ->
             when (event) {
@@ -268,6 +288,10 @@ private fun UiEvents(dispatch: (Msg) -> Unit) {
                     runCatching { shareBackup(context, event.fileName, event.json) }.onFailure { dispatch(Msg.Data.SendFailed) }
                 }
                 UiEvent.ScanBarcode -> activity?.let { BarcodeScanner.scan(it, dispatch) } ?: dispatch(Msg.Food.ScanFailed(ScanFailure.UNAVAILABLE))
+                is UiEvent.TakePhoto -> when (event.source) {
+                    PhotoSource.CAMERA -> runCatching { camera.launch(LabelReader.newCameraUri(context)) }.onFailure { dispatch(Msg.Food.LabelFailed(PhotoFailure.NO_APP)) }
+                    PhotoSource.PICKER -> runCatching { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }.onFailure { dispatch(Msg.Food.LabelFailed(PhotoFailure.NO_APP)) }
+                }
                 is UiEvent.Snackbar, is UiEvent.DismissSnackbar -> Unit
             }
         }

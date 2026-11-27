@@ -20,6 +20,9 @@ and its −15s / +15s; at 1.5 the countdown was smaller than the text around it)
 - `layout-weight` the weekly check-in on top of the Food tab with Take and Keep, the weight card with `Log weight`, the
   weight sheet with its day, its number and Save, and the Weight section of History › Progress with its range, chart, three
   numbers and `Log weight`.
+- `layout-food-label` the add screen's `NO BARCODE?` with `Photo of the label`, the sheet with `Take a photo` and `Choose a
+  photo`, and the own food form a photo filled: each value with its mark (`read`) beside its label, the steppers, the serving
+  and `Save food`.
 - `layout-rest-clock` the rest screen's countdown keeps its room and stays at least three times as tall as
   the text beside it; what is below it scrolls, "Next set" stays at the bottom.
 
@@ -232,6 +235,50 @@ eisenctl tap "Home" && eisenctl wait "Start workout"
 eisenctl doctor && eisenctl cleanup
 ```
 
+**The own food form filled from a photo of a label, at font scale 1.0, 1.3 and 2.0** (`layout-food-label`,
+`layout-visible`, `layout-targets`). The ice cream's label (`fixtures/labels/vanille-eis.jpg`) picked through the photo picker
+at each scale, as in the `food-label` recipe of `food.md`; the keyboard put away, the form's top and its bottom checked.
+
+```sh
+eisenctl launch --state food
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/vanille-eis.jpg /sdcard/Pictures/eisen-label-vanille-eis.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+# At 1.0
+eisenctl font 1.0
+eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5 6; do eisenctl visible "Photo of the label" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "NO BARCODE\?" "Photo of the label" && eisenctl small && eisenctl shot 64a-label-entry-1.0
+eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl visible "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 64b-label-choice-1.0
+eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Calories read from the photo" 20 && eisenctl back
+eisenctl visible "New food" "Close" "Read another photo" "Calories read from the photo" "calories per 100 g 200 kcal" && eisenctl small && eisenctl shot 64c-label-form-1.0
+for i in 1 2 3 4; do eisenctl visible "Fat read from the photo" "fat per 100 g 10.1 g" "Save food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Protein read from the photo|Carbs read from the photo" "Fat read from the photo" "fat per 100 g 10.1 g" "serving 50 g" "Save food" && eisenctl small && eisenctl shot 64d-label-form-below-1.0
+eisenctl tap "Close" && eisenctl wait "Search foods" && eisenctl tap "Back" && eisenctl tap "Home" && eisenctl wait "Start workout"
+# At 1.3
+eisenctl font 1.3
+eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5 6; do eisenctl visible "Photo of the label" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "NO BARCODE\?" "Photo of the label" && eisenctl small && eisenctl shot 65a-label-entry-1.3
+eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl visible "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 65b-label-choice-1.3
+eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Calories read from the photo" 20 && eisenctl back
+eisenctl visible "New food" "Close" "Read another photo" "Calories read from the photo" "calories per 100 g 200 kcal" && eisenctl small && eisenctl shot 65c-label-form-1.3
+for i in 1 2 3 4; do eisenctl visible "Fat read from the photo" "fat per 100 g 10.1 g" "Save food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Protein read from the photo|Carbs read from the photo" "Fat read from the photo" "fat per 100 g 10.1 g" "serving 50 g" "Save food" && eisenctl small && eisenctl shot 65d-label-form-below-1.3
+eisenctl tap "Close" && eisenctl wait "Search foods" && eisenctl tap "Back" && eisenctl tap "Home" && eisenctl wait "Start workout"
+# At 2.0
+eisenctl font 2.0
+eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5 6; do eisenctl visible "Photo of the label" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "NO BARCODE\?" "Photo of the label" && eisenctl small && eisenctl shot 66a-label-entry-2.0
+eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl visible "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 66b-label-choice-2.0
+eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Calories read from the photo" 20 && eisenctl back
+eisenctl visible "New food" "Close" "Read another photo" "Calories read from the photo" "calories per 100 g 200 kcal" && eisenctl small && eisenctl shot 66c-label-form-2.0
+for i in 1 2 3 4; do eisenctl visible "Fat read from the photo" "fat per 100 g 10.1 g" "Save food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Protein read from the photo|Carbs read from the photo" "Fat read from the photo" "fat per 100 g 10.1 g" "serving 50 g" "Save food" && eisenctl small && eisenctl shot 66d-label-form-below-2.0
+eisenctl tap "Close" && eisenctl wait "Search foods" && eisenctl tap "Back" && eisenctl tap "Home" && eisenctl wait "Start workout"
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+eisenctl doctor && eisenctl cleanup
+```
+
 ## Gotchas
 
 - `visible` fails for a handle at the edge of a list that scrolls, which may cut it off: the recipes check
@@ -259,3 +306,7 @@ eisenctl doctor && eisenctl cleanup
   the fold. On the emulator's 411 dp all of them show at every scale, which is what the recipes check.
 - Discarding the workout with a set logged asks first; the menu's `Discard workout` and the sheet's share a
   handle, and the menu is closed by the time the sheet shows, so both taps take the first match.
+- The form a photo filled opens with the keyboard on the name: the recipe puts it away (`back`) before it checks. It does
+  not scroll the sheet up: at its top a swipe down would put the sheet away. The mark of a value sits beside its label and
+  wraps under it when the row is too narrow.
+

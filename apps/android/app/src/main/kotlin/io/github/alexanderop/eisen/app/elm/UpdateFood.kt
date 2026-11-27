@@ -152,6 +152,9 @@ private fun foodStep(msg: Msg.Food, model: Model, env: Env): Next {
             // What was logged of it, and what is on the plate, stays as it was: they keep their own numbers.
             timed.withState { state -> state.copy(foods = state.foods.filter { it.id != msg.id }) }.food { it.copy(sheet = if (stays) sheet else null) }.only()
         }
+        is Msg.Food.ReadLabel, is Msg.Food.ChoosePhoto, Msg.Food.PhotoChosen, Msg.Food.PhotoCancelled, is Msg.Food.LabelRecognized,
+        is Msg.Food.LabelFailed, Msg.Food.RetryPhoto, Msg.Food.TypeItIn,
+        -> labelAfter(msg, model)
         Msg.Food.OpenIcons -> iconAfter(IconEvent.Open, model)
         is Msg.Food.PickIcon -> iconAfter(IconEvent.Pick(msg.icon), model)
         Msg.Food.CloseIcons -> iconAfter(IconEvent.Close, model)
@@ -345,7 +348,8 @@ private fun saveOwn(model: Model, msg: Msg.Food.SaveOwn, env: Env): Next {
             protein = msg.protein,
             carbs = given(msg.carbs),
             fat = given(msg.fat),
-            unit = old?.unit ?: FoodUnit.G,
+            // A label read from a photo may be per 100 ml.
+            unit = old?.unit ?: sheet.read?.unit ?: FoodUnit.G,
             serving = given(msg.serving),
             pack = old?.pack,
             source = FoodSource.OWN,

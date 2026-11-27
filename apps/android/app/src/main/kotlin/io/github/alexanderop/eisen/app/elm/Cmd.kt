@@ -183,6 +183,9 @@ sealed interface UiEvent {
 
     /** Google's code scanner, for the barcodes of products. Answers with [Msg.Food.Scanned] or [Msg.Food.ScanFailed]. */
     data object ScanBarcode : UiEvent
+
+    /** The camera app or the photo picker, for a photo of a label: read on the phone and thrown away. */
+    data class TakePhoto(val source: PhotoSource) : UiEvent
 }
 
 /** What the Health Connect adapter does, one job after the other in the order they come. */

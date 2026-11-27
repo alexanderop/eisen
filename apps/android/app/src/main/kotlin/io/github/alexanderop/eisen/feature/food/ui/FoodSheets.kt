@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
@@ -130,6 +131,12 @@ import io.github.alexanderop.eisen.feature.food.WeightGoal
 import io.github.alexanderop.eisen.feature.food.bodyFrom
 import io.github.alexanderop.eisen.feature.food.bodyIn
 import io.github.alexanderop.eisen.feature.food.round1
+import io.github.alexanderop.eisen.app.elm.LabelStep
+import io.github.alexanderop.eisen.app.elm.PhotoFailure
+import io.github.alexanderop.eisen.app.elm.PhotoSource
+import io.github.alexanderop.eisen.feature.food.FoodUnit
+import io.github.alexanderop.eisen.feature.food.LabelMark
+import io.github.alexanderop.eisen.feature.food.LabelValue
 
 /** The one sheet over the Food screen, as the model says. */
 @Composable
@@ -145,6 +152,7 @@ internal fun FoodSheets(model: Model, dispatch: (Msg) -> Unit) {
         is FoodSheet.LookingUp -> LookupSheet(sheet.lookup, dispatch, close)
         FoodSheet.Credit -> CreditSheet(close)
         is FoodSheet.Meal -> MealSheets(model, sheet.sheet, dispatch, close)
+        is FoodSheet.Photo -> PhotoSheet(sheet.step, dispatch, close)
     }
 }
 
@@ -359,21 +367,29 @@ private fun TimeField(minute: Int?, now: Int, onChange: (Int) -> Unit) {
 
 /**
  * An own food: name, calories and protein per 100 g, carbs and fat if wanted, a serving if there is one. Also where a
- * barcode lands that Open Food Facts does not know, or knows without calories, with the barcode and the name filled in.
+ * barcode lands that Open Food Facts does not know, or knows without calories, with the barcode and the name filled in;
+ * and where a photo of the label lands, its values filled in, each marked "read" or "check", the name to type. A new
+ * food's values can be read from a photo too.
  */
 @Composable
 private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Unit, close: () -> Unit) {
-    var name by rememberSaveable { mutableStateOf(editing?.name ?: sheet.name) }
-    var kcal by rememberSaveable { mutableDoubleStateOf(editing?.kcal ?: 0.0) }
-    var protein by rememberSaveable { mutableDoubleStateOf(editing?.protein ?: 0.0) }
-    var carbs by rememberSaveable { mutableDoubleStateOf(editing?.carbs ?: 0.0) }
-    var fat by rememberSaveable { mutableDoubleStateOf(editing?.fat ?: 0.0) }
-    var serving by rememberSaveable { mutableDoubleStateOf(editing?.serving ?: 0.0) }
+    val read = sheet.read
+    var name by rememberSaveable(read) { mutableStateOf(editing?.name ?: sheet.name) }
+    var kcal by rememberSaveable(read) { mutableDoubleStateOf(editing?.kcal ?: read?.kcal?.value ?: 0.0) }
+    var protein by rememberSaveable(read) { mutableDoubleStateOf(editing?.protein ?: read?.protein?.value ?: 0.0) }
+    var carbs by rememberSaveable(read) { mutableDoubleStateOf(editing?.carbs ?: read?.carbs?.value ?: 0.0) }
+    var fat by rememberSaveable(read) { mutableDoubleStateOf(editing?.fat ?: read?.fat?.value ?: 0.0) }
+    var serving by rememberSaveable(read) { mutableDoubleStateOf(editing?.serving ?: read?.serving ?: 0.0) }
+    val unit = editing?.unit ?: read?.unit ?: FoodUnit.G
     // Until a picture is chosen, the one the name typed suggests.
     val icon = sheet.icon ?: guessIcon(name) ?: FoodIcon.PLATE
+    val focus = remember { FocusRequester() }
+    // Filled from a photo: the name is what is left to type.
+    LaunchedEffect(read) { if (read != null) focus.requestFocus() }
     FoodSheet(if (editing == null) "New food" else "Edit food", close) {
         sheet.note?.let { Text(it, color = EisenColors.Warn) }
         (editing?.barcode ?: sheet.barcode)?.let { Text("Barcode $it", color = EisenColors.MutedForeground) }
+        if (read != null) Text(readNote(read.values), color = EisenColors.MutedForeground)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             PictureButton(icon, enabled = true) { dispatch(Msg.Food.OpenIcons) }
             OutlinedTextField(
@@ -382,24 +398,35 @@ private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Un
                 label = { Text("Name") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(focus),
             )
         }
-        Eyebrow("Per 100 g")
-        Field("Calories") {
-            Stepper(value = kcal, onValueChange = { kcal = it }, step = 5.0, snap = 0.1, min = 0.0, max = MAX_KCAL_PER_100, label = "calories per 100 g", format = { "${numberText(it)} kcal" })
+        val per = "per 100 ${unit.label}"
+        // A new food's values can be read from a photo of its label: beside the head of the values, so the form keeps its room.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
+            Eyebrow("Per 100 ${unit.label}")
+            if (editing == null) {
+                TextButton(onClick = { dispatch(Msg.Food.ReadLabel(name)) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (read == null) "Read from a photo" else "Read another photo", fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
-        Field("Protein") {
-            Stepper(value = protein, onValueChange = { protein = it }, step = 1.0, snap = 0.1, min = 0.0, max = MAX_MACRO_PER_100, label = "protein per 100 g", format = { "${numberText(it)} g" })
+        // A value read from the photo keeps its mark while it is the value read.
+        fun mark(value: Double, from: LabelValue?): LabelMark? = from?.takeIf { it.value == value }?.mark
+        MarkedField("Calories", mark(kcal, read?.kcal)) {
+            Stepper(value = kcal, onValueChange = { kcal = it }, step = 5.0, snap = 0.1, min = 0.0, max = MAX_KCAL_PER_100, label = "calories $per", format = { "${numberText(it)} kcal" })
         }
-        Field("Carbs (optional)") {
-            Stepper(value = carbs, onValueChange = { carbs = it }, step = 1.0, snap = 0.1, min = 0.0, max = MAX_MACRO_PER_100, label = "carbs per 100 g", format = { if (it == 0.0) "None" else "${numberText(it)} g" })
+        MarkedField("Protein", mark(protein, read?.protein)) {
+            Stepper(value = protein, onValueChange = { protein = it }, step = 1.0, snap = 0.1, min = 0.0, max = MAX_MACRO_PER_100, label = "protein $per", format = { "${numberText(it)} g" })
         }
-        Field("Fat (optional)") {
-            Stepper(value = fat, onValueChange = { fat = it }, step = 1.0, snap = 0.1, min = 0.0, max = MAX_MACRO_PER_100, label = "fat per 100 g", format = { if (it == 0.0) "None" else "${numberText(it)} g" })
+        MarkedField("Carbs (optional)", mark(carbs, read?.carbs)) {
+            Stepper(value = carbs, onValueChange = { carbs = it }, step = 1.0, snap = 0.1, min = 0.0, max = MAX_MACRO_PER_100, label = "carbs $per", format = { if (it == 0.0) "None" else "${numberText(it)} g" })
+        }
+        MarkedField("Fat (optional)", mark(fat, read?.fat)) {
+            Stepper(value = fat, onValueChange = { fat = it }, step = 1.0, snap = 0.1, min = 0.0, max = MAX_MACRO_PER_100, label = "fat $per", format = { if (it == 0.0) "None" else "${numberText(it)} g" })
         }
         Field("Serving (optional)") {
-            Stepper(value = serving, onValueChange = { serving = it }, step = 10.0, snap = 1.0, min = 0.0, max = MAX_AMOUNT, label = "serving", format = { if (it == 0.0) "None" else "${numberText(it)} g" })
+            Stepper(value = serving, onValueChange = { serving = it }, step = 10.0, snap = 1.0, min = 0.0, max = MAX_AMOUNT, label = "serving", format = { if (it == 0.0) "None" else "${numberText(it)} ${unit.label}" })
         }
         PrimaryButton("Save food", enabled = name.isNotBlank()) {
             dispatch(Msg.Food.SaveOwn(name, kcal, protein, carbs, fat, serving))
@@ -410,6 +437,80 @@ private fun OwnSheet(sheet: FoodSheet.Own, editing: Food?, dispatch: (Msg) -> Un
         }
     }
     if (sheet.picker == IconPicker.Open) IconPickerSheet(icon, onPick = { dispatch(Msg.Food.PickIcon(it)) }, onClose = { dispatch(Msg.Food.CloseIcons) })
+}
+
+/** What the form says above the values a photo filled in. */
+internal fun readNote(values: List<LabelValue?>): String = buildString {
+    append("Read from the photo of the label.")
+    if (values.any { it?.mark == LabelMark.CHECK }) append(" Look at the values marked check before you save: they do not add up, or the photo did not say all.")
+    if (values.any { it == null }) append(" What it could not read is empty.")
+}
+
+/**
+ * A field of the own food form with how its value came from a photo: "read", or "check" when it should be looked at. In
+ * the same calm colours as the rest; TalkBack says "Calories read from the photo" (", check it").
+ */
+@Composable
+private fun MarkedField(label: String, mark: LabelMark?, control: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = EisenColors.MutedForeground)
+            if (mark != null) {
+                val name = label.substringBefore(" (")
+                Text(
+                    if (mark == LabelMark.READ) "read" else "check",
+                    color = if (mark == LabelMark.READ) EisenColors.MutedForeground else EisenColors.Foreground,
+                    fontWeight = if (mark == LabelMark.READ) FontWeight.Normal else FontWeight.Bold,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(EisenColors.Muted)
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .clearAndSetSemantics { contentDescription = if (mark == LabelMark.READ) "$name read from the photo" else "$name read from the photo, check it" },
+                )
+            }
+        }
+        control()
+    }
+}
+
+/** The photo of a label: camera or photo, the wait, the reading, and what to do when it found nothing. */
+@Composable
+private fun PhotoSheet(step: LabelStep, dispatch: (Msg) -> Unit, close: () -> Unit) {
+    FoodSheet("Photo of the label", close) {
+        when (step) {
+            LabelStep.Choose -> {
+                Text("The nutrition table straight on, close enough that its numbers fill the photo. It is read on this phone and then thrown away.")
+                PrimaryButton("Take a photo") { dispatch(Msg.Food.ChoosePhoto(PhotoSource.CAMERA)) }
+                SecondaryButton("Choose a photo") { dispatch(Msg.Food.ChoosePhoto(PhotoSource.PICKER)) }
+            }
+            is LabelStep.Waiting -> Waiting(if (step.source == PhotoSource.CAMERA) "Waiting for the camera…" else "Waiting for the photo…")
+            LabelStep.Reading -> Waiting("Reading the label…")
+            LabelStep.NothingFound -> {
+                Text("No nutrition table found on this photo. One straight on, with sharp numbers, reads best.")
+                PrimaryButton("Try again") { dispatch(Msg.Food.RetryPhoto) }
+                SecondaryButton("Type it in") { dispatch(Msg.Food.TypeItIn) }
+            }
+            is LabelStep.Failed -> {
+                Text(
+                    when (step.why) {
+                        PhotoFailure.NO_APP -> "This phone has no app for that. Choose a photo instead."
+                        PhotoFailure.UNREADABLE -> "This photo could not be read."
+                    },
+                )
+                PrimaryButton("Try again") { dispatch(Msg.Food.RetryPhoto) }
+                SecondaryButton("Type it in") { dispatch(Msg.Food.TypeItIn) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Waiting(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        CircularProgressIndicator(Modifier.size(24.dp), color = EisenColors.Primary, strokeWidth = 3.dp)
+        Text(text)
+    }
 }
 
 /**
@@ -570,5 +671,6 @@ private fun CreditSheet(close: () -> Unit) {
             },
         )
         Text("A barcode you scan or type, and a search you send, go to Open Food Facts. Nothing else leaves the phone: what you eat stays on it. With Health Connect sync on in Settings, it is also written to Health Connect, on this phone.")
+        Text("A photo of a label is read on this phone and then thrown away: it is not kept, and not sent anywhere.")
     }
 }

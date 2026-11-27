@@ -574,6 +574,35 @@ sealed interface Msg {
         /** Deletes an own food. What was logged of it keeps its numbers. */
         data class DeleteOwn(val id: String) : Food
 
+        // The photo of a label, see [LabelStep]
+
+        /**
+         * "Photo of the label" on the add screen, or "Read from a photo" in a new food's form with [name] typed so far: the
+         * choice of camera or photo.
+         */
+        data class ReadLabel(val name: String = "") : Food
+
+        /** "Take a photo" or "Choose a photo": the camera app or the photo picker opens. */
+        data class ChoosePhoto(val source: PhotoSource) : Food
+
+        /** The camera app or the photo picker gave a photo; it is being read. */
+        data object PhotoChosen : Food
+
+        /** The camera app or the photo picker was left without a photo. */
+        data object PhotoCancelled : Food
+
+        /** What the text recognizer read on the photo. */
+        data class LabelRecognized(val text: io.github.alexanderop.eisen.feature.food.LabelText) : Food
+
+        /** The photo gave nothing to read: no camera app, or a photo that could not be opened or read. */
+        data class LabelFailed(val why: PhotoFailure) : Food
+
+        /** "Try again" after nothing was found or the photo failed: the choice of camera or photo again. */
+        data object RetryPhoto : Food
+
+        /** "Type it in" after nothing was found or the photo failed: the own food form, empty. */
+        data object TypeItIn : Food
+
         // The pictures, see [IconPicker]
 
         /** A tap on the picture of the add sheet or the own food form: the grid of pictures opens. */

@@ -182,6 +182,7 @@ object Eisen {
                     UiEvent.RequestHealthPermission,
                     is UiEvent.ShareBackup,
                     UiEvent.ScanBarcode,
+                    is UiEvent.TakePhoto,
                     -> events.trySend(event)
                 }
             }

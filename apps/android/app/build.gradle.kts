@@ -24,6 +24,10 @@ android {
         versionCode = (System.getenv("EISEN_VERSION_CODE") ?: "1").toInt()
         versionName = "1.0.0"
         buildConfigField("String", "COMMIT", "\"$commit\"")
+        // ML Kit's text recognition brings an 11 MB native library for each processor family; with all four the APK weighs
+        // 53 MB instead of 23. Phones that run Android 16 (minSdk 36) are 64-bit ARM, and so is the emulator this is tested
+        // on; an x86 Chromebook or emulator would need a build of its own.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     signingConfigs {
@@ -71,6 +75,8 @@ dependencies {
     implementation(libs.health.connect)
     // Google's code scanner: the barcode of a product without a camera permission or a camera library of our own.
     implementation(libs.code.scanner)
+    // ML Kit's text recognition, bundled: reads a photographed nutrition table on the phone, no download, no network.
+    implementation(libs.text.recognition)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.archunit)

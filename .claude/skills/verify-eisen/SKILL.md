@@ -77,13 +77,16 @@ debug app's files, uninstalls it (the release key is another signature), install
 animations off, and drives it: Home, a workout started and discarded, Workouts, a timer's setup, the Food tab, its add
 screen, Scan (the scanner's own screen, or the typed barcode while Play services fetches the scanner), a typed barcode
 looked up in airplane mode ("No network": a release build reads no local answers), a new own food (its picture following its name, the grid of pictures, one picked)
-put on the plate and logged, Settings behind the gear, History › Progress and a weight logged in its Weight section. Before it installs anything it counts the pictures of the foods in the APK's resource table (`aapt2 dump resources`): one
+put on the plate and logged, a photo of a nutrition table (`fixtures/labels/vanille-eis.jpg`, pushed to the pictures) chosen in the
+system's photo picker and read on the phone by ML Kit (the form must show its 200 kcal, 1.6 g protein, 25.5 g carbs and 10.1 g
+fat, each marked read), Settings behind the gear, History › Progress and a weight logged in its Weight section. Before it installs anything it counts the pictures of the foods in the APK's resource table (`aapt2 dump resources`): one
 missing, as resource shrinking could drop it, fails. It **fails on a crash, an ANR, or a `ClassNotFoundException`,
 `NoSuchMethodException` or `ComponentDiscovery` warning of the app's process in logcat**, and on any step that does
 not show. Then, failed or not, the debug build goes back on with its files, airplane mode off, animations and font as
 found. Evidence: `verify/android/<date-time>-release/`. It needs no open run and leaves none; it stamps nothing. About
 two minutes. Proven on the R8 bug of build 23: without the keep rule in `app/proguard-rules.pro` it fails on
-`ComponentDiscovery: Could not instantiate ...CommonComponentRegistrar`.
+`ComponentDiscovery: Could not instantiate ...CommonComponentRegistrar`; with that rule leaving out ML Kit's
+`TextRegistrar` (build 27) it fails on the label: `Could not instantiate ...TextRegistrar`, and the form is never filled.
 
 ## Drive
 
@@ -199,7 +202,8 @@ the messages the screens send, with wheel values from the setup's own lists.
 
 - **Sound itself.** Muted by the owner's rule. The log says which recording was started, not how
   it sounds.
-- **A real phone**, TalkBack and Health Connect with real data. The signed release build only through
+- **A real phone**, TalkBack and Health Connect with real data. The camera app taking a photo of a label (the emulator's
+  photographs a virtual room; the journeys use the photo picker). The signed release build only through
   `release-smoke` (a release APK cannot be installed over the debug one, so the journeys cannot run it).
 - **Two runs side by side.** There is one emulator and one app on it. Do not start a second
   emulator to work around the lock.

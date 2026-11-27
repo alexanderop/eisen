@@ -7,8 +7,8 @@ all. The foods usual at this time of day come first. The day shows what is left 
 macros (calm past a goal: "120 over"), a timeline of what was eaten together, and a week strip on top. Foods eaten often
 come back as "Again" chips that log with one tap, meals log in one tap, an empty day copies the day before, and History ›
 Progress shows the last seven days. A weight a day gives a smoothed trend and, with the food, what the lifter burns; once a
-week a check-in offers a new calorie target from it, which changes nothing until it is taken. Nothing but a barcode or a
-search leaves the phone.
+week a check-in offers a new calorie target from it, which changes nothing until it is taken. A product without a barcode
+is added from a photo of its nutrition table, read on the phone. Nothing but a barcode or a search leaves the phone.
 
 ## Sub-features
 
@@ -21,7 +21,8 @@ search leaves the phone.
 - `food-macros` calories, protein, carbs and fat against their goals; past a goal "N over" in the same colours.
 - `food-goal` the goal sheet: calories, protein, carbs and fat (the last two optional), "Fill carbs and fat from the rest".
 - `food-add` the add screen: search, Scan, `USUAL AT THIS TIME`, `RECENT` (or `COMMON FOODS` on a new phone), `MEALS`,
-  `Type a barcode`, `New food`, `Quick kcal`; `+` on a row, a check on a row that is on the plate.
+  `Type a barcode`, `NO BARCODE?` with `Photo of the label`, `New food`, `Quick kcal`; `+` on a row, a check on a row that
+  is on the plate.
 - `food-plate` the plate pinned at the bottom: `N foods · X kcal`, opened to its items (a tap changes one's amount, the
   cross takes it off), `Clear`, `Log X kcal`; Undo for the whole plate; kept when the screen or the app is left.
 - `food-usual` the foods usual around this time of day, the most often logged first.
@@ -53,6 +54,11 @@ search leaves the phone.
   gone for the week once answered, back after a restart while it is not.
 - `food-weight-progress` History › Progress › Weight: the weights as dots, the trend as a line, the range, the trend, its
   change a week and what the lifter burns, `Log weight`.
+- `food-label` "Photo of the label" under `NO BARCODE?` on the add screen, and "Read from a photo" in a new food's form: the
+  camera app or the system's photo picker (no permission for either), the photo read on the phone by ML Kit and thrown
+  away, and the own food form filled per 100 g or ml with the serving the label names, the name empty and focused, each
+  value marked `read` or `check` (calm, no warning colour); "No nutrition table found" with `Try again` and `Type it in`.
+  Nothing is saved or logged until `Save food`.
 - `food-icons` a picture of what each food is, left of its name: in the day's entries, the add screen's rows, the plate,
   the "Again" chips, and 64 dp on top of the add sheet. A scanned product takes the picture of its Open Food Facts category,
   a plain food its own, anything else the guess from its name (English and German), else a plate. A tap on the add sheet's
@@ -74,6 +80,14 @@ the day, `Next day`, the number (described `weight 82.4 kg`, a tap types it), `S
 goal sheet (`Change goal`) has `WEIGHT GOAL` below the macros: `Lose`, `Maintain`, `Gain`, the pace (described `pace 0.5 kg a
 week`), `Adjust my target each week`. History › `Progress` › `Weight`: `3 months`, `1 year`, `All`, the chart (described
 `Weight over time, N weights, trend ...`), `Trend`, `Change`, `You burn`, `Log weight`.
+
+The photo of a label: on the add screen, under `Type a barcode`, `NO BARCODE?` and `Photo of the label`; the sheet
+`Photo of the label` with `Take a photo` and `Choose a photo`; the picker's photos described `Photo taken on Nov 27,
+2026 4:20 PM`; then the form `New food` with "Read from the photo of the label.", `Read another photo` beside `PER 100
+G`, and each value read marked by a chip described `Calories read from the photo` (or `..., check it`) above its number
+(`calories per 100 g 200 kcal`). A new food's form offers `Read from a photo` beside `PER 100 G`; with a barcode nobody
+knew above it, `Save food` is below the fold. A photo without a table: "No nutrition table found on this photo. ..."
+with `Try again` and `Type it in`.
 
 The pictures are decoration next to a name and have no description of their own; the add sheet's picture and the own food
 form's are buttons described `Picture: Yogurt`, and open the sheet `Picture` with one cell per picture, each described by its
@@ -126,8 +140,9 @@ eisenctl adb shell "run-as io.github.alexanderop.eisen sh -c 'mkdir -p files/off
 eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
 eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate, 1 food now.*"
 eisenctl type 3017620422003 && eisenctl tap "Look up" && eisenctl wait "Nutella is on the plate, 2 foods now.*"
-eisenctl type 4260999999990 && eisenctl tap "Look up" && eisenctl wait "Open Food Facts does not know this barcode. Add it as your own food." && eisenctl has "Barcode 4260999999990" "Save food" && eisenctl shot 07-own-food
+eisenctl type 4260999999990 && eisenctl tap "Look up" && eisenctl wait "Open Food Facts does not know this barcode. Add it as your own food." && eisenctl has "Barcode 4260999999990" "Read from a photo" && eisenctl shot 07-own-food
 eisenctl tap "Name" && eisenctl type "Tante Emma Quark" && eisenctl back && eisenctl tap "calories per 100 g 0 kcal" && eisenctl type 70 && eisenctl back
+for i in 1 2 3; do eisenctl visible "Save food" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save food" && eisenctl wait "Tante Emma Quark is on the plate, 3 foods now.*"
 eisenctl type 5449000000996 && eisenctl tap "Look up" && eisenctl wait "No network. Check the connection and try again." && eisenctl visible "Try again" && eisenctl shot 08-no-network
 eisenctl adb shell "run-as io.github.alexanderop.eisen cp /data/local/tmp/eisen-off/product/5449000000996.json files/off/product/"
@@ -370,6 +385,46 @@ eisenctl adb shell "rm -r /data/local/tmp/eisen-off"
 eisenctl doctor && eisenctl cleanup
 ```
 
+**A food from a photo of its label: read, marked, saved and logged; a label to check; a photo with no table**
+(`food-label`, `food-own`, `food-plate`, `food-credit`). The photos are real ones of Open Food Facts (CC BY-SA), in
+`fixtures/labels/`: Gut & Günstig's Vanille Eis (a grid of 100 g and a portion of 50 g), Spaghetti with the head of its table
+cut off (so every value is to check), and the front of a Nutella jar. Each is pushed to the emulator's pictures and picked in
+the system's photo picker, as the lifter picks one from the gallery; the camera app is not driven (the emulator's is a virtual
+scene). The ice cream fills the form with 200 kcal, 1.6 g protein, 25.5 g carbs, 10.1 g fat and a serving of 50 g, each
+`read`; named and saved, its amount for the plate starts at the serving, and the plate logs it.
+
+```sh
+eisenctl launch --state food
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/vanille-eis.jpg /sdcard/Pictures/eisen-label-vanille-eis.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5; do eisenctl visible "Photo of the label" "New food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Type a barcode" "NO BARCODE\?" "Photo of the label" "New food" && eisenctl small && eisenctl shot 66-label-entry
+eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl visible "Photo of the label" "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 67-label-choice
+eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Calories read from the photo" 20
+eisenctl has "New food" "Read from the photo of the label." "Read another photo" "Calories read from the photo" "Protein read from the photo" "calories per 100 g 200 kcal" "protein per 100 g 1.6 g" && eisenctl shot 68-label-read
+grep -q "EisenFood: label photo read" "$(eisenctl log)"
+eisenctl type "Vanille Eis" && eisenctl back && eisenctl wait "Picture: Ice cream" && for i in 1 2 3; do eisenctl visible "Save food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl has "Carbs read from the photo" "Fat read from the photo" "carbs per 100 g 25.5 g" "fat per 100 g 10.1 g" "serving 50 g" && eisenctl small && eisenctl shot 69-label-read-below
+jq -e '(.foods | length == 1) and (.foodLog == [])' "$(eisenctl state 70-state-unsaved)"
+eisenctl tap "Save food" && eisenctl wait "Add 100 kcal to the plate" && eisenctl has "200 kcal · 1.6 g protein" "1 serving 50 g" && eisenctl tap "Add 100 kcal to the plate"
+eisenctl wait "Log 100 kcal" && eisenctl tap "Log 100 kcal" && eisenctl wait "Logged 1 food" && eisenctl has "Vanille Eis, 50 g, 100 kcal" && eisenctl shot 71-label-logged
+jq -e '(.foods | map(select(.source == "own" and .name == "Vanille Eis" and .kcal == 200 and .protein == 1.6 and .carbs == 25.5 and .fat == 10.1 and .serving == 50 and .unit == "g")) | length == 1) and (.foodLog | map([.name, .amount, .kcal]) == [["Vanille Eis", 50, 100]])' "$(eisenctl state 72-state)"
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/spaghetti.jpg /sdcard/Pictures/eisen-label-spaghetti.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+eisenctl tap "\+ Add" && eisenctl wait "Search foods" && for i in 1 2 3 4 5; do eisenctl visible "New food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "New food" && eisenctl wait "Read from a photo" && eisenctl tap "Read from a photo" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1
+eisenctl wait "Calories read from the photo, check it" 20 && eisenctl has "Protein read from the photo, check it" "calories per 100 g 368 kcal" "protein per 100 g 12 g" && eisenctl shot 73-label-check
+eisenctl back && eisenctl tap "Close" && eisenctl wait "Search foods"
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/nutella-front.jpg /sdcard/Pictures/eisen-label-nutella-front.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+for i in 1 2 3 4 5; do eisenctl visible "Photo of the label" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1
+eisenctl wait "No nutrition table found on this photo.*" 20 && eisenctl visible "Try again" "Type it in" && eisenctl small && eisenctl shot 74-label-nothing
+eisenctl tap "Type it in" && eisenctl wait "Read from a photo" && eisenctl has "calories per 100 g 0 kcal" && eisenctl tap "Close" && eisenctl wait "Search foods"
+jq -e '(.foods | length == 2) and (.foodLog | length == 1)' "$(eisenctl state 75-state-after)"
+eisenctl tap "Back" && eisenctl wait "Food data" && eisenctl tap "Food data" && eisenctl wait "A photo of a label is read on this phone and then thrown away: it is not kept, and not sent anywhere." && eisenctl tap "Close"
+eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+eisenctl doctor && eisenctl cleanup
+```
+
 ## Gotchas
 
 - `--state` moves the food log of a fixture by whole weeks so its newest day is one of the seven days before the phone's
@@ -412,3 +467,12 @@ eisenctl doctor && eisenctl cleanup
   ("Waiting for the Barcode UI module to be downloaded"), and then it needs a camera. `Scan` then opens
   `Type a barcode` with "Google Play services is downloading the scanner, once." (the app asks for the module; a second
   Scan a minute later opens the camera). `eisenctl release-smoke` taps it and puts away whichever shows.
+- The photo of a label goes in through the system's photo picker: the recipe pushes the picture to `/sdcard/Pictures/`, has
+  the media store scan it (`content call --uri content://media --method scan_volume`), and taps the first `Photo taken on
+  ...`, the newest. It deletes its pictures again (also before pushing, so only one of them is ever there). `launch` and
+  `cleanup` do not touch the pictures. The camera app is not driven: on the emulator it photographs a virtual room, which
+  reads as "No nutrition table found" (tried by hand).
+- The form a photo fills opens with the keyboard on the name, which covers the lower fields: the recipe checks the upper ones,
+  types the name, puts the keyboard away and scrolls. A value keeps its mark only while it is the value read.
+- Reading the ice cream takes about a quarter of a second on the emulator; the recipe gives it 20 seconds.
+

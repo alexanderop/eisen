@@ -2,6 +2,8 @@ package io.github.alexanderop.eisen
 
 import io.github.alexanderop.eisen.feature.timer.Activity
 import io.github.alexanderop.eisen.app.elm.activitySheet
+import io.github.alexanderop.eisen.app.elm.PhotoFailure
+import io.github.alexanderop.eisen.app.elm.PhotoSource
 import io.github.alexanderop.eisen.app.elm.activitySheetFits
 import io.github.alexanderop.eisen.app.elm.draft
 import io.github.alexanderop.eisen.app.elm.restScreen
@@ -135,6 +137,9 @@ import org.junit.Test
  * for a Msg, the new Model and the Cmds it asks for.
  */
 class UpdateTest {
+    private val savedLabels = listOf("4311501070628", "4311501065525", "0038000138416", "3017620422003", "5000168001142").map(::savedLabel) +
+        io.github.alexanderop.eisen.feature.food.LabelText(emptyList())
+
     private fun routine(step: Step, id: String): Routine = step.state.routines.first { it.id == id }
 
     private val stopRest = listOf(Cmd.SaveRest(null), Cmd.CancelRestAlarms, Cmd.HideRestCountdown, Cmd.HideRestOver)
@@ -995,6 +1000,8 @@ class UpdateTest {
         var ownFoodsSaved = 0
         var foodsEdited = 0
         var iconsPicked = 0
+        var labelsRead = 0
+        var labelsFound = 0
         var lookups = 0
         var searches = 0
         var mealsSaved = 0
@@ -1448,6 +1455,17 @@ class UpdateTest {
                 assertEquals(where, step.model.food.plate, after.model.food.plate)
                 if (after.state != step.state) iconsPicked++
             }
+            // A photo of a label read, alone, adds no food and no entry and changes no number of one: it only fills a form.
+            if (msg is Msg.Food.ReadLabel || msg is Msg.Food.ChoosePhoto || msg == Msg.Food.PhotoChosen || msg == Msg.Food.PhotoCancelled ||
+                msg is Msg.Food.LabelRecognized || msg is Msg.Food.LabelFailed || msg == Msg.Food.RetryPhoto || msg == Msg.Food.TypeItIn
+            ) {
+                assertEquals(where, step.state, after.state)
+                assertEquals(where, step.model.food.plate, after.model.food.plate)
+                if (msg is Msg.Food.LabelRecognized && step.model.food.sheet != after.model.food.sheet) labelsRead++
+                if ((after.model.food.sheet as? FoodSheet.Own)?.read != null && (step.model.food.sheet as? FoodSheet.Own)?.read == null) labelsFound++
+            }
+            // The photo's flow only lies over the Food tab.
+            if (after.model.food.sheet is FoodSheet.Photo) assertNotNull(where, after.model.food.day)
             // The picture of a food the phone keeps changes only by the grid, its own form, a new answer of Open Food Facts
             // that is kept (a lookup, or a hit added or logged), a backup or a Reset; the choices for plain foods only by the grid.
             for (food in after.state.foods) {
@@ -1524,6 +1542,7 @@ class UpdateTest {
             // And the weight log's, from a dice of its own. Every fourth walk starts with three weeks of weights and food
             // before it, so the weekly check-in is due on its first day (1970-01-01, a Thursday).
             val weighing = java.util.Random(seed * 15_485_863)
+            val photos = java.util.Random(seed * 32_452_843)
             val start = if (seed % 4 == 0L) withHolds.copy(weights = threeWeeks.weights, foodLog = threeWeeks.foodLog, weightGoal = threeWeeks.weightGoal, foodGoal = threeWeeks.foodGoal) else withHolds
             var walk = Walk(stepOf(start))
             var now = STARTED_AT
@@ -1547,6 +1566,7 @@ class UpdateTest {
                 // A Msg of the food log comes in between, from its own dice, so the walk's own Msgs stay the ones they were.
                 foodMsg(walk.step.model, food)?.let { go(Sent(it, now + 1 + food.nextInt(20), "f$seed-$turn")) }
                 weightMsg(walk.step.model, weighing)?.let { go(Sent(it, now + 21 + weighing.nextInt(20), "g$seed-$turn")) }
+                photoMsg(walk.step.model, photos)?.let { go(Sent(it, now + 41 + photos.nextInt(20), "p$seed-$turn")) }
             }
         }
         assertTrue("only $finished workouts finished", finished >= 10)
@@ -1579,6 +1599,7 @@ class UpdateTest {
         assertTrue("only $ownFoodsSaved own foods were saved", ownFoodsSaved >= 10)
         assertTrue("only $foodsEdited own foods were edited or deleted", foodsEdited >= 10)
         assertTrue("only $iconsPicked pictures were chosen", iconsPicked >= 10)
+        assertTrue("only $labelsRead photos of labels were read, $labelsFound filled the form", labelsRead >= 10 && labelsFound >= 5)
         assertTrue("only $lookups barcodes were looked up", lookups >= 30)
         assertTrue("only $searches searches were sent", searches >= 20)
         assertTrue("only $mealsSaved meals were saved", mealsSaved >= 20)
@@ -1765,6 +1786,30 @@ class UpdateTest {
      * days that are none, Take and Keep on a card that shows and on one that does not, the goal sheet's pace, and
      * Health Connect's side of weight. Null most of the time.
      */
+    /**
+     * The photo of a label, from dice of its own: "Photo of the label" on the add screen or "Read from a photo" in a new
+     * food's form now and then, its steps answered as the camera and the recognizer would (real reads of real photos: a
+     * table, one per 100 ml, a label of portions, a misread one, the front of a jar, nothing), and its Msgs stale or out of
+     * place now and then.
+     */
+    private fun photoMsg(model: Model, dice: java.util.Random): Msg? {
+        fun <T> pick(items: List<T>): T = items[dice.nextInt(items.size)]
+        val sheet = model.food.sheet
+        val step = (sheet as? FoodSheet.Photo)?.step
+        val stale = { pick(listOf(Msg.Food.ChoosePhoto(pick(PhotoSource.entries)), Msg.Food.PhotoChosen, Msg.Food.PhotoCancelled, Msg.Food.LabelRecognized(pick(savedLabels)), Msg.Food.LabelFailed(pick(PhotoFailure.entries)), Msg.Food.RetryPhoto, Msg.Food.TypeItIn, Msg.Food.ReadLabel())) }
+        return when {
+            step != null && dice.nextInt(5) == 0 -> stale()
+            step == io.github.alexanderop.eisen.app.elm.LabelStep.Choose -> pick(listOf(Msg.Food.ChoosePhoto(pick(PhotoSource.entries)), Msg.Food.ChoosePhoto(pick(PhotoSource.entries)), Msg.Food.CloseSheet))
+            step is io.github.alexanderop.eisen.app.elm.LabelStep.Waiting -> pick(listOf(Msg.Food.PhotoChosen, Msg.Food.PhotoChosen, Msg.Food.PhotoCancelled, Msg.Food.LabelFailed(pick(PhotoFailure.entries))))
+            step == io.github.alexanderop.eisen.app.elm.LabelStep.Reading -> pick(listOf(Msg.Food.LabelRecognized(pick(savedLabels)), Msg.Food.LabelRecognized(pick(savedLabels)), Msg.Food.LabelFailed(PhotoFailure.UNREADABLE)))
+            step != null -> pick(listOf(Msg.Food.RetryPhoto, Msg.Food.TypeItIn, Msg.Food.CloseSheet))
+            sheet == null && model.food.add != null && dice.nextInt(15) == 0 -> Msg.Food.ReadLabel()
+            sheet is FoodSheet.Own && sheet.read == null && dice.nextInt(10) == 0 -> Msg.Food.ReadLabel(pick(listOf("", "Quark")))
+            dice.nextInt(40) == 0 -> stale()
+            else -> null
+        }
+    }
+
     private fun weightMsg(model: Model, dice: java.util.Random): Msg? {
         val shown = io.github.alexanderop.eisen.app.elm.checkIn(model) is io.github.alexanderop.eisen.app.elm.CheckIn.Shown
         if (dice.nextInt(if (model.weight.sheet != null || shown) 2 else 6) != 0) return null

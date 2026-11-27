@@ -187,6 +187,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.suggestions(model: Mo
     item(key = "ways") {
         Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SecondaryButton("Type a barcode") { dispatch(Msg.Food.TypeBarcode) }
+            // A product without a barcode: its nutrition table, read from a photo.
+            Eyebrow("No barcode?", Modifier.padding(top = 6.dp))
+            SecondaryButton("Photo of the label") { dispatch(Msg.Food.ReadLabel()) }
             SecondaryButton("New food") { dispatch(Msg.Food.NewOwn()) }
             SecondaryButton("Quick kcal") { dispatch(Msg.Food.OpenQuick) }
         }

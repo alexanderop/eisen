@@ -3,6 +3,7 @@ package io.github.alexanderop.eisen.app.elm
 import io.github.alexanderop.eisen.feature.food.Food
 import io.github.alexanderop.eisen.feature.food.FoodIcon
 import io.github.alexanderop.eisen.feature.food.FoodEntry
+import io.github.alexanderop.eisen.feature.food.LabelReading
 import io.github.alexanderop.eisen.feature.food.MealItem
 import io.github.alexanderop.eisen.feature.food.PlateItem
 import io.github.alexanderop.eisen.feature.food.SearchHit
@@ -71,6 +72,7 @@ sealed interface AmountFor {
  *   Pick(id of a hit without its numbers) ──▶ LookingUp its barcode, see [Lookup]
  *   Amount of an own food ── EditOwn ──▶ Own(id)
  *   Scanned, LookUp, Retry: the lookup, see [Lookup]; a run of barcodes onto the plate, see [AddScreen]
+ *   ReadLabel on the add screen or a new food's form ──▶ Photo: the photo of a label, see [LabelStep]
  */
 sealed interface FoodSheet {
     /**
@@ -94,6 +96,8 @@ sealed interface FoodSheet {
      * lookup that found nothing to log. [note]: what the form says above it, why it opened. [direct]: the food goes
      * straight onto the plate once it is saved (it came from a run of barcodes or a `+`). [icon]: the picture the lifter
      * chose (the one the food has, when it is edited); null while he has not, and then the picture follows the name typed.
+     * [read]: what a photo of the label gave, which fills the form, each value marked read or to check; null when it was
+     * not read from a photo.
      */
     data class Own(
         val id: String? = null,
@@ -103,6 +107,7 @@ sealed interface FoodSheet {
         val direct: Boolean = false,
         val icon: FoodIcon? = null,
         val picker: IconPicker = IconPicker.Closed,
+        val read: LabelReading? = null,
     ) : FoodSheet
 
     data object Goal : FoodSheet
@@ -118,6 +123,51 @@ sealed interface FoodSheet {
 
     /** Making, changing and deleting meals, see [MealSheet]. */
     data class Meal(val sheet: MealSheet) : FoodSheet
+
+    /**
+     * The photo of a label being taken and read, see [LabelStep]. [form]: the own food form it fills in: the one it was
+     * started from (a barcode nobody knew, a name typed), or null when it was started on the add screen.
+     */
+    data class Photo(val step: LabelStep, val form: Own? = null) : FoodSheet
+}
+
+/** Where the photo of a label comes from: the phone's camera app, or the system's photo picker. */
+enum class PhotoSource { CAMERA, PICKER }
+
+/** Why a photo gave nothing to read: no camera app on the phone, or a photo that could not be opened or read. */
+enum class PhotoFailure { NO_APP, UNREADABLE }
+
+/**
+ * A photo of a nutrition table, read on the phone and thrown away. Nothing is kept or sent, and nothing is saved or
+ * logged until the lifter saves the form it fills. [labelAfter] (UpdateLabel.kt) is the one place it changes.
+ *
+ *   ReadLabel ┌────────┐ ChoosePhoto(source) ┌─────────────────┐ PhotoChosen ┌─────────┐ LabelRecognized(a table)
+ *   ────────▶ │ Choose │ ──────────────────▶ │ Waiting(source) │ ──────────▶ │ Reading │ ────────────────────────▶ the own
+ *             └────────┘                     └─────────────────┘             └─────────┘   food form, filled: read
+ *                 ▲                          PhotoCancelled: back to where it began, │ │
+ *                 │                          the add screen or the form as it was    │ │ LabelRecognized(no table)
+ *                 │ RetryPhoto       ┌──────────────┐ ◀────────────────────────────────┘ │
+ *                 ├───────────────── │ NothingFound │                                    │ LabelFailed(why), also
+ *                 │                  └──────────────┘                                    │ from Waiting (no camera app)
+ *                 │ RetryPhoto       ┌─────────────┐ ◀────────────────────────────────────┘
+ *                 └───────────────── │ Failed(why) │
+ *                                    └─────────────┘
+ *   TypeItIn (NothingFound, Failed): the form, as it began. CloseSheet, Back: from each step, closed.
+ *   A photo, an answer or a failure that comes when no photo is awaited changes nothing. After a restart the flow is gone.
+ */
+sealed interface LabelStep {
+    data object Choose : LabelStep
+
+    /** The camera app or the photo picker is open. */
+    data class Waiting(val source: PhotoSource) : LabelStep
+
+    /** The text recognizer reads the photo. */
+    data object Reading : LabelStep
+
+    /** The photo has no nutrition table the reader could find. */
+    data object NothingFound : LabelStep
+
+    data class Failed(val why: PhotoFailure) : LabelStep
 }
 
 /**

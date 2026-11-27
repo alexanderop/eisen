@@ -2,4 +2,6 @@
 <paths>
     <cache-path name="backups" path="backups/" />
     <cache-path name="shares" path="shares/" />
+    <!-- The photo the camera app takes of a label: read, then deleted. -->
+    <cache-path name="labels" path="labels/" />
 </paths>

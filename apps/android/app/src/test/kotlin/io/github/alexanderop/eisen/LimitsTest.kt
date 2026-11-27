@@ -167,6 +167,21 @@ class LimitsTest {
         val savedOwn = own.send(Msg.Food.SaveOwn("x".repeat(500), heavy, heavy, heavy, heavy, heavy), id = "o1")
         assertWithin(savedOwn, "SaveOwn")
         assertWithin(savedOwn.send(Msg.Food.ConfirmAmount, id = "e3"), "SaveOwn and ConfirmAmount")
+        // A photo of a label with the largest numbers: what fills the form stays within its limits, or stays empty.
+        fun line(text: String, left: Int, top: Int) = io.github.alexanderop.eisen.feature.food.LabelLine(text, io.github.alexanderop.eisen.feature.food.TextBox(left, top, left + 20 * text.length, top + 40))
+        val giant = io.github.alexanderop.eisen.feature.food.LabelText(
+            listOf(line("pro 100 g", 600, 0), line("Brennwert", 0, 60), line("99999 kJ / 99999 kcal", 600, 60), line("Fett", 0, 120), line("99999 g", 600, 120),
+                line("Kohlenhydrate", 0, 180), line("99999 g", 600, 180), line("Eiweiß", 0, 240), line("99,9 g", 600, 240), line("Portion (9999 g)", 0, 300)),
+        )
+        val photo = open.send(Msg.Food.OpenAdd).send(Msg.Food.ReadLabel()).send(Msg.Food.ChoosePhoto(io.github.alexanderop.eisen.app.elm.PhotoSource.PICKER))
+            .send(Msg.Food.PhotoChosen).send(Msg.Food.LabelRecognized(giant))
+        val read = (photo.model.food.sheet as? io.github.alexanderop.eisen.app.elm.FoodSheet.Own)?.read
+        if (read != null) {
+            assertTrue(read.values.filterNotNull().all { it.value in 0.0..io.github.alexanderop.eisen.feature.food.MAX_KCAL_PER_100 })
+            assertTrue(listOfNotNull(read.protein, read.carbs, read.fat).all { it.value <= io.github.alexanderop.eisen.feature.food.MAX_MACRO_PER_100 })
+            assertTrue((read.serving ?: 0.0) <= io.github.alexanderop.eisen.feature.food.MAX_AMOUNT)
+        }
+        assertWithin(photo, "LabelRecognized")
         assertWithin(open.send(Msg.Food.OpenGoal).send(Msg.Food.SaveGoal(big, big, big, big)), "SaveGoal")
         val search = open.send(Msg.Food.OpenAdd).send(Msg.Food.Search("s".repeat(500)))
         assertWithin(search, "Search")
