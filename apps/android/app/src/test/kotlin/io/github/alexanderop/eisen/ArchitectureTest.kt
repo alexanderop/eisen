@@ -38,6 +38,8 @@ class ArchitectureTest {
         "history" to "progress", // the History tab shows the progress charts as its second view
         "history" to "share", // a workout in the history can be shared (ShareWorkoutSheet)
         "history" to "workout", // a workout in the history uses the workout screen's card shape and set descriptions
+        "history" to "awards", // Progress shows the medal case as its third view (MedalsView)
+        "home" to "awards", // Today shows the level chip and the saved workout's medals and XP
         "home" to "share", // the last workout can be shared from home
         "home" to "food", // home shows today's food as a card with Scan and Add (FoodTodayCard)
         "settings" to "health", // settings show the Health Connect rows

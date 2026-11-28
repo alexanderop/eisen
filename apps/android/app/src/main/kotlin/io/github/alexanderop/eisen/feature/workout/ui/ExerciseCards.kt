@@ -78,6 +78,7 @@ import io.github.alexanderop.eisen.core.ui.SwipeHaptics
 import io.github.alexanderop.eisen.core.ui.ExerciseTile
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.core.ui.SetButton
+import io.github.alexanderop.eisen.core.ui.PillBadge
 import io.github.alexanderop.eisen.core.ui.SetState
 import io.github.alexanderop.eisen.core.ui.exerciseBitmap
 import io.github.alexanderop.eisen.core.ui.fmt
@@ -143,6 +144,8 @@ internal fun ExerciseCard(
     hint: Boolean,
     modifier: Modifier = Modifier,
     actions: List<CustomAccessibilityAction> = emptyList(),
+    /** The sets logged so far beat the exercise's record, as the medals will count it. */
+    record: Boolean = false,
 ) {
     val log = item.log
     WorkoutCard(modifier) {
@@ -158,6 +161,7 @@ internal fun ExerciseCard(
             ) {
                 ExerciseTile(image, log.name, size = 40.dp)
                 Text(log.name, Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                if (record) PillBadge("New record")
                 Text(log.sets.joinToString(" · ") { it?.let { count -> setText(count, log.timed) } ?: "" }, color = EisenColors.Primary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Icon(if (expanded) Icons.ChevronUp else Icons.ChevronDown, contentDescription = null, tint = EisenColors.Primary)
             }
@@ -182,6 +186,7 @@ internal fun ExerciseCard(
                 ) {
                     if (!item.done && !first) ExerciseTile(image, log.name, size = 40.dp)
                     Text(if (item.done) "Sets" else log.name, Modifier.weight(1f), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    if (record && !item.done) PillBadge("New record")
                     Text(
                         buildAnnotatedString {
                             append("${log.sets.size}×${targetText(log.targetReps, log.timed)} ")

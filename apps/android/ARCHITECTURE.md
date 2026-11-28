@@ -24,8 +24,8 @@ Code is sorted by feature, under `io.github.alexanderop.eisen`:
 ```
 core/               the pure kernel every feature uses: units, typed numbers, the exercise catalogue, motions
 core/ui/            the shared Compose kit: components, formats, haptics, motion tiles, reorder, theme, wheel
-feature/<name>/     a feature's pure code         workout, timer (+ boxing, wod), progress, share
-feature/<name>/ui/  its screens                   workout, timer, progress, share, history, home, settings, health
+feature/<name>/     a feature's pure code         workout, timer (+ boxing, wod), progress, share, awards
+feature/<name>/ui/  its screens                   workout, timer, progress, share, history, home, settings, health, awards
 feature/<name>/platform/  its Android side        workout (rest), timer, home (shortcuts), health
 app/elm/            the program: Model, Msg, Cmd, Sub, update, selectors, the workout machine
 app/state/          AppState, its JSON, migrations and loadState

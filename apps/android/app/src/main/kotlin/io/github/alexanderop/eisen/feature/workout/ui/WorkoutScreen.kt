@@ -90,6 +90,8 @@ import io.github.alexanderop.eisen.core.ui.rememberHaptics
 import io.github.alexanderop.eisen.core.ui.longPressToReorder
 import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.rememberLazyReorderState
+import io.github.alexanderop.eisen.core.ui.ConfettiBurst
+import io.github.alexanderop.eisen.app.elm.liveRecords
 
 private enum class Mode(val label: String) { WORKOUT("Workout"), WARMUP("Warmup") }
 
@@ -174,6 +176,10 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
         // Commits the card that is about to move, so the order under the finger holds still.
         onDragStart = { quietly(Msg.WorkoutScreen.SettleNow) },
     )
+
+    // A record as the medals count it: a short burst of confetti over everything, no stop, and a word for TalkBack.
+    val records = liveRecords(model)
+    val celebration = rememberCelebration(records, workout)
 
     val hold = model.hold
     val holding = hold?.let { workout.exercises.getOrNull(it.exercise) }
@@ -273,6 +279,7 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
                                                 onEnter = { set -> send(WorkoutEvent.EnterReps(row.index, set)) },
                                             ),
                                             hint = row.log.id == hintOn,
+                                            record = row.log.id in records,
                                             modifier = Modifier.longPressToReorder(reorder, row.log.id, enabled = !row.done && openIds.size > 1),
                                             actions = actionsFor(row, position),
                                         )
@@ -313,6 +320,8 @@ fun WorkoutScreen(model: Model, dispatch: (Msg) -> Unit) {
         RestScreenOverlay(if (restScreen != null && resting != null) Triple(restScreen, rest, resting) else null, model, dispatch)
         if (hold != null && holding != null) HoldTimerScreen(hold, holding, model.now, dispatch)
         RepsPicker(picker)
+        ConfettiBurst(celebration.burst, Modifier.fillMaxSize())
+        RecordAnnouncement(celebration.said)
     }
 
     if (picking) {

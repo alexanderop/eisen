@@ -9,6 +9,7 @@ nothing.
 
 - `history-log` lists what was done, with a row per workout and per timer session.
 - `history-progress` shows the training calendar and the charts (second view of the tab).
+- The third view, `Medals`, is the medal case: see `awards.md`.
 - `data-save` writes a backup through the system file picker.
 - `data-restore` reads one, or refuses it and says why.
 - `data-update` opens old data with a new build (an update, not a fresh install).

@@ -57,8 +57,11 @@ sealed interface Msg {
     sealed interface Nav : Msg {
         data class SelectTab(val tab: Tab) : Nav
 
-        /** The "Log" and "Progress" switch at the top of the History tab. */
+        /** The "Log", "Charts" and "Medals" switch at the top of the History tab. */
         data class ShowHistory(val view: HistoryView) : Nav
+
+        /** The level chip on Today: Progress opens on its medal case. */
+        data object OpenMedals : Nav
 
         /** The "WODs" and "Timers" switch at the top of the Timer tab. */
         data class ShowTimerPage(val page: TimerPage) : Nav

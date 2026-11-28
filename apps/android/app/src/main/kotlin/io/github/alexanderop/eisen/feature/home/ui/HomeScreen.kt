@@ -76,6 +76,8 @@ import io.github.alexanderop.eisen.core.ui.Eyebrow
 import io.github.alexanderop.eisen.core.ui.PillBadge
 import io.github.alexanderop.eisen.feature.share.ui.ShareWorkoutSheet
 import io.github.alexanderop.eisen.feature.food.ui.FoodTodayCard
+import io.github.alexanderop.eisen.feature.awards.ui.LevelChip
+import io.github.alexanderop.eisen.feature.awards.ui.SavedAwardsReveal
 import io.github.alexanderop.eisen.app.elm.Tab
 import io.github.alexanderop.eisen.core.ui.Icons
 import androidx.compose.material3.Icon
@@ -137,13 +139,15 @@ fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
                     letterSpacing = (-0.6).sp,
                 )
             }
+            // The level, small: a tap opens the medal case.
+            LevelChip(model, dispatch)
             // Settings is no tab: the gear opens it, Back comes home again.
             IconButton(onClick = { dispatch(Msg.Nav.SelectTab(Tab.SETTINGS)) }, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Gear, contentDescription = "Settings", tint = EisenColors.MutedForeground)
             }
         }
         if (changes != null) {
-            SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) })
+            SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) }) { SavedAwardsReveal(model) }
         }
         // The week and the day at a glance; a finished interval timer counts like a workout.
         TodayRings(model, dispatch)
@@ -172,7 +176,7 @@ private fun records(workout: Workout, history: List<Workout>): List<String> {
 }
 
 @Composable
-private fun SavedCard(changes: List<Change>, workout: Workout?, history: List<Workout>, unit: WeightUnit, onDismiss: () -> Unit) {
+private fun SavedCard(changes: List<Change>, workout: Workout?, history: List<Workout>, unit: WeightUnit, onDismiss: () -> Unit, awards: @Composable () -> Unit) {
     EisenCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -201,6 +205,7 @@ private fun SavedCard(changes: List<Change>, workout: Workout?, history: List<Wo
                     }
                 }
             }
+            awards()
             if (changes.isEmpty()) {
                 Text("No weight changes this time.", color = EisenColors.MutedForeground)
             } else {

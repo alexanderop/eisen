@@ -81,6 +81,7 @@ import io.github.alexanderop.eisen.feature.timer.TimerOutcome
 import io.github.alexanderop.eisen.feature.timer.timerOutcome
 import io.github.alexanderop.eisen.app.elm.HistoryView
 import io.github.alexanderop.eisen.feature.progress.ui.ProgressScreen
+import io.github.alexanderop.eisen.feature.awards.ui.MedalsView
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -159,13 +160,14 @@ fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
         when (model.nav.history) {
             HistoryView.LOG -> HistoryLog(model, dispatch)
             HistoryView.PROGRESS -> ProgressScreen(model, dispatch, title = false)
+            HistoryView.MEDALS -> MedalsView(model)
         }
     }
 }
 
 @Composable
 private fun ViewSwitch(view: HistoryView, onChange: (HistoryView) -> Unit) {
-    val views = listOf(HistoryView.LOG to "Log", HistoryView.PROGRESS to "Charts")
+    val views = listOf(HistoryView.LOG to "Log", HistoryView.PROGRESS to "Charts", HistoryView.MEDALS to "Medals")
     ChoiceGroup(views.map { it.first }, view, { option -> views.first { it.first == option }.second }, onChange, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
 }
 

@@ -30,7 +30,7 @@ fun update(msg: Msg, model: Model, env: Env): Next {
         is Msg.WorkoutScreen -> workoutScreen(msg, model, env)
         is Msg.Nav -> nav(msg, model, env)
         is Msg.Home -> when (msg) {
-            Msg.Home.DismissSummary -> model.copy(lastChanges = null).only()
+            Msg.Home.DismissSummary -> model.copy(lastChanges = null, lastAwards = null).only()
         }
         is Msg.Routines -> routines(msg, model, env)
         is Msg.Exercises -> exercises(msg, model, env)
@@ -89,6 +89,11 @@ private fun follow(before: Model, after: Model, cmds: List<Cmd>): Next {
     if (kept != draftFile(before.wods.builder)) extra += Cmd.SaveDraft(kept)
     // The plate file holds what is on the plate, so nothing collected is lost when the process ends.
     if (model.food.plate != before.food.plate) extra += Cmd.SavePlate(model.food.plate)
+    // The medal case marks what is new when it opens, and from then on it counts as seen.
+    if (showsMedals(model) && !showsMedals(before)) {
+        val earned = earnedMedalIds(model.state, model.zone)
+        model = model.copy(medalShine = earned - model.state.seenMedals.toSet()).withState { withMedalsSeen(it, earned) }
+    }
     // The weekly check-in's card counts as shown once the Food tab shows it.
     if (showsCheckInCard(model)) model = checkInAfter(model, CheckInEvent.SEEN).first
     if (before.session is Session.Discarded && model.session !is Session.Discarded) {
@@ -195,8 +200,13 @@ internal fun workout(event: WorkoutEvent, model: Model, env: Env): Next {
                 }
             }
             // A new workout forgets the last summary and the ticked warmups, and shows itself.
-            is Effect.Started -> next = next.nav { it.copy(workoutOpen = true) }.copy(lastChanges = null, warmupDone = emptySet())
-            is Effect.Saved -> next = next.nav { it.copy(workoutOpen = false) }.copy(lastChanges = effect.changes)
+            is Effect.Started -> next = next.nav { it.copy(workoutOpen = true) }.copy(lastChanges = null, lastAwards = null, warmupDone = emptySet())
+            // The XP the workout brought and the medals not seen before, which count as seen once the card shows them.
+            is Effect.Saved -> {
+                val brought = savedAwards(model.state, next.state, env.now, env.zone)
+                next = next.nav { it.copy(workoutOpen = false) }.copy(lastChanges = effect.changes, lastAwards = brought)
+                    .withState { withMedalsSeen(it, brought.medals.map { medal -> medal.id }.toSet()) }
+            }
             is Effect.DiscardedWorkout -> {
                 next = next.nav { it.copy(workoutOpen = false) }
                 cmds += Cmd.Ui(
@@ -319,6 +329,7 @@ private fun nav(msg: Msg.Nav, model: Model, env: Env): Next {
         is Msg.Nav.ShowTimerPage -> nav
         is Msg.Nav.SelectTab -> nav.copy(tab = msg.tab)
         is Msg.Nav.ShowHistory -> nav.copy(history = msg.view)
+        Msg.Nav.OpenMedals -> nav.copy(tab = Tab.HISTORY, history = HistoryView.MEDALS)
         Msg.Nav.OpenWorkout -> nav.copy(workoutOpen = true)
         Msg.Nav.CloseWorkout -> nav.copy(workoutOpen = false)
         is Msg.Nav.OpenRoutine -> if (model.state.routines.any { it.id == msg.id }) nav.copy(routine = msg.id) else nav

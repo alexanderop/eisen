@@ -200,6 +200,7 @@ no time; `@Fixture("food-weight")` picks another fixture per test, `app.answers(
 | `wods.md` | `WodsScreenTest` | nothing |
 | `interval-timers.md` | `TimerScreenTest` | the screen going off, the foreground service and its notification, the killed app picking its run up again |
 | `boxing.md` | `BoxingScreenTest` | nothing but the sound itself |
+| `awards.md` | `AwardsScreenTest` (and `AwardsTest` for the numbers) | the drawing only: medal shapes, the confetti and the flip (`--animations`), font scales |
 | `layout.md` | none | all of it: the font scales, 48 dp targets (`small`), what fits a phone's screen (`visible`) |
 
 A full run of everything takes most of an hour. Alexander does not want to wait for it: not every change needs

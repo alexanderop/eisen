@@ -60,3 +60,27 @@ fun recordIds(history: List<Workout>, index: Int): Set<String> {
     }
     return ids
 }
+
+/** A record a finished workout set: [log] of [workout] beat every earlier log of its exercise. */
+class RecordEvent(val workout: Workout, val log: ExerciseLog)
+
+/**
+ * Every record of [history] (newest first, as saved), oldest first: what [recordIds] finds for each of its workouts,
+ * in one pass instead of one per workout. A first log has nothing to beat, so it is not a record.
+ */
+fun recordEvents(history: List<Workout>): List<RecordEvent> {
+    val best = HashMap<String, Double>()
+    val events = mutableListOf<RecordEvent>()
+    for (workout in history.asReversed()) {
+        val values = workout.exercises.mapNotNull { log -> recordValue(log, workout.unit)?.let { log to it } }
+        for ((log, value) in values) {
+            val before = best[log.id] ?: continue
+            if (value > before + NOISE) events += RecordEvent(workout, log)
+        }
+        // Against the workouts before it only, as recordIds compares: then this one counts for the next.
+        for ((log, value) in values) {
+            if (value > (best[log.id] ?: 0.0) + NOISE) best[log.id] = value
+        }
+    }
+    return events
+}

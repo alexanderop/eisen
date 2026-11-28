@@ -4,6 +4,7 @@ import io.github.alexanderop.eisen.app.state.AppState
 import io.github.alexanderop.eisen.feature.timer.boxing.BoxingPlan
 import io.github.alexanderop.eisen.feature.timer.boxing.BoxingRound
 import io.github.alexanderop.eisen.feature.workout.Change
+import io.github.alexanderop.eisen.feature.awards.SavedAwards
 import io.github.alexanderop.eisen.feature.workout.Slot
 import io.github.alexanderop.eisen.feature.timer.TimerConfig
 import io.github.alexanderop.eisen.feature.timer.TimerMode
@@ -46,6 +47,10 @@ data class Model(
     val overlay: Overlay? = null,
     /** What the last finished workout changed. Shown once on the home screen. */
     val lastChanges: List<Change>? = null,
+    /** The XP and the new medals the last finished workout brought, shown with [lastChanges]. */
+    val lastAwards: SavedAwards? = null,
+    /** The medals that were new when the medal case opened: they shine until it opens again. */
+    val medalShine: Set<String> = emptySet(),
     /** Warmup sets ticked off in the running workout, as [warmupKey]. */
     val warmupDone: Set<String> = emptySet(),
     /** The exercise tapped last, which holds its place on the workout screen for a moment. */
@@ -371,8 +376,8 @@ enum class Tab { HOME, WORKOUTS, TIMER, FOOD, HISTORY, SETTINGS }
 /** The tabs of the bar at the bottom, in its order. The bar's `+` sits between them and opens the rest. */
 val BAR_TABS: List<Tab> = listOf(Tab.HOME, Tab.HISTORY)
 
-/** The two-way switch at the top of the History tab: the list of what was done, or the charts. */
-enum class HistoryView { LOG, PROGRESS }
+/** The switch at the top of the History tab: the list of what was done, the charts, or the medal case. */
+enum class HistoryView { LOG, PROGRESS, MEDALS }
 
 data class Navigation(
     val tab: Tab = Tab.HOME,

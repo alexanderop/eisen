@@ -1,5 +1,7 @@
 package io.github.alexanderop.eisen.app.state
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -71,6 +73,7 @@ data class Settings(
 )
 
 /** The same shape the PWA stores and exports, so a backup moves between the two apps. */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class AppState(
     val version: Int,
@@ -128,6 +131,12 @@ data class AppState(
     val timerConfigs: Map<TimerMode, TimerConfig> = DEFAULT_TIMERS,
     /** The lifter's own WODs, in the order the Timer tab shows them. The benchmarks are code, see [WOD_LIBRARY]. */
     val wods: List<Wod> = emptyList(),
+    /**
+     * The medals the lifter has seen: in the medal case, or on the card of a saved workout. Everything else of the
+     * awards (XP, level, which medals are earned) is worked out from the history and never saved. Older files have no
+     * such field and older builds ignore it: no migration. Not written while empty, so a file without medals stays as it was.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val seenMedals: List<String> = emptyList(),
 )
 
 const val STATE_VERSION = 9
@@ -225,8 +234,15 @@ private fun inLimits(state: AppState): AppState {
         meals = state.meals.mapNotNull(::mealWithin).distinctBy { it.id }.take(MAX_MEALS),
         weights = weightsWithin(state.weights),
         weightGoal = weightGoalWithin(state.weightGoal),
+        seenMedals = state.seenMedals.filter { it.isNotBlank() && it.length <= MEDAL_ID_LENGTH }.distinct().take(MAX_SEEN_MEDALS),
     )
 }
+
+/** A medal id is short ("record:hackSquat"); a longer one in a file is not one of this app's. */
+private const val MEDAL_ID_LENGTH = 80
+
+/** Far more medals than the case has: a hand-edited file cannot grow the state without end. */
+private const val MAX_SEEN_MEDALS = 500
 
 /**
  * The lifter's WODs from a file, brought into their limits. A hand-edited one with the id of a
