@@ -171,16 +171,22 @@ recipe passed on APKs built from the current sources stamps them; it is the only
 
 ### How much to run, and when
 
-A full run of everything used to take most of an hour, and it was run after every change. Now:
+A full run of everything takes most of an hour. Alexander does not want to wait for it: not every change needs
+every journey end to end. The default, also before a push:
 
-- **While building**, run the recipes the change touches: `eisenctl journey food 11`, or a regex on the
-  recipe's heading. A recipe takes one to two minutes.
-- **Before a push**, run everything once: `eisenctl journeys`. It spreads the feature files over two
-  emulators with the same screen (`eisen` on port 5554, `eisen361` on 5556; `EISEN_AVD=eisen361 eisenctl …`
-  drives the second one by hand), each taking the next feature that is free, and writes one log per
-  feature. A pass of all of them stamps the sources `journeys`, and `.githooks/pre-push` refuses a push
-  of Android sources without that stamp (`git push --no-verify` is the way around it, for you to
-  decide, not for a recipe).
+- **Run what the change touches.** `bin/check`, then the recipes of the features the change touches:
+  `eisenctl journey food 11`, or a regex on the recipe's heading. A recipe takes one to two minutes. Click
+  through the changed screens by hand (`tap`, `shot`) where no recipe covers them yet.
+- **Not the rest.** A journey of a feature the change does not touch is not run, and a push does not wait
+  for one. The push gate then warns that the sources lack the `journeys` stamp; that is expected, say so in
+  the report and push.
+- **Everything only when asked**, or for a change that reaches every screen at once (the theme, the app's
+  bar, the saved state's format) — and even then, offer it with its time ("about 60 minutes") instead of
+  starting it.
+- `eisenctl journeys` runs everything: it spreads the feature files over two emulators with the same screen
+  (`eisen` on port 5554, `eisen361` on 5556; `EISEN_AVD=eisen361 eisenctl …` drives the second one by hand),
+  each taking the next feature that is free, and writes one log per feature. A pass of all of them stamps the
+  sources `journeys`.
 - `eisenctl journeys food layout` runs just those two side by side.
 
 The second emulator is started by `journeys` when it does not run and stopped by it at the end; one
@@ -188,8 +194,8 @@ that already ran is left running.
 
 **`journeys` has not passed a full run yet.** Its two tries ended with recipes failing at their first
 check on both emulators (the second try was cut off from outside, so its failures may be that); a single
-`journey` on either emulator passes. Until a full run passes, run the features one after the other before
-a push, and treat the push gate's stamp as not reachable.
+`journey` on either emulator passes. When a full run is asked for, run the features one after the other,
+and treat the push gate's stamp as not reachable.
 
 ## Cleanup
 
