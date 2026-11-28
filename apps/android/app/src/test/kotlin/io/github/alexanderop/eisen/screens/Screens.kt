@@ -45,7 +45,9 @@ import org.junit.rules.ExternalResource
 import org.junit.rules.RuleChain
 import org.junit.rules.TestRule
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowLooper
+import org.robolectric.shadows.ShadowMediaPlayer
 import java.io.File
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -104,6 +106,10 @@ class EisenApp(private val state: String? = null) : TestRule {
             zone = TimeZone.getDefault()
             TimeZone.setDefault(TimeZone.getTimeZone(BERLIN))
             SystemClock.setCurrentTimeMillis(NOW)
+            // As `eisenctl launch` grants it: a run and a rest show their notification without asking first.
+            org.robolectric.Shadows.shadowOf(context).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+            // Every recording plays for a second, so the timer's voice runs its course and logs what it said.
+            ShadowMediaPlayer.setMediaInfoProvider { ShadowMediaPlayer.MediaInfo(1_000, 0) }
             files.deleteRecursively()
             files.mkdirs()
             val saved = File(files, "eisen.json")
@@ -318,6 +324,20 @@ fun Screen.await(handle: String) {
 
 fun Screen.await(pattern: Regex) {
     waitUntil(5_000) { present(matcher(pattern)) }
+}
+
+/** The recordings the timer's voice said (`EisenTimer: said <sound>`), in order: what `eisenctl said` reads in logcat. */
+fun said(): List<String> = ShadowLog.getLogsForTag("EisenTimer").map { it.msg }.filter { it.startsWith("said ") }.map { it.removePrefix("said ") }
+
+/** The voice said each of [sounds], in this order (other lines between them). */
+fun assertSaid(vararg sounds: String) {
+    val lines = said()
+    var from = 0
+    for (sound in sounds) {
+        val at = lines.subList(from, lines.size).indexOf(sound)
+        check(at >= 0) { "the voice did not say $sound (after ${sounds.takeWhile { it != sound }}). It said: $lines" }
+        from += at + 1
+    }
 }
 
 /** The bar: "Today" and "Progress" are its tabs (the last of the same text on screen), the rest opens from its `+`. */
