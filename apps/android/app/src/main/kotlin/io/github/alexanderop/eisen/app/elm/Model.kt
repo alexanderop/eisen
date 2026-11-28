@@ -362,13 +362,14 @@ sealed interface SchemeChoice {
 }
 
 /**
- * What shows under the app's bar. [SETTINGS] is not in the bar: the gear on Home opens it, and Back goes home from it,
- * like from any tab. The names are kept by Android when the process ends (`MainActivity`), so they do not change.
+ * What shows under the app's bar. Only [BAR_TABS] are in the bar ("Today" and "Progress"); the others open from Today
+ * and from the bar's `+` (the gear for [SETTINGS]), and Back goes to Today from them. The names are kept by Android when
+ * the process ends (`MainActivity`), so they do not change.
  */
 enum class Tab { HOME, WORKOUTS, TIMER, FOOD, HISTORY, SETTINGS }
 
-/** The tabs of the bar at the bottom, in its order. */
-val BAR_TABS: List<Tab> = listOf(Tab.HOME, Tab.WORKOUTS, Tab.TIMER, Tab.FOOD, Tab.HISTORY)
+/** The tabs of the bar at the bottom, in its order. The bar's `+` sits between them and opens the rest. */
+val BAR_TABS: List<Tab> = listOf(Tab.HOME, Tab.HISTORY)
 
 /** The two-way switch at the top of the History tab: the list of what was done, or the charts. */
 enum class HistoryView { LOG, PROGRESS }

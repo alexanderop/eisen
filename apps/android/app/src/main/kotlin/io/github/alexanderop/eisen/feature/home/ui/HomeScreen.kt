@@ -130,7 +130,7 @@ fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
             Column(Modifier.weight(1f)) {
                 Eyebrow(formatDate(model.now))
                 Text(
-                    "Eisen 5×5",
+                    "Today",
                     modifier = Modifier.semantics { heading() },
                     fontSize = 30.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -145,18 +145,11 @@ fun HomeScreen(model: Model, dispatch: (Msg) -> Unit) {
         if (changes != null) {
             SavedCard(changes, lastWorkout, history, model.settings.unit, onDismiss = { dispatch(Msg.Home.DismissSummary) })
         }
+        // The week and the day at a glance; a finished interval timer counts like a workout.
+        TodayRings(model, dispatch)
         NextCard(model, dispatch)
-        // Below the workout, so "Start workout" stays on the first screen at any font size.
+        // Below the workout, so "Start workout" stays near the top at any font size.
         FoodTodayCard(model, dispatch)
-        // A finished interval timer counts like a workout.
-        val stats = trainingStats(model.state, model.now)
-        if (stats != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatCard(stats.total.toString(), if (stats.total == 1) "workout" else "workouts", Modifier.weight(1f))
-                StatCard(stats.lastWeek.toString(), "last 7 days", Modifier.weight(1f))
-                StatCard(formatShortDate(stats.last), "last workout", Modifier.weight(1f))
-            }
-        }
     }
 }
 
@@ -360,16 +353,6 @@ private fun NextCard(model: Model, dispatch: (Msg) -> Unit) {
                     Text("Start workout", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun StatCard(value: String, label: String, modifier: Modifier) {
-    EisenCard(modifier) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(value, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, fontSize = 12.sp, color = EisenColors.MutedForeground, maxLines = 1)
         }
     }
 }

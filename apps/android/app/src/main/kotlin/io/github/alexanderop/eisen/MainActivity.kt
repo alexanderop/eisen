@@ -19,7 +19,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
@@ -78,6 +81,7 @@ import io.github.alexanderop.eisen.core.ui.Haptic
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.feature.history.ui.HistoryScreen
 import io.github.alexanderop.eisen.feature.home.ui.HomeScreen
+import io.github.alexanderop.eisen.feature.home.ui.PlusSheet
 import io.github.alexanderop.eisen.feature.timer.ui.TimerOverlay
 import io.github.alexanderop.eisen.feature.timer.ui.TimerScreen
 import io.github.alexanderop.eisen.core.ui.rememberHaptics
@@ -155,11 +159,11 @@ class MainActivity : ComponentActivity() {
 
 private val Tab.label: String
     get() = when (this) {
-        Tab.HOME -> "Home"
+        Tab.HOME -> "Today"
         Tab.WORKOUTS -> "Workouts"
         Tab.TIMER -> "Timer"
         Tab.FOOD -> "Food"
-        Tab.HISTORY -> "History"
+        Tab.HISTORY -> "Progress"
         Tab.SETTINGS -> "Settings"
     }
 
@@ -169,7 +173,7 @@ private val Tab.icon: ImageVector
         Tab.WORKOUTS -> Icons.Workouts
         Tab.TIMER -> Icons.Timer
         Tab.FOOD -> Icons.Food
-        Tab.HISTORY -> Icons.History
+        Tab.HISTORY -> Icons.Progress
         Tab.SETTINGS -> Icons.Settings
     }
 
@@ -204,15 +208,30 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
 
     val tab = model.nav.tab
     val screens = rememberSaveableStateHolder()
+    // The bar's `+`. Only a menu: what it opens is in the model.
+    var plus by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         containerColor = EisenColors.Background,
         // On the Food tab above its Scan and Add, which a snackbar with Undo must not cover.
         snackbarHost = { SnackbarHost(Eisen.snackbars.host, Modifier.padding(bottom = if (showsFood(model)) 72.dp else 0.dp)) },
         bottomBar = {
             NavigationBar(containerColor = EisenColors.Card) {
-                for (item in BAR_TABS) {
+                // The screens that are no tab open from Today, so Today stays lit under them.
+                val lit = if (tab in BAR_TABS) tab else Tab.HOME
+                for ((index, item) in BAR_TABS.withIndex()) {
+                    if (index == 1) {
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { plus = true },
+                            icon = {
+                                Box(Modifier.size(52.dp, 40.dp).background(EisenColors.Primary, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Plus, contentDescription = "New", tint = EisenColors.OnPrimary, modifier = Modifier.size(26.dp))
+                                }
+                            },
+                        )
+                    }
                     NavigationBarItem(
-                        selected = tab == item,
+                        selected = lit == item,
                         onClick = { dispatch(Msg.Nav.SelectTab(item)) },
                         icon = { Icon(item.icon, contentDescription = null) },
                         // A large font shrinks the label instead of breaking it mid-word ("Worko / uts").
@@ -236,6 +255,7 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
             }
         },
     ) { padding ->
+        if (plus) PlusSheet(model, dispatch) { plus = false }
         Box(Modifier.fillMaxSize().padding(padding)) {
             // Each tab keeps its scroll position and open sections while another one shows.
             screens.SaveableStateProvider(tab) {
@@ -248,8 +268,8 @@ private fun App(model: Model, dispatch: (Msg) -> Unit) {
                     Tab.SETTINGS -> SettingsScreen(model, dispatch)
                 }
             }
-            // The weight is logged from the Food tab and from History › Progress, over either.
-            if (tab == Tab.FOOD || tab == Tab.HISTORY) WeightSheet(model, dispatch)
+            // The weight is logged from the Food diary, from Progress and from the bar's `+`, over any screen.
+            WeightSheet(model, dispatch)
         }
     }
 }

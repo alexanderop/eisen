@@ -222,6 +222,21 @@ case "${1:-}" in
     done
     die "'$2' did not appear within ${3:-15}s"
     ;;
+  tab)
+    # A place of the app: "Today" and "Progress" are in the bar (the lowest match: Food's day is called "Today" too),
+    # "Workouts", "Timer" and "Food" open from the bar's `+`.
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    case "${2:-}" in
+      Today|Progress)
+        n="$(nodes | grep -E "^(text|content-desc)=$2$TAB" | awk -F'\t' '{ split($2, a, /[^0-9]+/); if (a[3] + 0 >= best) { best = a[3] + 0; n = NR } } END { print n }')"
+        [ -n "$n" ] || die "'$2' is not on screen"
+        exec "$self" tap "$2" "$n" ;;
+      Workouts|Timer|Food)
+        row="$2"; [ "$2" = Food ] && row="Food diary"
+        "$self" tap "New" && "$self" wait "$row" && exec "$self" tap "$row" ;;
+      *) die "tab Today|Progress|Workouts|Timer|Food" ;;
+    esac
+    ;;
   tap|hold)
     find_line() { local line; line="$(nodes | grep -E "^(text|content-desc)=($1)$TAB" | sed -n "${2:-1}p")"; [ -n "$line" ] && echo "$line"; }
     line="$(on_screen find_line "$2" "${3:-1}")"
@@ -596,11 +611,11 @@ $(echo "$ignored" | cut -c1-160)"
     go tap "Start workout" && go wait "Finish" && go tap "More options" && go tap "Discard workout"
     "$self" has "Discard this workout\\?" 2> /dev/null && go tap "Discard workout"
     go wait "Start workout" && seen
-    go tap "Workouts" && go wait "Workout A" && go shot 02-workouts
+    go tab Workouts && go wait "Workout A" && go shot 02-workouts
     # A timer's setup, then back to the list.
-    go tap "Timer" && go tap "Timers" && go tap "Tabata" && go wait "Start" && go shot 03-timer-setup && go back
+    go tab Timer && go tap "Timers" && go tap "Tabata" && go wait "Start" && go shot 03-timer-setup && go back
     # The Food tab, its add screen, the scanner (its own screen or the typed barcode, either way put away).
-    go tap "Food" && go wait "0 kcal eaten" && go shot 04-food && go tap "\+ Add" && go wait "Search foods" && seen
+    go tab Food && go wait "0 kcal eaten" && go shot 04-food && go tap "\+ Add" && go wait "Search foods" && seen
     go tap "Scan" && sleep 5 && go shot 05-scan && seen && go back && sleep 1
     "$self" has "Look up" 2> /dev/null && go back
     go wait "Search foods" && go shot 06-after-scan
@@ -633,8 +648,8 @@ $(echo "$ignored" | cut -c1-160)"
     go has "Carbs read from the photo" "Fat read from the photo" "carbs per 100 g 25.5 g" "fat per 100 g 10.1 g" "serving 50 g" && go shot 08c-label-read-below
     go tap "Close" && go wait "Search foods" && go tap "Back" && go wait "Food data"
     # Settings behind the gear on Home, History and its Progress.
-    go tap "Home" && go wait "Start workout" && go tap "Settings" && go wait "Weights" && go shot 09-settings && go back && go wait "Start workout"
-    go tap "History" && go tap "Progress" && go wait "Finish your first workout and your progress shows up here." && go shot 10-progress && seen
+    go tab Today && go wait "Start workout" && go tap "Settings" && go wait "Weights" && go shot 09-settings && go back && go wait "Start workout"
+    go tab Progress && go tap "Charts" && go wait "Finish your first workout and your progress shows up here." && go shot 10-progress && seen
     # Its Weight section: a weight logged from the sheet there starts the trend (the weight log and its JSON under R8).
     for _ in 1 2 3; do "$self" has "Log weight" 2> /dev/null && break; "$self" scroll down; done
     go tap "Log weight" && go wait "Save 80 kg" && go tap "Save 80 kg" && go wait "Weight over time, 1 weight, trend 80 kg.*" && go shot 11-weight && seen

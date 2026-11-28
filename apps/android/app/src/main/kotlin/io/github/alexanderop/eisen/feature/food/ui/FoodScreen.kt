@@ -149,8 +149,9 @@ fun FoodScreen(model: Model, dispatch: (Msg) -> Unit) {
                 )
             },
             actions = {
-                IconButton(onClick = { dispatch(Msg.Food.CopyDay) }) { Icon(Copy, contentDescription = "Copy day as Markdown") }
-                IconButton(onClick = { dispatch(Msg.Food.OpenCredit) }) { Icon(Info, contentDescription = "Food data") }
+                // 48 dp each way at any font size, the whole height of the bar.
+                IconButton(onClick = { dispatch(Msg.Food.CopyDay) }, modifier = Modifier.size(48.dp)) { Icon(Copy, contentDescription = "Copy day as Markdown") }
+                IconButton(onClick = { dispatch(Msg.Food.OpenCredit) }, modifier = Modifier.size(48.dp)) { Icon(Info, contentDescription = "Food data") }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = EisenColors.Background),
             // A tab: the bar of the app already keeps it clear of the status bar.

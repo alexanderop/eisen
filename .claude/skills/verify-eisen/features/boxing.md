@@ -35,7 +35,7 @@ eisenctl launch --state short-timers
 `6 rounds · 23:00 total`, and a tile per round (`1` `Jab only` `Fast`, ...).
 
 ```sh
-eisenctl tap "Timer" && eisenctl tap "Timers" && eisenctl tap "Boxing" && eisenctl wait "Start"
+eisenctl tab Timer && eisenctl tap "Timers" && eisenctl tap "Boxing" && eisenctl wait "Start"
 eisenctl has "6 rounds · 23:00 total" "Jab only" && eisenctl shot 01-boxing-setup
 ```
 
@@ -94,7 +94,7 @@ round call waits for the bell's long beep): the time left in the round, never in
 **History.** The first row reads `Boxing 3:00 calls` and `... · about <m> punches`.
 
 ```sh
-sleep 1 && eisenctl tap "Done" && eisenctl tap "History" && eisenctl wait "Boxing 3:00 calls" && eisenctl shot 11-history
+sleep 1 && eisenctl tap "Done" && eisenctl tab Progress && eisenctl wait "Boxing 3:00 calls" && eisenctl shot 11-history
 eisenctl doctor && eisenctl cleanup
 ```
 

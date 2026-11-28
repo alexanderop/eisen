@@ -38,7 +38,7 @@ eisenctl launch --state lifter
 `Thruster 43kg · Pull-ups`, `Best 7:42`.
 
 ```sh
-eisenctl tap "Timer" && eisenctl wait "Benchmarks"
+eisenctl tab Timer && eisenctl wait "Benchmarks"
 eisenctl has "My WODs" "Best 7 rounds" "Best 7:42" && eisenctl shot 01-wods
 eisenctl tap "Garage burner" && eisenctl wait "Start" && eisenctl has "10 × Kettlebell Swing 16kg" "BEST" && eisenctl shot 02-own-wod
 eisenctl tap "Back to the WODs" && eisenctl wait "Benchmarks"

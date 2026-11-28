@@ -71,6 +71,7 @@ import io.github.alexanderop.eisen.feature.food.iconOf
 import io.github.alexanderop.eisen.core.counted
 import io.github.alexanderop.eisen.core.ui.EisenColors
 import io.github.alexanderop.eisen.core.ui.Eyebrow
+import io.github.alexanderop.eisen.core.ui.pathIcon
 import io.github.alexanderop.eisen.core.ui.Icons
 import io.github.alexanderop.eisen.feature.food.AgainItem
 import io.github.alexanderop.eisen.feature.food.DishAi
@@ -111,6 +112,7 @@ fun AddFoodScreen(model: Model, dispatch: (Msg) -> Unit, snackbars: @Composable 
             colors = TopAppBarDefaults.topAppBarColors(containerColor = EisenColors.Background),
         )
         SearchRow(add.query, dispatch)
+        WaysRow(model.food.dishAi != DishAi.MISSING, dispatch)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier.fillMaxSize(),
@@ -128,10 +130,10 @@ fun AddFoodScreen(model: Model, dispatch: (Msg) -> Unit, snackbars: @Composable 
     FoodSheets(model, dispatch)
 }
 
-/** The search field and Scan beside it. */
+/** The search field. */
 @Composable
 private fun SearchRow(query: String, dispatch: (Msg) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = query,
             onValueChange = { dispatch(Msg.Food.Search(it.take(MAX_FOOD_QUERY))) },
@@ -142,8 +144,30 @@ private fun SearchRow(query: String, dispatch: (Msg) -> Unit) {
             keyboardActions = KeyboardActions(onSearch = { dispatch(Msg.Food.SubmitSearch) }),
             modifier = Modifier.weight(1f),
         )
-        FilledIconButton(onClick = { dispatch(Msg.Food.Scan) }, modifier = Modifier.size(56.dp)) {
-            Icon(ScanIcon, contentDescription = "Scan")
+    }
+}
+
+private val LabelIcon = pathIcon("Label", "M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M9 8h6", "M9 12h6", "M9 16h4")
+private val DishIcon = pathIcon("Dish", "M4 8h3l2-3h6l2 3h3v11H4z", "M12 16.5a3.5 3.5 0 1 0 0-7a3.5 3.5 0 1 0 0 7")
+
+/** Under the search, the ways in that need the camera: a barcode, a label, and a dish on a phone that has the model. */
+@Composable
+private fun WaysRow(dish: Boolean, dispatch: (Msg) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        WayTile(ScanIcon, "Scan", Modifier.weight(1f)) { dispatch(Msg.Food.Scan) }
+        // A product without a barcode: its nutrition table, read from a photo.
+        WayTile(LabelIcon, "Label", Modifier.weight(1f)) { dispatch(Msg.Food.ReadLabel()) }
+        // Only on a phone that has the model: it names the foods on a photo, on the phone.
+        if (dish) WayTile(DishIcon, "Dish", Modifier.weight(1f)) { dispatch(Msg.Food.ReadDish) }
+    }
+}
+
+@Composable
+private fun WayTile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    io.github.alexanderop.eisen.core.ui.EisenCard(modifier, onClick = onClick) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
+            Text(label, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
         }
     }
 }
@@ -188,14 +212,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.suggestions(model: Mo
     item(key = "ways") {
         Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SecondaryButton("Type a barcode") { dispatch(Msg.Food.TypeBarcode) }
-            // Only on a phone that has the model: it names the foods on a photo, on the phone.
-            if (model.food.dishAi != DishAi.MISSING) {
-                Eyebrow("Cooked it yourself?", Modifier.padding(top = 6.dp))
-                SecondaryButton("Photo of a dish") { dispatch(Msg.Food.ReadDish) }
-            }
-            // A product without a barcode: its nutrition table, read from a photo.
-            Eyebrow("No barcode?", Modifier.padding(top = 6.dp))
-            SecondaryButton("Photo of the label") { dispatch(Msg.Food.ReadLabel()) }
             SecondaryButton("New food") { dispatch(Msg.Food.NewOwn()) }
             SecondaryButton("Quick kcal") { dispatch(Msg.Food.OpenQuick) }
         }

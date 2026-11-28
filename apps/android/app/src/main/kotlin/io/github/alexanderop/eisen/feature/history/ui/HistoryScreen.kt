@@ -143,13 +143,13 @@ private val DraftSaver = Saver<Workout?, String>(
 private fun duration(workout: Workout): String = durationMinutes(workout)?.let { "$it min" } ?: ""
 
 /**
- * The History tab: a switch between the log of what was done and the charts of the progress made.
+ * The Progress tab: a switch between the log of what was done and the charts of the progress made.
  */
 @Composable
 fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Text(
-            "History",
+            "Progress",
             fontSize = 30.sp,
             fontWeight = FontWeight.ExtraBold,
             letterSpacing = (-0.6).sp,
@@ -165,7 +165,7 @@ fun HistoryScreen(model: Model, dispatch: (Msg) -> Unit) {
 
 @Composable
 private fun ViewSwitch(view: HistoryView, onChange: (HistoryView) -> Unit) {
-    val views = listOf(HistoryView.LOG to "Log", HistoryView.PROGRESS to "Progress")
+    val views = listOf(HistoryView.LOG to "Log", HistoryView.PROGRESS to "Charts")
     ChoiceGroup(views.map { it.first }, view, { option -> views.first { it.first == option }.second }, onChange, Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
 }
 

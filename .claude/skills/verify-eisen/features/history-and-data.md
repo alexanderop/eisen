@@ -36,7 +36,7 @@ eisenctl launch --state lifter
 sessions and workouts.
 
 ```sh
-eisenctl tap "History" && eisenctl wait "Log"
+eisenctl tab Progress && eisenctl wait "Log"
 eisenctl has "Cindy" ".* · 14 rounds · 20:00" "AMRAP" "Stopped early" "Workout B" "Sets: 5, 5, 5, 5, 5" && eisenctl shot 01-history
 jq -e '(.timerSessions[0] | .name == "Cindy" and .rounds == 14 and .seconds == 1200) and (.timerSessions[1] | .name == "AMRAP" and (.completed | not)) and (.history | length == 12) and .history[0].name == "Workout B"' "$(eisenctl state 02-state)"
 ```
@@ -47,7 +47,7 @@ workout or session (described like `<day>: Fran, 7:42` and `<day>: Workout A, 47
 `Weight of every lift over time`.
 
 ```sh
-eisenctl tap "Progress" && eisenctl wait "Consistency"
+eisenctl tap "Charts" && eisenctl wait "Consistency"
 eisenctl has "Last 12 weeks" ".*: Fran, 7:42" ".*: Boxing, 23:00" ".*: Workout A, 47 min" "Weeks in a row" "All lifts" && eisenctl shot 03-progress
 ```
 
@@ -55,7 +55,7 @@ eisenctl has "Last 12 weeks" ".*: Fran, 7:42" ".*: Boxing, 23:00" ".*: Workout A
 `Save backup`, `Send backup`, `Restore backup`.
 
 ```sh
-eisenctl tap "Home" && eisenctl wait "Start workout" && eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl scroll down && eisenctl scroll down && eisenctl wait "Restore backup"
+eisenctl tab Today && eisenctl wait "Settings" && eisenctl tap "Settings" && eisenctl wait "Weights" && eisenctl scroll down && eisenctl scroll down && eisenctl wait "Restore backup"
 eisenctl has "Your data" "Save backup" "Send backup" && eisenctl shot 04-data
 eisenctl doctor && eisenctl cleanup
 ```

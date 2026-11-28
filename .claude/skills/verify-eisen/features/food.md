@@ -20,7 +20,7 @@ is added from a photo of its nutrition table, read on the phone. Nothing but a b
   opens a day, a day to come is not tappable, the arrows (or a swipe) move a week, never into the future.
 - `food-macros` calories, protein, carbs and fat against their goals; past a goal "N over" in the same colours.
 - `food-goal` the goal sheet: calories, protein, carbs and fat (the last two optional), "Fill carbs and fat from the rest".
-- `food-dish` "Photo of a dish" under `COOKED IT YOURSELF?` on the add screen, only on a phone that has Gemini Nano
+- `food-dish` "Dish" beside `Scan` and `Label` under the add screen's search, only on a phone that has Gemini Nano
   (Android's AICore, asked through ML Kit's Prompt API each time the add screen opens): the camera app or the photo
   picker, the photo shown to the model on the phone and thrown away, the foods it names found among the foods the phone
   knows at the grams it guessed, `Put 3 foods on the plate`, and `Search` for a name the phone knows no food for. The
@@ -28,7 +28,7 @@ is added from a photo of its nutrition table, read on the phone. Nothing but a b
 - `food-copy` "Copy day as Markdown" in the Food tab's bar: the day shown, as Markdown, on the clipboard; "Share" on its
   snackbar opens the share sheet with the same text.
 - `food-add` the add screen: search, Scan, `USUAL AT THIS TIME`, `RECENT` (or `COMMON FOODS` on a new phone), `MEALS`,
-  `Type a barcode`, `NO BARCODE?` with `Photo of the label`, `New food`, `Quick kcal`; `+` on a row, a check on a row that
+  `Type a barcode`, `New food`, `Quick kcal` (`Scan`, `Label` and `Dish` sit under the search); `+` on a row, a check on a row that
   is on the plate.
 - `food-plate` the plate pinned at the bottom: `N foods · X kcal`, opened to its items (a tap changes one's amount, the
   cross takes it off), `Clear`, `Log X kcal`; Undo for the whole plate; kept when the screen or the app is left.
@@ -61,7 +61,7 @@ is added from a photo of its nutrition table, read on the phone. Nothing but a b
   gone for the week once answered, back after a restart while it is not.
 - `food-weight-progress` History › Progress › Weight: the weights as dots, the trend as a line, the range, the trend, its
   change a week and what the lifter burns, `Log weight`.
-- `food-label` "Photo of the label" under `NO BARCODE?` on the add screen, and "Read from a photo" in a new food's form: the
+- `food-label` "Label" beside `Scan` under the add screen's search, and "Read from a photo" in a new food's form: the
   camera app or the system's photo picker (no permission for either), the photo read on the phone by ML Kit and thrown
   away, and the own food form filled per 100 g or ml with the serving the label names, the name empty and focused, each
   value marked `read` or `check` (calm, no warning colour); "No nutrition table found" with `Try again` and `Type it in`.
@@ -88,7 +88,7 @@ goal sheet (`Change goal`) has `WEIGHT GOAL` below the macros: `Lose`, `Maintain
 week`), `Adjust my target each week`. History › `Progress` › `Weight`: `3 months`, `1 year`, `All`, the chart (described
 `Weight over time, N weights, trend ...`), `Trend`, `Change`, `You burn`, `Log weight`.
 
-The photo of a label: on the add screen, under `Type a barcode`, `NO BARCODE?` and `Photo of the label`; the sheet
+The photo of a label: on the add screen, `Label` under the search; the sheet
 `Photo of the label` with `Take a photo` and `Choose a photo`; the picker's photos described `Photo taken on Nov 27,
 2026 4:20 PM`; then the form `New food` with "Read from the photo of the label.", `Read another photo` beside `PER 100
 G`, and each value read marked by a chip described `Calories read from the photo` (or `..., check it`) above its number
@@ -123,15 +123,16 @@ line), the sheet stays for the next one; `Log 270 kcal` logs it.
 
 ```sh
 eisenctl launch --state food
-eisenctl visible "Start workout" "Settings" "FOOD TODAY" "2,400 kcal left" "0 / 2,400 kcal" "Protein 0 / 160 g, carbs 0 g, fat 0 g" "Scan" "\+ Add" && eisenctl small && eisenctl shot 01-home-card
+eisenctl visible "Settings" "0 of 2,400 kcal today\. Opens the Food diary\." && for i in 1 2 3 4; do eisenctl visible "FOOD TODAY" "\+ Add" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "FOOD TODAY" "2,400 kcal left" "0 / 2,400 kcal" "Protein 0 / 160 g, carbs 0 g, fat 0 g" "Scan" "\+ Add" && eisenctl small && eisenctl shot 01-home-card
 eisenctl tap "\+ Add" && eisenctl wait "COMMON FOODS" && eisenctl has "Add food" "Search foods" "Scan" "Banana" && eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl tap "Log 105 kcal" && eisenctl wait "Logged 1 food"
-eisenctl has "2,295 kcal left" "Banana, 118 g, 105 kcal" "Food" && eisenctl shot 02-banana
+eisenctl has "2,295 kcal left" "Banana, 118 g, 105 kcal" && eisenctl shot 02-banana
 eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
 eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate, 1 food now. Type the next barcode, or close this." && eisenctl shot 03-typed-run
-! grep -q "EisenFood" "$(eisenctl log)"
+! grep "EisenFood" "$(eisenctl log)" | grep -v "dish model: " | grep -q .
 eisenctl tap "Close" && eisenctl wait "Log 270 kcal" && eisenctl visible "Plate, 1 food · 270 kcal" "Clear" "Log 270 kcal" && eisenctl tap "Log 270 kcal" && eisenctl wait "2,025 kcal left" && eisenctl has "Skyr Natur, 450 g, 270 kcal|[0-9]{2}:[0-9]{2}, 2 foods, 375 kcal" && eisenctl shot 04-day
 jq -e '(.foodLog | map([.name, .amount, .kcal]) == [["Banana", 118, 105], ["Skyr Natur", 450, 270]]) and (.foodLog[1].foodId == "off:4056489000006") and (.foodLog[1].protein == 49.5)' "$(eisenctl state 05-state)"
-eisenctl tap "Home" && eisenctl wait "2,025 kcal left" && eisenctl has "375 / 2,400 kcal" "Protein 51 / 160 g, carbs [0-9]+ g, fat [0-9]+ g" && eisenctl shot 06-home-after
+eisenctl tab Today && eisenctl wait "Settings" && for i in 1 2 3 4 5 6; do eisenctl visible "2,025 kcal left" 2> /dev/null && break; eisenctl scroll down; done && eisenctl has "2,025 kcal left" && eisenctl has "375 / 2,400 kcal" "Protein 51 / 160 g, carbs [0-9]+ g, fat [0-9]+ g" && eisenctl shot 06-home-after
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -144,7 +145,7 @@ an answer, then with it. The plate opens; Nutella goes to half, the Coca-Cola co
 eisenctl launch --state food
 eisenctl adb shell "rm -rf /data/local/tmp/eisen-off" && eisenctl adb push apps/android/app/src/test/resources/off /data/local/tmp/eisen-off > /dev/null
 eisenctl adb shell "run-as io.github.alexanderop.eisen sh -c 'mkdir -p files/off/product && cp /data/local/tmp/eisen-off/product/4260999999990.json /data/local/tmp/eisen-off/product/3017620422003.json files/off/product/'"
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
 eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate, 1 food now.*"
 eisenctl type 3017620422003 && eisenctl tap "Look up" && eisenctl wait "Nutella is on the plate, 2 foods now.*"
 eisenctl type 4260999999990 && eisenctl tap "Look up" && eisenctl wait "Open Food Facts does not know this barcode. Add it as your own food." && eisenctl has "Barcode 4260999999990" "Read from a photo" && eisenctl shot 07-own-food
@@ -171,7 +172,7 @@ three in the timeline, which opens to its entries. An entry's hour is typed in i
 ```sh
 eisenctl launch --state food-history
 t=$(( 10#$(eisenctl adb shell date +%H | tr -d '\r') * 60 + 10#$(eisenctl adb shell date +%M | tr -d '\r') )) && usual="$(echo 'Milk, 2% fat|Banana|Oats, rolled|Skyr Natur|Rice, white, cooked|Apple|Chicken breast, grilled|Cottage cheese, 2% fat' | cut -d'|' -f$(( t / 180 + 1 )))" && echo "now $t, usual $usual"
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "USUAL AT THIS TIME"
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "USUAL AT THIS TIME"
 eisenctl texts | sed -n '/^text=USUAL AT THIS TIME/,/^text=RECENT/p' | grep -q "^text=$usual	" && eisenctl has "RECENT" && eisenctl shot 12-usual
 eisenctl tap "Put .* on the plate" 1 && eisenctl wait "Plate, 1 food · .*" && eisenctl wait "Put .* on the plate" && eisenctl tap "Put .* on the plate" 1 && eisenctl wait "Plate, 2 foods · .*"
 eisenctl wait "Put .* on the plate" && eisenctl tap "Put .* on the plate" 1 && eisenctl wait "Plate, 3 foods · .*" && eisenctl shot 13-breakfast-plate
@@ -194,7 +195,7 @@ is today.
 
 ```sh
 eisenctl launch --state food
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl visible "Today" "Previous week" "Food data" "Calories 0 / 2,400 kcal" "Protein 0 / 160 g" "Carbs 0 g" "Fat 0 g" "Change goal" && eisenctl small
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl visible "Today" "Previous week" "Food data" "Calories 0 / 2,400 kcal" "Protein 0 / 160 g" "Carbs 0 g" "Fat 0 g" "Change goal" && eisenctl small
 eisenctl tap "Change goal" && eisenctl wait "Goal per day" && eisenctl scroll down && eisenctl tap "Fill carbs and fat from the rest" && eisenctl has "carbs goal 289 g" "fat goal 67 g" && eisenctl shot 18-goal
 for i in 1 2 3; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save goal"
@@ -202,7 +203,7 @@ eisenctl wait "Carbs 0 / 289 g" && eisenctl has "Fat 0 / 67 g" && eisenctl tap "
 eisenctl wait "120 kcal over" && eisenctl has "Calories 2,520 / 2,400 kcal · 120 over" && eisenctl shot 19-over
 y="$(date -v-1d '+%a %-d')" && { eisenctl has "$y(, .*)?" 2> /dev/null || eisenctl tap "Previous week"; }
 eisenctl tap "$y(, .*)?" && eisenctl wait "Yesterday" && eisenctl has "Nothing logged on this day yet." "2,400 kcal left" && eisenctl tap "Quick kcal" && eisenctl wait "Add 0 kcal" && eisenctl type 500 && eisenctl tap "Add 500 kcal" && eisenctl wait "1,900 kcal left" && eisenctl shot 20-yesterday
-eisenctl has "$y, 500 kcal" && eisenctl tap "Food" && eisenctl wait "Today" && eisenctl has "120 kcal over" ".*, 2,520 kcal, today" && eisenctl shot 21-week-strip
+eisenctl has "$y, 500 kcal" && eisenctl tab Food && eisenctl wait "Today" && eisenctl has "120 kcal over" ".*, 2,520 kcal, today" && eisenctl shot 21-week-strip
 eisenctl tap "Next week" && eisenctl has "Today"
 jq -e '(.foodGoal == {"kcal": 2400, "protein": 160, "carbs": 289, "fat": 67}) and (.foodLog | map(.kcal) == [2520, 500]) and (.foodLog[1].day < .foodLog[0].day)' "$(eisenctl state 22-state)"
 eisenctl tap "Food data" && eisenctl wait "Food data: Open Food Facts \(ODbL\) and USDA FoodData Central" && eisenctl shot 23-credit && eisenctl tap "Close"
@@ -218,7 +219,7 @@ entry and `½` make it 225 g; a swipe deletes it and Undo brings it back.
 eisenctl launch --state food
 eisenctl adb shell "rm -rf /data/local/tmp/eisen-off" && eisenctl adb push apps/android/app/src/test/resources/off /data/local/tmp/eisen-off > /dev/null
 eisenctl adb shell "run-as io.github.alexanderop.eisen sh -c 'mkdir -p files/off/search files/off/product && cp /data/local/tmp/eisen-off/search/skyr.json files/off/search/ && cp /data/local/tmp/eisen-off/product/4337185761638.json files/off/product/'"
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Search foods" && eisenctl type skyr && eisenctl wait "Skyr Natur" && eisenctl back
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Search foods" && eisenctl type skyr && eisenctl wait "Skyr Natur" && eisenctl back
 eisenctl tap "Search Open Food Facts" && eisenctl wait "Skyr Vanille" && eisenctl has "Skyr Natur" "OPEN FOOD FACTS" "K Classic · tap to look up its calories" && eisenctl shot 24-search
 grep -q "answered search skyr from files/off (found)" "$(eisenctl log)"
 eisenctl tap "K Classic · tap to look up its calories" && eisenctl wait "Add 64 kcal to the plate" && eisenctl has "Skyr natur" "K-Classic" "64 kcal · 11 g protein" "1 serving 100 g" "1 pack 500 g" && eisenctl shot 25-hit-looked-up && eisenctl tap "Close"
@@ -240,11 +241,11 @@ in its file; `Clear` empties it without logging.
 
 ```sh
 eisenctl launch --state food
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "COMMON FOODS" && eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal"
-eisenctl tap "Back" && eisenctl wait "On the plate: 1 food · 105 kcal" && eisenctl shot 29-plate-waiting && eisenctl tap "Home" && eisenctl wait "Start workout"
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "COMMON FOODS" && eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 105 kcal"
+eisenctl tap "Back" && eisenctl wait "On the plate: 1 food · 105 kcal" && eisenctl shot 29-plate-waiting && eisenctl tab Today && eisenctl wait "Settings"
 eisenctl adb shell "run-as io.github.alexanderop.eisen cat files/plate.json" | grep -q '"name":"Banana"'
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
-eisenctl tap "Food" && eisenctl wait "On the plate: 1 food · 105 kcal" && eisenctl tap "On the plate: 1 food · 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl shot 30-plate-after-restart
+eisenctl tab Food && eisenctl wait "On the plate: 1 food · 105 kcal" && eisenctl tap "On the plate: 1 food · 105 kcal" && eisenctl wait "Log 105 kcal" && eisenctl has "Take Banana off the plate" && eisenctl shot 30-plate-after-restart
 eisenctl tap "Clear" && eisenctl wait "COMMON FOODS" && eisenctl gone "Log 105 kcal"
 ! eisenctl adb shell "run-as io.github.alexanderop.eisen ls files" | grep -q plate.json
 jq -e '.foodLog == []' "$(eisenctl state 31-state)"
@@ -259,13 +260,13 @@ its numbers. Progress shows the two days; the bar of yesterday opens it on the F
 
 ```sh
 eisenctl launch --state food
-y="$(date -v-1d '+%a %-d')" && eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && { eisenctl has "$y" 2> /dev/null || eisenctl tap "Previous week"; }
+y="$(date -v-1d '+%a %-d')" && eisenctl tab Food && eisenctl wait "2,400 kcal left" && { eisenctl has "$y" 2> /dev/null || eisenctl tap "Previous week"; }
 eisenctl tap "$y" && eisenctl wait "Yesterday" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up" && eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate.*" && eisenctl tap "Close"
 eisenctl tap "Search foods" && eisenctl type oats && eisenctl wait "Oats, rolled" && eisenctl back && eisenctl tap "Put Oats, rolled on the plate" && eisenctl wait "Log 573 kcal" && eisenctl tap "Log 573 kcal" && eisenctl wait "1,827 kcal left"
 for i in 1 2 3; do eisenctl visible "Save as meal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Save as meal" && eisenctl wait "Save meal" && eisenctl visible "New meal" "Name of the meal" "Breakfast|Lunch|Snack|Dinner" "2 foods · 573 kcal · 60 g protein" "Save meal" && eisenctl shot 32-new-meal
 eisenctl tap "Save meal" && eisenctl wait "MEALS · ONE TAP ADDS" && eisenctl has "Add meal (Breakfast|Lunch|Snack|Dinner), 573 kcal" "Edit meals"
-eisenctl tap "Food" && eisenctl wait "Today" && eisenctl visible "Nothing logged on this day yet." "Copy yesterday" "2 foods · 573 kcal" && eisenctl shot 33-copy-offer
+eisenctl tab Food && eisenctl wait "Today" && eisenctl visible "Nothing logged on this day yet." "Copy yesterday" "2 foods · 573 kcal" && eisenctl shot 33-copy-offer
 eisenctl tap "Copy yesterday" && eisenctl wait "Copied 2 foods" && grep -q "^text=1,827 kcal left" "$(eisenctl shot 34-copied | sed 's/png$/txt/')" && eisenctl tap "Undo" && eisenctl wait "2,400 kcal left"
 for i in 1 2 3; do eisenctl visible "Add meal .*, 573 kcal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Add meal .*, 573 kcal" && eisenctl wait "Added .*, 2 foods" && grep -q "^text=1,827 kcal left" "$(eisenctl shot 35-meal-added | sed 's/png$/txt/')"
@@ -277,9 +278,9 @@ eisenctl tap "Save meal" && eisenctl wait "1 food · 152 kcal"
 jq -e '(.meals[0].items | map([.name, .amount, .kcal]) == [["Oats, rolled", 40, 152]]) and (.foodLog | map(.kcal) == [270, 303, 270, 303])' "$(eisenctl state 38-state)"
 eisenctl tap "Breakfast|Lunch|Snack|Dinner" && eisenctl wait "Change meal" && eisenctl tap "Delete meal" && eisenctl tap "Tap again to delete" && eisenctl wait "Meals"
 jq -e '(.meals == []) and (.foodLog | map(.kcal) == [270, 303, 270, 303])' "$(eisenctl state 39-state)"
-eisenctl tap "Close" && eisenctl wait "1,827 kcal left" && eisenctl tap "History" && eisenctl tap "Progress" && eisenctl wait "Last 7 days"
+eisenctl tap "Close" && eisenctl wait "1,827 kcal left" && eisenctl tab Progress && eisenctl tap "Charts" && eisenctl wait "Last 7 days"
 eisenctl visible "Food" "Goal 2,400 kcal" "[A-Z][a-z]{2}, 573 kcal, 60 g protein" "Avg kcal" "573" "60 g" "0 of 7" && eisenctl small && eisenctl shot 40-week
-eisenctl tap "[A-Z][a-z]{2}, 573 kcal, 60 g protein" && eisenctl wait "Yesterday" && eisenctl has "1,827 kcal left" "Food" && eisenctl shot 41-bar-opens-day
+eisenctl tap "[A-Z][a-z]{2}, 573 kcal, 60 g protein" && eisenctl wait "Yesterday" && eisenctl has "1,827 kcal left" && eisenctl shot 41-bar-opens-day
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -291,7 +292,7 @@ no day with food yet.
 
 ```sh
 eisenctl launch --state food
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left"
+eisenctl tab Food && eisenctl wait "2,400 kcal left"
 for i in 1 2 3; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "WEIGHT" "Log your weight on a few mornings to see your trend." "Log weight" && eisenctl small && eisenctl shot 42-weight-card-empty
 eisenctl tap "Log weight" && eisenctl wait "Save 80 kg" && eisenctl visible "Weight" "Previous day" "Today" "weight 80 kg" "Save 80 kg" && eisenctl small
@@ -304,7 +305,7 @@ jq -e '(.weights | map(.kg) == [82.8, 82.1]) and (.weights[0].day < .weights[1].
 eisenctl tap "Change today's weight" && eisenctl wait "Delete" && eisenctl tap "Delete" && eisenctl wait "Deleted the weight of today"
 grep -q "^content-desc=Weight trend 82.8 kg" "$(eisenctl shot 46-deleted | sed 's/png$/txt/')" && eisenctl tap "Undo" && eisenctl wait "Weight trend 82.7 kg"
 jq -e '.weights | map(.kg) == [82.8, 82.1]' "$(eisenctl state 47-state)"
-eisenctl tap "History" && eisenctl tap "Progress" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tab Progress && eisenctl tap "Charts" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "Weight" "Trend" "82.7 kg" "You burn" "Learning" "0 of 14 days" "Log weight" && eisenctl has "Weight over time, 2 weights, trend 82.7 kg, from 82.8 kg yesterday" && eisenctl small && eisenctl shot 48-progress-learning
 eisenctl doctor && eisenctl cleanup
 ```
@@ -315,16 +316,16 @@ and the card goes, also after a restart. Progress draws 22 weights as dots under
 
 ```sh
 eisenctl launch --state food-weight
-eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN"
+eisenctl tab Food && eisenctl wait "WEEKLY CHECK-IN"
 eisenctl visible "WEEKLY CHECK-IN" "Last week: 2,456 kcal a day, 7 days logged." "Trend −0.4 kg: 83.7 kg to 83.3 kg." "You burn about 2,740 kcal." "New target: 2,200 kcal \(was 2,400\)" "Take 2,200 kcal" "Keep 2,400 kcal" && eisenctl small && eisenctl shot 49-check-in
 eisenctl tap "Take 2,200 kcal" && eisenctl wait "Target this week: 2,200 kcal" && eisenctl has "2,200 kcal left" && eisenctl shot 50-taken
 eisenctl gone "WEEKLY CHECK-IN"
 jq -e '(.foodGoal.kcal == 2200) and (.weightGoal.checkIn | .took and .target == 2200 and .was == 2400)' "$(eisenctl state 51-state)"
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
-eisenctl tap "Food" && eisenctl wait "2,200 kcal left" && eisenctl gone "WEEKLY CHECK-IN"
+eisenctl tab Food && eisenctl wait "2,200 kcal left" && eisenctl gone "WEEKLY CHECK-IN"
 for i in 1 2 3 4; do eisenctl visible "Log weight" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "WEIGHT" "Weight trend 83.3 kg, (down|up) 0\.[0-9] kg a week|Weight trend 83.3 kg, steady" "Log weight" && eisenctl shot 52-weight-card
-eisenctl tap "History" && eisenctl tap "Progress" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tab Progress && eisenctl tap "Charts" && for i in 1 2 3; do eisenctl visible "You burn" "Log weight" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "Weight" "3 months" "1 year" "All" "Weight over time, 22 weights, trend 83.3 kg, .*" "Trend" "83.3 kg" "Change" "You burn" "[0-9],[0-9]{3}" "kcal a day" "Log weight" && eisenctl small && eisenctl shot 53-progress-weight
 eisenctl tap "All" && eisenctl has "Weight over time, 22 weights, trend 83.3 kg, .*, from 84.2 kg on .*"
 eisenctl doctor && eisenctl cleanup
@@ -337,9 +338,9 @@ off: the card goes and nothing of the goal changes. Switched on again the card i
 
 ```sh
 eisenctl launch --state food-weight
-eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN"
+eisenctl tab Food && eisenctl wait "WEEKLY CHECK-IN"
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
-eisenctl tap "Food" && eisenctl wait "WEEKLY CHECK-IN" && eisenctl has "New target: 2,200 kcal \(was 2,400\)"
+eisenctl tab Food && eisenctl wait "WEEKLY CHECK-IN" && eisenctl has "New target: 2,200 kcal \(was 2,400\)"
 for i in 1 2 3; do eisenctl visible "Change goal" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl tap "Change goal" && eisenctl wait "Goal per day" && eisenctl has "Protein from your weight: 167 g"
 for i in 1 2 3 4; do eisenctl visible "Save goal" 2> /dev/null && break; eisenctl scroll down; done
@@ -367,7 +368,7 @@ milk); the grid makes it oats. After a restart the Skyr still shows ice cream.
 eisenctl launch --state food
 eisenctl adb shell "rm -rf /data/local/tmp/eisen-off" && eisenctl adb push apps/android/app/src/test/resources/off /data/local/tmp/eisen-off > /dev/null
 eisenctl adb shell "run-as io.github.alexanderop.eisen sh -c 'mkdir -p files/off/product && cp /data/local/tmp/eisen-off/product/4311501065525.json files/off/product/'"
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Type a barcode" && eisenctl wait "Look up"
 eisenctl type 4311501065525 && eisenctl tap "Look up" && eisenctl wait "Milch is on the plate, 1 food now.*"
 eisenctl type 4056489000006 && eisenctl tap "Look up" && eisenctl wait "Skyr Natur is on the plate, 2 foods now.*" && eisenctl tap "Close" && eisenctl wait "Log 910 kcal"
 eisenctl tap "Plate, 2 foods · 910 kcal" && eisenctl wait "Milch, 1000 ml, 640 kcal" && eisenctl shot 58-plate-pictures
@@ -386,7 +387,7 @@ eisenctl tap "calories per 100 g 0 kcal" && eisenctl type 45 && eisenctl back &&
 eisenctl wait "Log 910 kcal" && eisenctl tap "Log 910 kcal" && eisenctl wait "Logged 2 foods"
 jq -e '.foods | map(select(.source == "own" and .name == "Hafermilch"))[0].icon == "cereal"' "$(eisenctl state 64-state)"
 eisenctl adb shell am force-stop io.github.alexanderop.eisen && eisenctl adb shell am start -n io.github.alexanderop.eisen/.MainActivity > /dev/null && eisenctl wait "Start workout"
-eisenctl tap "Food" && eisenctl wait "1,490 kcal left" && eisenctl tap "[0-9]{2}:[0-9]{2}, 2 foods, 910 kcal" && eisenctl wait "Skyr Natur, 450 g, 270 kcal" && eisenctl shot 65-day-after-restart
+eisenctl tab Food && eisenctl wait "1,490 kcal left" && eisenctl tap "[0-9]{2}:[0-9]{2}, 2 foods, 910 kcal" && eisenctl wait "Skyr Natur, 450 g, 270 kcal" && eisenctl shot 65-day-after-restart
 eisenctl tap "Skyr Natur, 450 g, 270 kcal" && eisenctl wait "Save 270 kcal" && eisenctl has "Picture: Ice cream" && eisenctl tap "Close"
 eisenctl adb shell "rm -r /data/local/tmp/eisen-off"
 eisenctl doctor && eisenctl cleanup
@@ -403,10 +404,10 @@ scene). The ice cream fills the form with 200 kcal, 1.6 g protein, 25.5 g carbs,
 ```sh
 eisenctl launch --state food
 eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/vanille-eis.jpg /sdcard/Pictures/eisen-label-vanille-eis.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
-eisenctl tap "Food" && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
-for i in 1 2 3 4 5; do eisenctl visible "Photo of the label" "New food" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl visible "Type a barcode" "NO BARCODE\?" "Photo of the label" "New food" && eisenctl small && eisenctl shot 66-label-entry
-eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl visible "Photo of the label" "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 67-label-choice
+eisenctl tab Food && eisenctl wait "2,400 kcal left" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+for i in 1 2 3 4 5; do eisenctl visible "Label" "New food" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Type a barcode" "Label" "New food" && eisenctl small && eisenctl shot 66-label-entry
+eisenctl tap "Label" && eisenctl wait "Choose a photo" && eisenctl visible "Photo of the label" "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 67-label-choice
 eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Calories read from the photo" 20
 eisenctl has "New food" "Read from the photo of the label." "Read another photo" "Calories read from the photo" "Protein read from the photo" "calories per 100 g 200 kcal" "protein per 100 g 1.6 g" && eisenctl shot 68-label-read
 grep -q "EisenFood: label photo read" "$(eisenctl log)"
@@ -422,8 +423,8 @@ eisenctl tap "New food" && eisenctl wait "Read from a photo" && eisenctl tap "Re
 eisenctl wait "Calories read from the photo, check it" 20 && eisenctl has "Protein read from the photo, check it" "calories per 100 g 368 kcal" "protein per 100 g 12 g" && eisenctl shot 73-label-check
 eisenctl back && eisenctl tap "Close" && eisenctl wait "Search foods"
 eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/nutella-front.jpg /sdcard/Pictures/eisen-label-nutella-front.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
-for i in 1 2 3 4 5; do eisenctl visible "Photo of the label" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl tap "Photo of the label" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1
+for i in 1 2 3 4 5; do eisenctl visible "Label" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Label" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1
 eisenctl wait "No nutrition table found on this photo.*" 20 && eisenctl visible "Try again" "Type it in" && eisenctl small && eisenctl shot 74-label-nothing
 eisenctl tap "Type it in" && eisenctl wait "Read from a photo" && eisenctl has "calories per 100 g 0 kcal" && eisenctl tap "Close" && eisenctl wait "Search foods"
 jq -e '(.foods | length == 2) and (.foodLog | length == 1)' "$(eisenctl state 75-state-after)"
@@ -438,7 +439,7 @@ row, and that day's weight. An empty day says so and copies nothing. The clipboa
 search field (which keeps its first characters); `Share` on the snackbar opens the system's share sheet with the same text.
 
 ```sh
-eisenctl launch --state food && eisenctl tap "Food" && eisenctl wait "Copy day as Markdown" && eisenctl visible "Copy day as Markdown" "Food data"
+eisenctl launch --state food && eisenctl tab Food && eisenctl wait "Copy day as Markdown" && eisenctl visible "Copy day as Markdown" "Food data"
 eisenctl tap "Copy day as Markdown" && eisenctl wait "Nothing is logged on this day\."
 eisenctl tap "\+ Add" && eisenctl wait "Search foods" && eisenctl tap "Put Oats, rolled on the plate" && eisenctl tap "Put Banana on the plate" && eisenctl wait "Log 408 kcal" && eisenctl tap "Log 408 kcal" && eisenctl wait "1,992 kcal left"
 eisenctl tap "Copy day as Markdown" && eisenctl wait "Copied as Markdown" && eisenctl has "Share" && eisenctl shot 80-copied
@@ -455,30 +456,30 @@ app's data): the screens, the reading of the answer and the matching are the app
 tested here. That needs a phone that has the model. Any photo serves: the answer is the file's.
 
 ```sh
-eisenctl launch --fresh && eisenctl tap "Food" && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
+eisenctl launch --fresh && eisenctl tab Food && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
 for i in 1 2 3 4 5; do eisenctl visible "Quick kcal" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl has "Photo of the label" && eisenctl gone "Photo of a dish" "COOKED IT YOURSELF\?" && grep -q "EisenFood: dish model: MISSING" "$(eisenctl log)" && eisenctl shot 82-dish-no-model
+eisenctl has "Label" && eisenctl gone "Dish" && grep -q "EisenFood: dish model: MISSING" "$(eisenctl log)" && eisenctl shot 82-dish-no-model
 eisenctl dish "rice, cooked; 180\nchicken breast, grilled; 150\n- **Broccoli, cooked**; 90 g\nchicken curry; 250"
 eisenctl adb shell "rm -f /sdcard/Pictures/eisen-label-*.jpg" && eisenctl adb push .claude/skills/verify-eisen/fixtures/labels/nutella-front.jpg /sdcard/Pictures/eisen-label-dish.jpg > /dev/null && eisenctl adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
 eisenctl tap "Back" && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
 for i in 1 2 3 4 5; do eisenctl visible "Quick kcal" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl visible "COOKED IT YOURSELF\?" "Photo of a dish" "NO BARCODE\?" "Photo of the label" "Quick kcal" && eisenctl small && eisenctl shot 83-dish-entry
-eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl visible "Photo of a dish" "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 84-dish-choice
+eisenctl visible "Scan" "Label" "Dish" "Quick kcal" && eisenctl small && eisenctl shot 83-dish-entry
+eisenctl tap "Dish" && eisenctl wait "Choose a photo" && eisenctl visible "Photo of a dish" "Take a photo" "Choose a photo" "Close" && eisenctl small && eisenctl shot 84-dish-choice
 eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Put 3 foods on the plate · 493 kcal" 20
 eisenctl visible "Rice, white, cooked, 180 g, 234 kcal" "Chicken breast, grilled, 150 g, 227 kcal" "Broccoli, cooked, 90 g, 32 kcal" "NOT ON THIS PHONE" "chicken curry" "Search chicken curry" "Another photo" && eisenctl small && eisenctl shot 85-dish-found
 grep -q "EisenFood: dish photo read" "$(eisenctl log)"
 eisenctl tap "Put 3 foods on the plate · 493 kcal" && eisenctl wait "Log 493 kcal" && eisenctl has "Plate, 3 foods · 493 kcal" && eisenctl shot 86-dish-plate
-for i in 1 2 3 4 5 6 7 8; do eisenctl visible "Photo of a dish" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Search chicken curry" 20
+for i in 1 2 3 4 5 6 7 8; do eisenctl visible "Dish" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Dish" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Search chicken curry" 20
 eisenctl tap "Another photo" && eisenctl wait "Choose a photo" && eisenctl tap "Close" && eisenctl wait "Log 493 kcal"
 eisenctl tap "Log 493 kcal" && eisenctl wait "Logged 3 foods" && eisenctl has "493 kcal eaten" && eisenctl shot 87-dish-logged
 eisenctl tap "\+ Add" && eisenctl wait "Search foods"
-for i in 1 2 3 4 5; do eisenctl visible "Photo of a dish" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Search chicken curry" 20
+for i in 1 2 3 4 5; do eisenctl visible "Dish" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl tap "Dish" && eisenctl wait "Choose a photo" && eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Search chicken curry" 20
 eisenctl tap "Search chicken curry" && eisenctl wait "Nothing on this phone matches “chicken curry”\." && eisenctl has "Log 493 kcal" && eisenctl shot 88-dish-search
 eisenctl font 2.0 && eisenctl tap "Back" && eisenctl wait "\+ Add" && eisenctl tap "\+ Add" && eisenctl wait "Search foods"
-for i in 1 2 3 4 5 6 7 8 9 10 11 12; do eisenctl visible "Photo of a dish" 2> /dev/null && break; eisenctl scroll down; done
-eisenctl visible "COOKED IT YOURSELF\?" "Photo of a dish" && eisenctl small && eisenctl tap "Photo of a dish" && eisenctl wait "Choose a photo" && eisenctl visible "Take a photo" "Choose a photo" "Close" && eisenctl small
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do eisenctl visible "Dish" 2> /dev/null && break; eisenctl scroll down; done
+eisenctl visible "Dish" && eisenctl small && eisenctl tap "Dish" && eisenctl wait "Choose a photo" && eisenctl visible "Take a photo" "Choose a photo" "Close" && eisenctl small
 eisenctl tap "Choose a photo" && eisenctl wait "Photo taken on .*" && eisenctl tap "Photo taken on .*" 1 && eisenctl wait "Rice, white, cooked, 180 g, 234 kcal" 20 && eisenctl small && eisenctl shot 89-dish-found-2x
 for i in 1 2 3 4 5 6; do eisenctl visible "Another photo" 2> /dev/null && break; eisenctl scroll down; done
 eisenctl visible "Search chicken curry" "Put 3 foods on the plate · 493 kcal" "Another photo" && eisenctl small && eisenctl tap "Close" && eisenctl font 1.0

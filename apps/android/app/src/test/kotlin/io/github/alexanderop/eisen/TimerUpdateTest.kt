@@ -455,8 +455,8 @@ class TimerUpdateTest {
         assertEquals("Voice off", callsSummary(DEFAULT_TIMER_CALLS.copy(minutes = 0, halfway = false, final = false, phases = false, beeps = false)))
     }
 
-    @Test fun `Progress is a switch in History, and the Timer tab takes its place`() {
-        assertEquals(listOf(Tab.HOME, Tab.WORKOUTS, Tab.TIMER, Tab.FOOD, Tab.HISTORY), io.github.alexanderop.eisen.app.elm.BAR_TABS)
+    @Test fun `the bar holds Today and Progress, and the charts are a switch in Progress`() {
+        assertEquals(listOf(Tab.HOME, Tab.HISTORY), io.github.alexanderop.eisen.app.elm.BAR_TABS)
         val history = stepOf().send(Msg.Nav.SelectTab(Tab.HISTORY))
         assertEquals(HistoryView.LOG, history.model.nav.history)
         val progress = history.send(Msg.Nav.ShowHistory(HistoryView.PROGRESS), now = 8_000)

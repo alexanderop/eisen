@@ -42,7 +42,7 @@ eisenctl launch --state short-timers
 `Total 3:50`, a `Voice` row, `Save as preset`, `Start`.
 
 ```sh
-eisenctl tap "Timer" && eisenctl tap "Timers" && eisenctl tap "Tabata" && eisenctl wait "Start"
+eisenctl tab Timer && eisenctl tap "Timers" && eisenctl tap "Tabata" && eisenctl wait "Start"
 eisenctl has "Total 3:50" "Save as preset" && eisenctl shot 01-tabata-setup
 eisenctl tap "Back to the timers" && eisenctl wait "Saved timers"
 ```
@@ -138,7 +138,7 @@ jq -e '.timerSessions | length == 6 and (.[0] | .name == "Tabata" and (.complete
 sleep 1 && eisenctl tap "Again" && eisenctl wait "WORK" 15
 eisenctl tap "End" && eisenctl wait "Discard" && eisenctl tap "Discard" && eisenctl wait "Back to the timers" && eisenctl shot 23-discarded
 jq -e '.timerSessions | length == 6' "$(eisenctl state 24-after-discard)"
-eisenctl tap "History" && eisenctl wait "Log" && eisenctl has "Stopped early" && eisenctl shot 25-history
+eisenctl tab Progress && eisenctl wait "Log" && eisenctl has "Stopped early" && eisenctl shot 25-history
 eisenctl doctor && eisenctl cleanup
 ```
 
@@ -152,15 +152,15 @@ Back closes the sheet onto the log, whose row no longer names an activity.
 
 ```sh
 eisenctl launch --state short-timers
-eisenctl tap "Timer" && eisenctl tap "Timers" && eisenctl scroll down
+eisenctl tab Timer && eisenctl tap "Timers" && eisenctl scroll down
 eisenctl tap "Start Quick Tabata" && eisenctl wait "GET READY"
 eisenctl wait "Completed" 45 && eisenctl has "What was it\?" "Boxing" "Jump rope" "Battle rope" "Cross trainer" "Rowing" "Bike" "Running" && eisenctl shot 31-result-chips
 jq -e '.timerSessions[0] | .name == "Quick Tabata" and (has("activity") | not)' "$(eisenctl state 32-filed-without)"
 sleep 1 && eisenctl tap "Jump rope" && eisenctl shot 33-jump-rope
 jq -e '.timerSessions[0] | .name == "Quick Tabata" and .activity == "jumpRope"' "$(eisenctl state 34-jump-rope)"
 eisenctl tap "Done" && eisenctl wait "Saved timers"
-eisenctl tap "History" && eisenctl wait "Log" && eisenctl has "Jump rope · .* · 2 rounds · 25s" && eisenctl shot 35-history-row
-eisenctl tap "Progress" && eisenctl wait "Consistency" && eisenctl tap ".*: Quick Tabata \(Jump rope\), 25s" && eisenctl wait "Quick Tabata \(Jump rope\), 25s" && eisenctl shot 36-calendar-day
+eisenctl tab Progress && eisenctl wait "Log" && eisenctl has "Jump rope · .* · 2 rounds · 25s" && eisenctl shot 35-history-row
+eisenctl tap "Charts" && eisenctl wait "Consistency" && eisenctl tap ".*: Quick Tabata \(Jump rope\), 25s" && eisenctl wait "Quick Tabata \(Jump rope\), 25s" && eisenctl shot 36-calendar-day
 eisenctl tap "Log" && eisenctl wait "Jump rope · .*" && eisenctl tap "Quick Tabata" && eisenctl wait "What was it\?" && eisenctl has "Done" "Running" && eisenctl shot 37-sheet
 eisenctl tap "Battle rope" && eisenctl shot 38-battle-rope
 jq -e '.timerSessions[0].activity == "battleRope"' "$(eisenctl state 39-battle-rope)"
