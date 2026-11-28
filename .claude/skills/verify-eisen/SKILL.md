@@ -187,6 +187,21 @@ phone shows:
 
 A screen test reads the same fixtures as `launch --state` (`fixtures/*.json`).
 
+**Which recipes the screen tests cover.** Each test runs at a fixed moment (Wednesday 25 November 2026, 10:00 in
+Berlin, `NOW` in `Screens.kt`) on Robolectric's clock, so `later(seconds)` runs a rest, a lead-in or a whole timer in
+no time; `@Fixture("food-weight")` picks another fixture per test, `app.answers(...)` the saved Open Food Facts answers,
+`app.restart()` reads the files again as a new process would. Run a journey only for what is left in the last column.
+
+| Feature file | Screen test (`screens/`) | Still a journey, and why |
+|---|---|---|
+| `workout.md` | `WorkoutScreenTest` | the rest's notification, the vibration (`buzzed`), the rest that ends while the process is killed, the alarm put back after a force-stop |
+| `food.md` | `FoodScreenTest` (all fixtures) | the photo of a label read by ML Kit and the photo of a dish (the photo picker, Gemini Nano), the dish sheet at font scale 2.0; the real scanner is `release-smoke`'s |
+| `history-and-data.md` | `HistoryScreenTest` | `data-update` (a new build over old data), the backup's file pickers |
+| `wods.md` | `WodsScreenTest` | nothing |
+| `interval-timers.md` | `TimerScreenTest` | the screen going off, the foreground service and its notification, the killed app picking its run up again |
+| `boxing.md` | `BoxingScreenTest` | nothing but the sound itself |
+| `layout.md` | none | all of it: the font scales, 48 dp targets (`small`), what fits a phone's screen (`visible`) |
+
 A full run of everything takes most of an hour. Alexander does not want to wait for it: not every change needs
 every journey end to end. The default, also before a push:
 
