@@ -60,6 +60,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // The screen tests in src/test run the real activity under Robolectric: they need the app's resources and assets.
+    testOptions.unitTests.isIncludeAndroidResources = true
+
     // The exercise pictures and the spoken cues are the PWA's files: one copy for both apps.
     sourceSets["main"].assets.srcDir("../../web/src/assets")
 }
@@ -83,6 +86,11 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.archunit)
+    // Screen tests on the JVM: Robolectric is Android without a phone, the Compose test kit taps and reads the screen.
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 // FixturesTest reads the fixtures of the verify-eisen skill: an edit to one of them runs the tests again.

@@ -171,6 +171,22 @@ recipe passed on APKs built from the current sources stamps them; it is the only
 
 ### How much to run, and when
 
+**Screen tests first.** A flow through the screens (tap here, this shows there) is a screen test in
+`apps/android/app/src/test/kotlin/io/github/alexanderop/eisen/screens/`, not a journey: the real activity under
+Robolectric, about a second a flow, run by `bin/check` on every change. The journeys here are for what only a
+phone shows:
+
+| What | Where |
+|---|---|
+| A tap opens a screen, a sheet, a list shows a row, a value is logged | screen test (`EisenApp("food")`, `tap`, `tab`, `has`) |
+| The camera app, the photo picker, a real barcode scan | journey |
+| Notifications, the lock screen, a killed process, alarms | journey |
+| Gemini Nano (AICore) on a real model | journey (and the Pixel) |
+| Every font scale, 48 dp targets (`small`), what fits a phone's screen | journey (`layout`) |
+| The release build under R8 | `release-smoke` |
+
+A screen test reads the same fixtures as `launch --state` (`fixtures/*.json`).
+
 A full run of everything takes most of an hour. Alexander does not want to wait for it: not every change needs
 every journey end to end. The default, also before a push:
 

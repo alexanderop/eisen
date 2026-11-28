@@ -89,6 +89,20 @@ object Eisen {
     /** Safe to call again: a broadcast, the service or the widget can start the process without the activity. */
     fun init(context: Context) {
         if (::app.isInitialized) return
+        start(context)
+    }
+
+    /**
+     * Reads everything again from the files, as a new process would. Only the screen tests call it: under Robolectric
+     * one JVM runs many tests, each with the files its fixture wrote, and this object would otherwise keep the first.
+     */
+    @androidx.annotation.VisibleForTesting
+    fun restart(context: Context) {
+        queue.clear()
+        start(context)
+    }
+
+    private fun start(context: Context) {
         app = context.applicationContext
         snackbars = Snackbars(app, dispatch)
         RestSystem.init(app)

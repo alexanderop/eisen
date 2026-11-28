@@ -28,9 +28,15 @@ bin/check     # unit tests with the architecture and purity rules, then the debu
   owner which check fails, what you tried and what you think the cause is.
 - **A flaky test is a bug.** Do not retry it, sleep past it or skip it. Find the cause, or delete the
   test and write down why.
-- **Run the app before calling a change done**; tests alone are not proof. The skill
-  `.claude/skills/verify-eisen` does it: `eisenctl launch --fresh`, a journey from its `features/`,
-  evidence under `verify/android/`, `eisenctl cleanup`. Test muted, always.
+- **Run the app before calling a change done**; tests alone are not proof. Two ways, cheapest first:
+  - **Screen tests** (`src/test/.../screens/`): the real `MainActivity`, `update` and saved state under
+    Robolectric, on the JVM. A flow takes about a second and runs in `bin/check`. A change to a screen or
+    a flow gets one here: `EisenApp("<fixture>")`, then `tap`, `tab`, `has`, `gone` (`screens/Screens.kt`).
+  - **Emulator journeys** (`.claude/skills/verify-eisen`): only for what the JVM cannot show — the camera
+    app and the photo picker, notifications and the lock screen, Gemini Nano, the font scales of
+    `features/layout.md`, and the release build (`release-smoke`). `eisenctl launch`, a recipe of the
+    feature the change touches, `eisenctl cleanup`. Test muted, always.
+- **A miss becomes a test.** A bug in a flow gets a screen test, not a journey, unless only a phone sees it.
 - **Review** with `REVIEW.md`: a checklist whose items trigger on the diff. Read it from the last
   commit, not from the working copy.
 - **A miss becomes a test.** A bug gets a test that fails before its fix, at the cheapest layer that
