@@ -8,6 +8,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.isRoot
@@ -22,17 +23,22 @@ import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import io.github.alexanderop.eisen.MainActivity
 import io.github.alexanderop.eisen.app.runtime.Eisen
+import io.github.alexanderop.eisen.app.state.Loaded
 import io.github.alexanderop.eisen.app.state.encodeState
+import io.github.alexanderop.eisen.app.state.loadState
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.rules.ExternalResource
@@ -72,6 +78,11 @@ val BERLIN: ZoneId = ZoneId.of("Europe/Berlin")
  */
 val NOW: Long = ZonedDateTime.of(2026, 11, 25, 10, 0, 0, 0, BERLIN).toInstant().toEpochMilli()
 
+/** A test that starts on another fixture than its class's [EisenApp]: `@Fixture("food-weight")`. */
+@Retention(AnnotationRetention.RUNTIME)
+@Target(AnnotationTarget.FUNCTION)
+annotation class Fixture(val name: String)
+
 typealias Screen = AndroidComposeTestRule<ActivityScenarioRule<MainActivity>, MainActivity>
 
 /**
@@ -88,7 +99,7 @@ class EisenApp(private val state: String? = null) : TestRule {
 
     private var zone: TimeZone? = null
 
-    private val files0 = object : ExternalResource() {
+    private val install = object : ExternalResource() {
         override fun before() {
             zone = TimeZone.getDefault()
             TimeZone.setDefault(TimeZone.getTimeZone(BERLIN))
@@ -96,6 +107,7 @@ class EisenApp(private val state: String? = null) : TestRule {
             files.deleteRecursively()
             files.mkdirs()
             val saved = File(files, "eisen.json")
+            val state = fixture ?: state
             if (state != null) File(FIXTURES, "$state.json").also { require(it.isFile) { "no fixture $it" } }.copyTo(saved, overwrite = true)
             Eisen.restart(context)
         }
@@ -105,9 +117,15 @@ class EisenApp(private val state: String? = null) : TestRule {
         }
     }
 
-    private val chain = RuleChain.outerRule(files0).around(screen)
+    private val chain = RuleChain.outerRule(install).around(screen)
 
-    override fun apply(base: org.junit.runners.model.Statement, description: org.junit.runner.Description) = chain.apply(base, description)
+    /** The fixture a test names with [Fixture], in place of the class's. */
+    private var fixture: String? = null
+
+    override fun apply(base: org.junit.runners.model.Statement, description: org.junit.runner.Description): org.junit.runners.model.Statement {
+        fixture = description.getAnnotation(Fixture::class.java)?.name
+        return chain.apply(base, description)
+    }
 
     /**
      * Open Food Facts answers from the saved [answers] (`product/3017620422003`, `search/skyr`), as a debug build does
@@ -125,7 +143,7 @@ class EisenApp(private val state: String? = null) : TestRule {
     fun restart() {
         val state = File(files, "eisen.json")
         // The app writes its file off the main thread: the new process reads what the old one wrote last.
-        screen.waitUntil(5_000) { state.isFile && state.readText() == encodeState(Eisen.model.state) }
+        screen.waitUntil(5_000) { state.isFile && (loadState(state.readText()) as? Loaded.Ok)?.state == Eisen.model.state }
         screen.runOnUiThread { Eisen.restart(context) }
         screen.activityRule.scenario.recreate()
         screen.waitForIdle()
@@ -137,7 +155,7 @@ class EisenApp(private val state: String? = null) : TestRule {
  * reads with `eisenctl state` and jq. A key that is not there is [JsonNull].
  */
 fun saved(path: String = ""): JsonElement =
-    path.split('.').filter { it.isNotEmpty() }.fold(Json.parseToJsonElement(encodeState(Eisen.model.state))) { at, key ->
+    path.split('.').filter { it.isNotEmpty() }.fold(json(encodeState(Eisen.model.state))) { at, key ->
         when (at) {
             is JsonObject -> at[key] ?: JsonNull
             JsonNull -> JsonNull
@@ -145,8 +163,19 @@ fun saved(path: String = ""): JsonElement =
         }
     }
 
-/** JSON written out, to compare with [saved]: `json("[5, null, null, null, null]")`. */
-fun json(text: String): JsonElement = Json.parseToJsonElement(text)
+/** Each element of the array at [path] cut down to [keys], as jq's `map([.name, .amount, .kcal])`. */
+fun savedRows(path: String, vararg keys: String): JsonElement =
+    JsonArray(saved(path).jsonArray.map { row -> JsonArray(keys.map { key -> row.jsonObject[key] ?: JsonNull }) })
+
+/** JSON written out, to compare with [saved]: `json("[5, null, null, null, null]")`. A number is its value: 118.0 is 118. */
+fun json(text: String): JsonElement = numbers(Json.parseToJsonElement(text))
+
+private fun numbers(element: JsonElement): JsonElement = when (element) {
+    is JsonObject -> JsonObject(element.mapValues { numbers(it.value) })
+    is JsonArray -> JsonArray(element.map(::numbers))
+    is JsonPrimitive -> if (element.isString) element else element.content.toBigDecimalOrNull()?.let { JsonPrimitive(it.stripTrailingZeros().toPlainString().toBigDecimal()) } ?: element
+    else -> element
+}
 
 /** What the screen shows: every text and description, in order, for a message that says what was there instead. */
 fun Screen.texts(): List<String> {
@@ -240,10 +269,24 @@ fun Screen.swipeAway(handle: String) {
     waitForIdle()
 }
 
-/** Text into the field that has the focus, as `eisenctl type` does after a tap on the field. */
+/**
+ * Text into the field that has the focus, as `eisenctl type` does after a tap on the field. Robolectric shows no
+ * keyboard, and a field the app focuses for it may not have the focus here: then the one field on screen.
+ */
 fun Screen.type(text: String) {
     waitForIdle()
-    onNode(isFocused()).performTextInput(text)
+    val focused = isFocused().and(hasSetTextAction())
+    val field = if (onAllNodes(focused).fetchSemanticsNodes().isNotEmpty()) onNode(focused) else onNode(hasSetTextAction())
+    field.performTextInput(text)
+    waitForIdle()
+}
+
+/**
+ * The keyboard's Done key on the field being typed in: the number typed is taken. A recipe closes the keyboard with
+ * `eisenctl back` instead, which Robolectric cannot (it has no keyboard); a number field ends its typing on both.
+ */
+fun Screen.done() {
+    onNode(isFocused().and(hasSetTextAction())).performImeAction()
     waitForIdle()
 }
 
